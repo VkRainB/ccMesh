@@ -7,6 +7,7 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle, Logo, LangToggle } from "@/components/common";
+import { UpdateBadge } from "@/components/business";
 import {
   Tooltip,
   TooltipContent,
@@ -47,7 +48,12 @@ export function SideNav() {
       </div>
 
       <div className="flex flex-col gap-1 border-t border-edge px-2 py-2">
-        <NavItem item={SETTINGS_ITEM} variant="vertical" collapsed={collapsed} />
+        <div className="relative">
+          <NavItem item={SETTINGS_ITEM} variant="vertical" collapsed={collapsed} />
+          <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2">
+            <UpdateBadge />
+          </span>
+        </div>
         <div
           className={cn(
             "flex gap-1 pt-1",

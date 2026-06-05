@@ -16,6 +16,7 @@ import { configApi } from "@/services/modules/config";
 import { logsApi } from "@/services/modules/logs";
 import { windowApi } from "@/services/modules/window";
 import { TokenCounter } from "./_components/TokenCounter";
+import { UpdateSection } from "./_components/UpdateSection";
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -160,6 +161,7 @@ export function Settings() {
         </Row>
       </section>
 
+      <UpdateSection />
       <TokenCounter />
     </div>
   );
