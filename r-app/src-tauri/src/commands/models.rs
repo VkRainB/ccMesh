@@ -38,6 +38,7 @@ pub async fn get_models(
     };
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(15))
+        .no_proxy()
         .build()
         .map_err(|e| AppError::Proxy(format!("构建客户端失败: {e}")))?;
 
@@ -63,6 +64,7 @@ pub async fn fetch_endpoint_models(
 ) -> AppResult<Vec<String>> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(15))
+        .no_proxy()
         .build()
         .map_err(|e| AppError::Proxy(format!("构建客户端失败: {e}")))?;
     Ok(fetch_model_ids(&client, &api_url, &api_key, &transformer).await)

@@ -6,7 +6,7 @@ use tauri::State;
 
 use crate::error::{AppError, AppResult};
 use crate::models::endpoint::{CreateEndpointRequest, Endpoint, UpdateEndpointRequest};
-use crate::modules::storage::endpoint_repo;
+use crate::modules::storage::{config_repo, endpoint_repo};
 use crate::modules::transform::transformer::UpstreamFormat;
 use crate::state::AppState;
 
@@ -120,8 +120,20 @@ pub async fn test_endpoint(
             .ok_or_else(|| AppError::NotFound(format!("端点 #{id} 不存在")))?
     };
 
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
+    // 测试 client 遵循端点代理配置：use_proxy 且配置了全局代理则走代理，否则直连（显式禁用系统代理）
+    let proxy_url = {
+        let conn = state.db_pool.get()?;
+        config_repo::get_value(&conn, "proxyUrl")?.unwrap_or_default()
+    };
+    let mut builder = reqwest::Client::builder().timeout(Duration::from_secs(30));
+    builder = match proxy_url.trim() {
+        p if ep.use_proxy && !p.is_empty() => match reqwest::Proxy::all(p) {
+            Ok(proxy) => builder.proxy(proxy),
+            Err(_) => builder.no_proxy(),
+        },
+        _ => builder.no_proxy(),
+    };
+    let client = builder
         .build()
         .map_err(|e| AppError::Proxy(format!("构建测试客户端失败: {e}")))?;
 

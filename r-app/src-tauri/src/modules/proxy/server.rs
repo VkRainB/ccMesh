@@ -86,6 +86,7 @@ pub async fn start_proxy(
         .pool_idle_timeout(Duration::from_secs(90))
         .timeout(Duration::from_secs(300))
         .connect_timeout(Duration::from_secs(30))
+        .no_proxy()
         .build()
         .map_err(|e| AppError::Proxy(format!("构建 HTTP 客户端失败: {e}")))?;
 

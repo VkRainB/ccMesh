@@ -3,3 +3,4 @@ P14-1,问题2后端 /v1/models双格式+Anthropic候选拉取,Rust,-,已完成,,
 P14-2,问题1后端 test_endpoint接受model参数,Rust,-,已完成,,2026-06-07,2026-06-07,test_endpoint(id,model)三级回落;endpoint.ts test(id,model?)同步
 P14-3,问题1前端 浮层组件+测试选模型,React,P14-1/P14-2,已完成,,2026-06-07,2026-06-07,新增popover/hover-card(radix-ui);测试≥2模型弹Popover选;卡片可用性浮层tooltip换HoverCard
 P14-4,自检与提交,Rust+React,P14-1/P14-2/P14-3,已完成,,2026-06-07,2026-06-07,cargo check+46测试;tsc+10测试;code-reviewer通过(修Anthropic空列表null)
+P14-5,修复未配代理时误走系统代理,Rust,-,已完成,,2026-06-07,2026-06-07,reqwest默认读系统env代理(HTTP(S)_PROXY);直连client/get_models/fetch加no_proxy;test_endpoint按use_proxy+proxyUrl决定;未配proxyUrl即真直连
