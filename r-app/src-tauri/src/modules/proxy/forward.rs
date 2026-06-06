@@ -71,10 +71,19 @@ impl ActiveRequests {
     }
 }
 
+/// 客户端未提供 UA 且未配置伪装 UA 时的中性默认（避免泄露 reqwest 默认 UA）。
+const DEFAULT_UA: &str = "ccnexus/1.0";
+
 /// 代理运行期共享状态，注入 axum 处理器。
 pub struct ProxyState {
     pub db_pool: DbPool,
     pub client: reqwest::Client,
+    /// 全局代理 client（配置了 proxy_url 时构建；端点 use_proxy 为真时使用）。
+    pub proxy_client: Option<reqwest::Client>,
+    /// 伪装 UA：转发到 OpenAI 端点时覆盖 User-Agent（空=透传客户端）。
+    pub openai_ua: String,
+    /// 伪装 UA：转发到 Claude 端点时覆盖 User-Agent（空=透传客户端）。
+    pub claude_cli_ua: String,
     pub rotation: Rotation,
     pub active: ActiveRequests,
     pub app_handle: AppHandle,
@@ -190,6 +199,30 @@ pub async fn handle_proxy(
         return json_error(StatusCode::SERVICE_UNAVAILABLE, "没有启用的端点");
     }
 
+    // 入站格式识别（问题6 最小版）：/v1/chat/completions = OpenAI 入站。
+    // OpenAI 入站只透传到 OpenAI 端点，故候选过滤为 transformer=openai；为空则 400。
+    let inbound_openai = path.contains("/chat/completions");
+    let enabled: Vec<Endpoint> = if inbound_openai {
+        let filtered: Vec<Endpoint> = enabled
+            .into_iter()
+            .filter(|e| {
+                matches!(
+                    UpstreamFormat::from_transformer_name(&e.transformer),
+                    UpstreamFormat::OpenAiChat
+                )
+            })
+            .collect();
+        if filtered.is_empty() {
+            return json_error(
+                StatusCode::BAD_REQUEST,
+                "OpenAI 入站(/v1/chat/completions)无可用的 OpenAI 端点",
+            );
+        }
+        filtered
+    } else {
+        enabled
+    };
+
     let resolution = resolver::resolve_endpoint(&hmap, model.as_deref(), &qmap, &enabled);
     if let Some(msg) = resolution.not_found {
         return json_error(StatusCode::BAD_REQUEST, &msg);
@@ -217,19 +250,38 @@ pub async fn handle_proxy(
         last_endpoint = ep.name.clone();
 
         let format = UpstreamFormat::from_transformer_name(&ep.transformer);
-        // 请求转换（Claude → 上游）；Claude 直通
-        let attempt_body: Bytes = match (&body_json, format) {
-            (Some(cj), UpstreamFormat::OpenAiChat) => get_transformer(format)
-                .transform_request(cj, Some(&ep.model))
-                .ok()
-                .and_then(|v| serde_json::to_vec(&v).ok())
-                .map(Bytes::from)
-                .unwrap_or_else(|| body.clone()),
-            _ => body.clone(),
+        // 仅「Claude 入站 + OpenAI 端点」需要请求/响应格式转换；其余（含 OpenAI 入站透传、Claude 直通）不转换。
+        let needs_transform = !inbound_openai && matches!(format, UpstreamFormat::OpenAiChat);
+        let attempt_body: Bytes = if needs_transform {
+            // Claude → OpenAI（transform_request 内部按 ep.model 覆盖，空则透传客户端 model）
+            match &body_json {
+                Some(cj) => get_transformer(format)
+                    .transform_request(cj, Some(&ep.model))
+                    .ok()
+                    .and_then(|v| serde_json::to_vec(&v).ok())
+                    .map(Bytes::from)
+                    .unwrap_or_else(|| body.clone()),
+                None => body.clone(),
+            }
+        } else if !ep.model.is_empty() {
+            // 直通场景的 model 锁定：覆盖请求体 model 后重新序列化
+            match &body_json {
+                Some(cj) => {
+                    let mut v = cj.clone();
+                    if let Some(o) = v.as_object_mut() {
+                        o.insert("model".to_string(), Value::String(ep.model.clone()));
+                    }
+                    serde_json::to_vec(&v).map(Bytes::from).unwrap_or_else(|_| body.clone())
+                }
+                None => body.clone(),
+            }
+        } else {
+            body.clone()
         };
-        let upstream_path = match format {
-            UpstreamFormat::OpenAiChat => "/v1/chat/completions",
-            UpstreamFormat::Claude => path.as_str(),
+        let upstream_path = if needs_transform {
+            "/v1/chat/completions"
+        } else {
+            path.as_str()
         };
 
         let token = st.active.start(&ep.name);
@@ -252,12 +304,14 @@ pub async fn handle_proxy(
                 let status = resp.status().as_u16();
                 if status == 200 {
                     st.stats.record(&ep.name, false, 0, 0);
-                    return match format {
-                        UpstreamFormat::Claude => relay_response(resp),
-                        UpstreamFormat::OpenAiChat if client_wants_stream => {
+                    return if needs_transform {
+                        if client_wants_stream {
                             stream_transform_response(resp, model.clone().unwrap_or_default())
+                        } else {
+                            transform_buffered_response(resp).await
                         }
-                        UpstreamFormat::OpenAiChat => transform_buffered_response(resp).await,
+                    } else {
+                        relay_response(resp)
                     };
                 }
                 if !rotation::should_retry_status(status) {
@@ -311,9 +365,16 @@ async fn send_upstream(
     let url = format!("{base}{upstream_path}");
     let rmethod =
         reqwest::Method::from_bytes(method.as_str().as_bytes()).unwrap_or(reqwest::Method::POST);
-    let mut rb = st.client.request(rmethod, url);
 
-    // 复制客户端头部（剔除 Host / Content-Length / Accept-Encoding / 客户端凭证 / 控制头）
+    // 端点级代理：use_proxy 且存在代理 client 时走代理，否则直连
+    let client = if ep.use_proxy {
+        st.proxy_client.as_ref().unwrap_or(&st.client)
+    } else {
+        &st.client
+    };
+    let mut rb = client.request(rmethod, url);
+
+    // 复制客户端头部（剔除 Host / Content-Length / Accept-Encoding / 客户端凭证 / 控制头 / UA）
     for (k, v) in headers.iter() {
         let kn = k.as_str().to_ascii_lowercase();
         if kn == "host"
@@ -321,6 +382,7 @@ async fn send_upstream(
             || kn == "accept-encoding"
             || kn == "authorization"
             || kn == "x-api-key"
+            || kn == "user-agent"
             || kn == resolver::ENDPOINT_HEADER
             || kn == resolver::ENDPOINT_HEADER_ALT
         {
@@ -330,6 +392,23 @@ async fn send_upstream(
             rb = rb.header(k.as_str(), val);
         }
     }
+
+    // User-Agent：按上游格式伪装（配置非空则覆盖）；否则透传客户端；客户端也无则用中性默认（不泄露 reqwest 默认）
+    let ua_format = UpstreamFormat::from_transformer_name(&ep.transformer);
+    let ua_override = match ua_format {
+        UpstreamFormat::OpenAiChat => st.openai_ua.trim(),
+        UpstreamFormat::Claude => st.claude_cli_ua.trim(),
+    };
+    let ua = if !ua_override.is_empty() {
+        ua_override
+    } else {
+        headers
+            .get(axum::http::header::USER_AGENT)
+            .and_then(|v| v.to_str().ok())
+            .filter(|s| !s.is_empty())
+            .unwrap_or(DEFAULT_UA)
+    };
+    rb = rb.header("user-agent", ua);
 
     // 附加鉴权头（按 transformer / auth_mode）
     let key = ep.api_key.as_str();

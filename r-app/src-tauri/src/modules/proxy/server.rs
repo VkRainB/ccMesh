@@ -2,6 +2,7 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use axum::extract::State;
 use axum::routing::{get, post};
 use axum::{
     body::Bytes,
@@ -14,10 +15,11 @@ use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
 use crate::error::{AppError, AppResult};
+use crate::modules::models_cache::model_info;
 use crate::modules::proxy::forward::{handle_proxy, ActiveRequests, ProxyState};
 use crate::modules::proxy::rotation::Rotation;
 use crate::modules::stats::aggregator::StatsAggregator;
-use crate::modules::storage::{db::DbPool, endpoint_repo};
+use crate::modules::storage::{config_repo, db::DbPool, endpoint_repo};
 
 /// 代理运行句柄，存于 `AppState.proxy`。持有关停信号、任务句柄与共享状态。
 pub struct ProxyHandle {
@@ -86,9 +88,36 @@ pub async fn start_proxy(
         .build()
         .map_err(|e| AppError::Proxy(format!("构建 HTTP 客户端失败: {e}")))?;
 
+    // 读取代理地址与伪装 UA 配置
+    let cfg = {
+        let conn = db_pool.get()?;
+        config_repo::get_config(&conn)?
+    };
+    let proxy_client = if cfg.proxy_url.trim().is_empty() {
+        None
+    } else {
+        match reqwest::Proxy::all(cfg.proxy_url.trim()) {
+            Ok(proxy) => reqwest::Client::builder()
+                .pool_max_idle_per_host(10)
+                .pool_idle_timeout(Duration::from_secs(90))
+                .timeout(Duration::from_secs(300))
+                .connect_timeout(Duration::from_secs(30))
+                .proxy(proxy)
+                .build()
+                .ok(),
+            Err(e) => {
+                tracing::warn!("代理地址无效，回落直连: {e}");
+                None
+            }
+        }
+    };
+
     let state = Arc::new(ProxyState {
         db_pool,
         client,
+        proxy_client,
+        openai_ua: cfg.openai_ua,
+        claude_cli_ua: cfg.claude_cli_ua,
         rotation: Rotation::new(),
         active: ActiveRequests::default(),
         app_handle,
@@ -131,9 +160,26 @@ async fn stats_route() -> Response {
     Json(json!({})).into_response()
 }
 
-// 模型列表聚合在 P4-6 实现；先返回空列表占位。
-async fn models_route() -> Response {
-    Json(json!({ "object": "list", "data": [] })).into_response()
+/// `/v1/models`：按启用端点的配置态模型清单聚合（读库，不请求上游）。
+/// 专用型端点（model 非空）公布锁定模型；聚合型端点展开 models 清单。
+async fn models_route(State(st): State<Arc<ProxyState>>) -> Response {
+    let data: Vec<serde_json::Value> = match st.db_pool.get() {
+        Ok(conn) => match endpoint_repo::list_enabled(&conn) {
+            Ok(endpoints) => endpoints
+                .iter()
+                .flat_map(|ep| {
+                    if !ep.model.is_empty() {
+                        vec![model_info(&ep.model, &ep.name)]
+                    } else {
+                        ep.models.iter().map(|m| model_info(m, &ep.name)).collect()
+                    }
+                })
+                .collect(),
+            Err(_) => Vec::new(),
+        },
+        Err(_) => Vec::new(),
+    };
+    Json(json!({ "object": "list", "data": data })).into_response()
 }
 
 // Token 计数在 P4-8 实现；先返回占位。

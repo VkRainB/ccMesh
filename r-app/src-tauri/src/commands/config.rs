@@ -27,16 +27,21 @@ pub async fn set_config(
     state: State<'_, AppState>,
     patch: HashMap<String, String>,
 ) -> AppResult<AppConfig> {
-    let port_changed = {
+    let needs_restart = {
         let conn = state.db_pool.get()?;
         let old_port = config_repo::get_value(&conn, "port")?;
         for (k, v) in &patch {
             config_repo::set_value(&conn, k, v)?;
         }
-        patch.contains_key("port") && patch.get("port") != old_port.as_ref()
+        let port_changed = patch.contains_key("port") && patch.get("port") != old_port.as_ref();
+        // 代理地址 / 伪装 UA 变更需重建转发 client → 重启代理使其生效
+        let proxy_or_ua_changed = patch.contains_key("proxyUrl")
+            || patch.contains_key("openaiUa")
+            || patch.contains_key("claudeCliUa");
+        port_changed || proxy_or_ua_changed
     };
 
-    if port_changed {
+    if needs_restart {
         let handle = state.proxy.lock().unwrap().take();
         if let Some(h) = handle {
             h.stop().await;
