@@ -161,6 +161,36 @@ export function Settings() {
         </Row>
       </section>
 
+      <section className="flex flex-col gap-2">
+        <h2 className="text-sm font-medium text-ink-secondary">系统 / 高级</h2>
+        <div className="flex flex-col divide-y divide-edge-subtle rounded-lg border border-edge">
+          <Row label="代理地址">
+            <Input
+              className="w-64"
+              placeholder="http://127.0.0.1:7890"
+              defaultValue={cfg.proxyUrl}
+              onBlur={(e) => save({ proxyUrl: e.target.value })}
+            />
+          </Row>
+          <Row label="OpenAI 端点 UA（伪装，空=透传客户端）">
+            <Input
+              className="w-64"
+              placeholder="留空透传客户端 UA"
+              defaultValue={cfg.openaiUa}
+              onBlur={(e) => save({ openaiUa: e.target.value })}
+            />
+          </Row>
+          <Row label="Claude 端点 UA（伪装，空=透传客户端）">
+            <Input
+              className="w-64"
+              placeholder="留空透传客户端 UA"
+              defaultValue={cfg.claudeCliUa}
+              onBlur={(e) => save({ claudeCliUa: e.target.value })}
+            />
+          </Row>
+        </div>
+      </section>
+
       <UpdateSection />
       <TokenCounter />
     </div>

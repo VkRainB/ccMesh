@@ -25,6 +25,9 @@ export interface AppConfig {
   autoDarkStart: string;
   closeWindowBehavior: string;
   modelsCacheTtl: number;
+  proxyUrl: string;
+  openaiUa: string;
+  claudeCliUa: string;
   update: UpdateSettings;
   webdav: WebDavConfig;
 }
