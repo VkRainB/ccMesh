@@ -3,6 +3,7 @@ import { persist } from "zustand/middleware";
 
 export type NavMode = "horizontal" | "vertical";
 export type SidebarState = "expanded" | "collapsed";
+export type EndpointView = "list" | "grid";
 export type ViewId =
   | "dashboard"
   | "endpoints"
@@ -17,12 +18,15 @@ interface LayoutState {
   sidebarState: SidebarState;
   activeView: ViewId;
   lang: Lang;
+  endpointView: EndpointView;
   setNavMode: (mode: NavMode) => void;
   toggleNavMode: () => void;
   setSidebarState: (state: SidebarState) => void;
   toggleSidebar: () => void;
   setActiveView: (view: ViewId) => void;
   toggleLang: () => void;
+  setEndpointView: (view: EndpointView) => void;
+  toggleEndpointView: () => void;
 }
 
 export const useLayoutStore = create<LayoutState>()(
@@ -32,6 +36,7 @@ export const useLayoutStore = create<LayoutState>()(
       sidebarState: "expanded",
       activeView: "dashboard",
       lang: "zh",
+      endpointView: "list",
       setNavMode: (navMode) => set({ navMode }),
       toggleNavMode: () =>
         set((s) => ({
@@ -45,6 +50,11 @@ export const useLayoutStore = create<LayoutState>()(
         })),
       setActiveView: (activeView) => set({ activeView }),
       toggleLang: () => set((s) => ({ lang: s.lang === "zh" ? "en" : "zh" })),
+      setEndpointView: (endpointView) => set({ endpointView }),
+      toggleEndpointView: () =>
+        set((s) => ({
+          endpointView: s.endpointView === "list" ? "grid" : "list",
+        })),
     }),
     {
       name: "layout-prefs",
@@ -52,6 +62,7 @@ export const useLayoutStore = create<LayoutState>()(
         navMode: s.navMode,
         sidebarState: s.sidebarState,
         lang: s.lang,
+        endpointView: s.endpointView,
       }),
     }
   )

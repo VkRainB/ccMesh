@@ -1,4 +1,4 @@
-import { PlusIcon } from "lucide-react";
+import { LayoutGridIcon, ListIcon, PlusIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,7 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { useFilterStore } from "@/stores";
+import { useFilterStore, useLayoutStore } from "@/stores";
 
 export function FilterBar({ onCreate }: { onCreate: () => void }) {
   const search = useFilterStore((s) => s.search);
@@ -20,6 +20,8 @@ export function FilterBar({ onCreate }: { onCreate: () => void }) {
   const setSearch = useFilterStore((s) => s.setSearch);
   const setEnabledOnly = useFilterStore((s) => s.setEnabledOnly);
   const setTransformer = useFilterStore((s) => s.setTransformer);
+  const endpointView = useLayoutStore((s) => s.endpointView);
+  const toggleEndpointView = useLayoutStore((s) => s.toggleEndpointView);
 
   return (
     <div className="flex items-center gap-3">
@@ -46,6 +48,18 @@ export function FilterBar({ onCreate }: { onCreate: () => void }) {
         </Label>
       </div>
       <div className="flex-1" />
+      <Button
+        size="icon"
+        variant="ghost"
+        aria-label={endpointView === "list" ? "切换到网格视图" : "切换到列表视图"}
+        onClick={toggleEndpointView}
+      >
+        {endpointView === "list" ? (
+          <LayoutGridIcon className="size-4" />
+        ) : (
+          <ListIcon className="size-4" />
+        )}
+      </Button>
       <Button onClick={onCreate}>
         <PlusIcon className="size-4" /> 新建端点
       </Button>
