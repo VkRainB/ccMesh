@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use axum::extract::State;
+use axum::http::HeaderMap;
 use axum::routing::{get, post};
 use axum::{
     body::Bytes,
@@ -162,16 +163,20 @@ async fn stats_route() -> Response {
 
 /// `/v1/models`：按启用端点的配置态模型清单聚合（读库，不请求上游）。
 /// 专用型端点（model 非空）公布锁定模型；聚合型端点展开 models 清单。
-async fn models_route(State(st): State<Arc<ProxyState>>) -> Response {
-    let data: Vec<serde_json::Value> = match st.db_pool.get() {
+/// 按入站鉴权格式返回：带 x-api-key/anthropic-version → Anthropic 格式；否则 OpenAI 格式。
+async fn models_route(State(st): State<Arc<ProxyState>>, headers: HeaderMap) -> Response {
+    let pairs: Vec<(String, String)> = match st.db_pool.get() {
         Ok(conn) => match endpoint_repo::list_enabled(&conn) {
             Ok(endpoints) => endpoints
                 .iter()
                 .flat_map(|ep| {
                     if !ep.model.is_empty() {
-                        vec![model_info(&ep.model, &ep.name)]
+                        vec![(ep.model.clone(), ep.name.clone())]
                     } else {
-                        ep.models.iter().map(|m| model_info(m, &ep.name)).collect()
+                        ep.models
+                            .iter()
+                            .map(|m| (m.clone(), ep.name.clone()))
+                            .collect()
                     }
                 })
                 .collect(),
@@ -179,7 +184,38 @@ async fn models_route(State(st): State<Arc<ProxyState>>) -> Response {
         },
         Err(_) => Vec::new(),
     };
-    Json(json!({ "object": "list", "data": data })).into_response()
+
+    let anthropic =
+        headers.contains_key("x-api-key") || headers.contains_key("anthropic-version");
+    if anthropic {
+        // Anthropic 格式：data[].{id,type,display_name,created_at} + first_id/last_id/has_more
+        let data: Vec<serde_json::Value> = pairs
+            .iter()
+            .map(|(id, _)| {
+                json!({
+                    "id": id,
+                    "type": "model",
+                    "display_name": id,
+                    "created_at": "2025-01-01T00:00:00Z"
+                })
+            })
+            .collect();
+        // 空列表时 first_id/last_id 为 null（对齐官方 Anthropic 行为）
+        let first_id = pairs.first().map(|(id, _)| id.as_str());
+        let last_id = pairs.last().map(|(id, _)| id.as_str());
+        Json(json!({
+            "data": data,
+            "first_id": first_id,
+            "last_id": last_id,
+            "has_more": false
+        }))
+        .into_response()
+    } else {
+        // OpenAI 格式：object:list + data[].{id,object,created,owned_by}
+        let data: Vec<serde_json::Value> =
+            pairs.iter().map(|(id, name)| model_info(id, name)).collect();
+        Json(json!({ "object": "list", "data": data })).into_response()
+    }
 }
 
 /// `/v1/messages/count_tokens`：解析请求体 system/messages，返回输入 token 估算。
