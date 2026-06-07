@@ -34,9 +34,12 @@ pub async fn fetch_model_ids(
     let req = match UpstreamFormat::from_transformer_name(transformer) {
         UpstreamFormat::OpenAiChat => client
             .get(&url)
+            .header("user-agent", crate::utils::ua::codex_probe_ua())
+            .header("originator", crate::utils::ua::CODEX_ORIGINATOR)
             .header("authorization", format!("Bearer {api_key}")),
         UpstreamFormat::Claude => client
             .get(&url)
+            .header("user-agent", crate::utils::ua::CLAUDE_PROBE_UA)
             .header("x-api-key", api_key)
             .header("anthropic-version", "2023-06-01"),
     };

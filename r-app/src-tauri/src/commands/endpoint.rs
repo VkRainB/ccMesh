@@ -9,6 +9,7 @@ use crate::models::endpoint::{CreateEndpointRequest, Endpoint, UpdateEndpointReq
 use crate::modules::storage::{config_repo, endpoint_repo};
 use crate::modules::transform::transformer::UpstreamFormat;
 use crate::state::AppState;
+use crate::utils::ua;
 
 #[tauri::command]
 pub fn list_endpoints(state: State<AppState>) -> AppResult<Vec<Endpoint>> {
@@ -158,6 +159,8 @@ pub async fn test_endpoint(
             let url = format!("{base}/v1/chat/completions");
             let b = client
                 .post(&url)
+                .header("user-agent", ua::codex_probe_ua())
+                .header("originator", ua::CODEX_ORIGINATOR)
                 .header("authorization", format!("Bearer {}", ep.api_key))
                 .json(&json!({
                     "model": model, "max_tokens": 16,
@@ -169,6 +172,7 @@ pub async fn test_endpoint(
             let url = format!("{base}/v1/messages");
             let b = client
                 .post(&url)
+                .header("user-agent", ua::CLAUDE_PROBE_UA)
                 .header("x-api-key", &ep.api_key)
                 .header("anthropic-version", "2023-06-01")
                 .json(&json!({

@@ -5,3 +5,4 @@ P14-3,问题1前端 浮层组件+测试选模型,React,P14-1/P14-2,已完成,,20
 P14-4,自检与提交,Rust+React,P14-1/P14-2/P14-3,已完成,,2026-06-07,2026-06-07,cargo check+46测试;tsc+10测试;code-reviewer通过(修Anthropic空列表null)
 P14-5,修复未配代理时误走系统代理,Rust,-,已完成,,2026-06-07,2026-06-07,reqwest默认读系统env代理(HTTP(S)_PROXY);直连client/get_models/fetch加no_proxy;test_endpoint按use_proxy+proxyUrl决定;未配proxyUrl即真直连
 P14-6,UA改为纯透传客户端,Rust,-,已完成,,2026-06-07,2026-06-07,未配伪装UA时客户端UA随头部原样透传(移除单独重设与ccnexus默认伪造);仅配置伪装UA才覆盖
+P14-7,探测请求模拟官方客户端UA,Rust,-,已完成,,2026-06-07,2026-06-07,新增utils/ua.rs共享;test_endpoint与fetch_model_ids按格式带UA:Claude=claude-code/2.1.146(cli) OpenAI=codex_cli_rs/<ver>(OS;arch)+originator头
