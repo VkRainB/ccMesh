@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 import { TabularText } from "@/components/ui";
 import { Card, CardContent } from "@/components/ui/card";
+import { formatTokenCompact } from "@/lib/format";
 
 interface Props {
   label: string;
@@ -21,5 +22,16 @@ export function StatCard({ label, value, hint }: Props) {
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Token 辅助单位小字：仅当数值达到"万"量级（≥ 1e4）才展示折算单位，
+ * 否则精确值本身已足够清晰。用作 `StatCard` 的 `hint`。
+ */
+export function TokenHint({ value }: { value: number }) {
+  if (value < 1e4) return null;
+  return (
+    <span className="text-xs text-ink-secondary">{formatTokenCompact(value)}</span>
   );
 }

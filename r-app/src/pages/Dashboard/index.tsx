@@ -1,6 +1,5 @@
-import { StatCard } from "@/components/business";
+import { StatCard, TokenHint } from "@/components/business";
 import { RequestMonitor } from "@/components/business/RequestMonitor";
-import { formatTokenCompact } from "@/lib/format";
 import { useStats } from "@/hooks/useStats";
 import { ServiceCard } from "./_components/ServiceCard";
 
@@ -31,13 +30,7 @@ export function Dashboard() {
         <StatCard
           label="Token（今日）"
           value={tokens.toLocaleString()}
-          hint={
-            tokens >= 1e4 ? (
-              <span className="text-xs text-ink-secondary">
-                {formatTokenCompact(tokens)}
-              </span>
-            ) : undefined
-          }
+          hint={<TokenHint value={tokens} />}
         />
       </div>
 

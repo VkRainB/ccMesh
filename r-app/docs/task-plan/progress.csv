@@ -32,8 +32,8 @@ WP5,前端工具与监控修复,5.2,稳定时间段计算纯函数+单测,前端
 WP5,前端工具与监控修复,5.3,修复 ranged 监控一直加载(queryKey 漂移),前端,5.2,19;20,完成,claude,2026-06-07,2026-06-08,useMemo+startOfTodayMs 去除 Date.now() 进 key
 WP5,前端工具与监控修复,5.4,仪表盘 Token(今日) 接入辅助单位,前端,5.1,17,完成,claude,2026-06-07,2026-06-08,StatCard hint;>=1万才显示
 WP5,前端工具与监控修复,5.5,历史记录弹窗放大,前端,,21,完成,claude,2026-06-07,2026-06-08,max-w-5xl+表格滚动区+表头吸顶
-WP6,用量统计增强,6.1,sync_session_usage 异步化(spawn_blocking),后端,,6;7;8,待开始,claude,,,首次打开不卡死主进程
-WP6,用量统计增强,6.2,用量时间筛选器(默认今日)+卡片单位,前端,5.1;5.2,9;10;11;12;18,待开始,claude,,,start/end 透传已有后端命令
+WP6,用量统计增强,6.1,sync_session_usage 异步化(spawn_blocking),后端,,6;7;8,完成,claude,2026-06-08,2026-06-08,async+spawn_blocking 首次打开不卡死主进程
+WP6,用量统计增强,6.2,用量时间筛选器(默认今日)+卡片单位,前端,5.1;5.2,9;10;11;12;18,完成,claude,2026-06-08,2026-06-08,rangeDates 驱动 start/end;TokenHint 抽公共组件
 WP7,监控端点路由展示,7.1,v5迁移 request_logs 增路径列+模型+仓储,后端,,1;2;3;5,待开始,claude,,,inbound_path/upstream_path 可空向后兼容
 WP7,监控端点路由展示,7.2,采集点透传真实入站/出站路径+事件,后端,7.1,1;2;3,待开始,claude,,,RequestMeta/RequestRecord/aggregator
 WP7,监控端点路由展示,7.3,前端入站/出站改路径列(含旧行兜底),前端,7.1;7.2,1;2;4;5,待开始,claude,,,协议/主机降级为辅助

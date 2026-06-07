@@ -1,12 +1,20 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RefreshCwIcon } from "lucide-react";
 import { toast } from "sonner";
 
-import { StatCard } from "@/components/business";
+import { StatCard, TokenHint } from "@/components/business";
 import { TabularText } from "@/components/ui";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { RANGE_OPTIONS, rangeDates, startOfTodayMs, type RangeKey } from "@/lib/range";
 import {
   usageApi,
   type DailyUsage,
@@ -33,6 +41,13 @@ export function UsagePanel() {
   const qc = useQueryClient();
   const [app, setApp] = useState<UsageAppFilter>("all");
   const appType = app === "all" ? undefined : app;
+  const [range, setRange] = useState<RangeKey>("today");
+  // 按天对齐锚点，使 start/end 在同一筛选条件下稳定（不把 Date.now() 放进 queryKey）。
+  const todayStart = startOfTodayMs();
+  const { start, end } = useMemo(
+    () => rangeDates(range, todayStart),
+    [range, todayStart],
+  );
 
   const sync = useMutation({
     mutationFn: () => usageApi.sync(),
@@ -51,16 +66,16 @@ export function UsagePanel() {
   }, []);
 
   const summary = useQuery({
-    queryKey: ["usage", "summary", app],
-    queryFn: () => usageApi.getSummary({ appType }),
+    queryKey: ["usage", "summary", app, start ?? null, end ?? null],
+    queryFn: () => usageApi.getSummary({ appType, start, end }),
   });
   const byModel = useQuery({
-    queryKey: ["usage", "model", app],
-    queryFn: () => usageApi.getByModel({ appType }),
+    queryKey: ["usage", "model", app, start ?? null, end ?? null],
+    queryFn: () => usageApi.getByModel({ appType, start, end }),
   });
   const byDay = useQuery({
-    queryKey: ["usage", "day", app],
-    queryFn: () => usageApi.getByDay({ appType }),
+    queryKey: ["usage", "day", app, start ?? null, end ?? null],
+    queryFn: () => usageApi.getByDay({ appType, start, end }),
   });
 
   const s = summary.data;
@@ -77,26 +92,56 @@ export function UsagePanel() {
             ))}
           </TabsList>
         </Tabs>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={sync.isPending}
-          onClick={() => sync.mutate()}
-        >
-          <RefreshCwIcon className={sync.isPending ? "size-4 animate-spin" : "size-4"} />
-          刷新
-        </Button>
+        <div className="flex items-center gap-2">
+          <Select value={range} onValueChange={(v) => setRange(v as RangeKey)}>
+            <SelectTrigger className="w-32">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {RANGE_OPTIONS.map((r) => (
+                <SelectItem key={r.key} value={r.key}>
+                  {r.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={sync.isPending}
+            onClick={() => sync.mutate()}
+          >
+            <RefreshCwIcon className={sync.isPending ? "size-4 animate-spin" : "size-4"} />
+            刷新
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-4 gap-4">
         <StatCard label="请求数" value={fmt(s?.totalRequests ?? 0)} />
-        <StatCard label="输入 Token" value={fmt(s?.totalInputTokens ?? 0)} />
-        <StatCard label="输出 Token" value={fmt(s?.totalOutputTokens ?? 0)} />
+        <StatCard
+          label="输入 Token"
+          value={fmt(s?.totalInputTokens ?? 0)}
+          hint={<TokenHint value={s?.totalInputTokens ?? 0} />}
+        />
+        <StatCard
+          label="输出 Token"
+          value={fmt(s?.totalOutputTokens ?? 0)}
+          hint={<TokenHint value={s?.totalOutputTokens ?? 0} />}
+        />
         <StatCard
           label="缓存 Token"
           value={fmt(
             (s?.totalCacheCreationTokens ?? 0) + (s?.totalCacheReadTokens ?? 0),
           )}
+          hint={
+            <TokenHint
+              value={
+                (s?.totalCacheCreationTokens ?? 0) +
+                (s?.totalCacheReadTokens ?? 0)
+              }
+            />
+          }
         />
       </div>
 
