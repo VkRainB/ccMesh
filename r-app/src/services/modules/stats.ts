@@ -85,11 +85,6 @@ export interface RequestLogQuery {
 
 export const statsApi = {
   getStats: () => request<StatsOverview>("get_stats"),
-  getArchiveMonths: () => request<string[]>("get_archive_months"),
-  getMonthlyArchive: (month: string) =>
-    request<DailyStat[]>("get_monthly_archive", { month }),
-  deleteMonthlyStats: (month: string) =>
-    request<number>("delete_monthly_stats", { month }),
   /** 请求明细分页查询（时间段 + 可选端点过滤）。 */
   getRequestLogs: (q: RequestLogQuery) =>
     request<RequestLogPage>("get_request_logs", {
