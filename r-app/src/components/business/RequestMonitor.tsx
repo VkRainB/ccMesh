@@ -174,6 +174,13 @@ function statusDot(code: number | null): "success" | "warning" | "danger" {
   return "danger";
 }
 
+/** 旧行无真实路径时，按入站协议推断兜底路由。 */
+function inferPath(format: string): string {
+  if (format === "openai") return "/v1/chat/completions";
+  if (format === "claude") return "/v1/messages";
+  return "—";
+}
+
 function RequestRow({ log }: { log: RequestLog }) {
   const total =
     log.inputTokens +
@@ -189,14 +196,21 @@ function RequestRow({ log }: { log: RequestLog }) {
         <TabularText>{fmtTime(log.ts)}</TabularText>
       </td>
       <td className="px-3 py-2">{log.endpointName}</td>
-      <td className="px-3 py-2 text-xs text-ink-secondary uppercase">
-        {log.inboundFormat}
+      <td
+        className="px-3 py-2 font-mono text-xs text-ink-secondary"
+        title={`入站协议：${log.inboundFormat}`}
+      >
+        {log.inboundPath || inferPath(log.inboundFormat)}
       </td>
       <td
-        className="max-w-[180px] truncate px-3 py-2 text-xs text-ink-secondary"
-        title={log.upstreamUrl}
+        className="max-w-[200px] truncate px-3 py-2 font-mono text-xs text-ink-secondary"
+        title={
+          log.upstreamUrl
+            ? `${log.upstreamUrl}${log.upstreamPath}`
+            : undefined
+        }
       >
-        {log.upstreamUrl || "—"}
+        {log.upstreamPath || inferPath(log.inboundFormat)}
       </td>
       <td className="px-3 py-2 text-center">
         <span className="inline-flex items-center gap-1.5">

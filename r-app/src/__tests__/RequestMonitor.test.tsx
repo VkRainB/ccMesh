@@ -10,6 +10,8 @@ const log: RequestLog = {
   endpointName: "ep-a",
   inboundFormat: "claude",
   upstreamUrl: "https://up.example",
+  inboundPath: "/v1/messages",
+  upstreamPath: "/v1/chat/completions",
   statusCode: 200,
   isError: false,
   inputTokens: 10,
@@ -27,6 +29,25 @@ describe("RequestLogTable", () => {
     expect(screen.getByText("200")).toBeInTheDocument();
     // Token 合计 = 10 + 5 + 2 + 3
     expect(screen.getByText("20")).toBeInTheDocument();
+  });
+
+  it("入站/出站展示真实路由路径", () => {
+    render(<RequestLogTable items={[log]} />);
+    expect(screen.getByText("/v1/messages")).toBeInTheDocument();
+    expect(screen.getByText("/v1/chat/completions")).toBeInTheDocument();
+  });
+
+  it("旧行无路径时按入站协议推断兜底", () => {
+    const legacy: RequestLog = {
+      ...log,
+      id: 2,
+      inboundFormat: "openai",
+      inboundPath: "",
+      upstreamPath: "",
+    };
+    render(<RequestLogTable items={[legacy]} />);
+    // 入站与出站都兜底为 openai 路由
+    expect(screen.getAllByText("/v1/chat/completions")).toHaveLength(2);
   });
 
   it("空数据显示占位", () => {

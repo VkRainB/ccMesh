@@ -55,6 +55,10 @@ export interface RequestLog {
   endpointName: string;
   inboundFormat: string;
   upstreamUrl: string;
+  /** 真实入站路由路径（如 /v1/messages）。旧行为空串。 */
+  inboundPath: string;
+  /** 真实出站路由路径（如 /v1/chat/completions）。旧行为空串。 */
+  upstreamPath: string;
   statusCode: number | null;
   isError: boolean;
   inputTokens: number;
