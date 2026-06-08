@@ -2,6 +2,7 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::error::AppResult;
+use crate::modules::proxy::circuit_breaker::EndpointHealthInfo;
 use crate::modules::storage::endpoint_repo;
 use crate::state::AppState;
 use crate::utils::mask::mask_api_key;
@@ -50,4 +51,23 @@ pub fn get_health(state: State<AppState>) -> AppResult<HealthInfo> {
         enabled_endpoints,
         endpoints,
     })
+}
+
+/// 端点实时健康/熔断态：代理运行时读运行期熔断器；未运行时按库内 test_status 回退。
+#[tauri::command]
+pub fn get_endpoint_health(state: State<AppState>) -> AppResult<Vec<EndpointHealthInfo>> {
+    let conn = state.db_pool.get()?;
+    let enabled = endpoint_repo::list_enabled(&conn)?;
+    let guard = state.proxy.lock().unwrap();
+    let infos = match guard.as_ref() {
+        Some(h) => enabled
+            .iter()
+            .map(|e| h.state.breakers.health_of(&e.name))
+            .collect(),
+        None => enabled
+            .iter()
+            .map(|e| EndpointHealthInfo::from_test_status(&e.name, &e.test_status))
+            .collect(),
+    };
+    Ok(infos)
 }

@@ -105,6 +105,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::health::get_health,
+            commands::health::get_endpoint_health,
             commands::proxy::start_proxy,
             commands::proxy::stop_proxy,
             commands::proxy::get_proxy_status,
