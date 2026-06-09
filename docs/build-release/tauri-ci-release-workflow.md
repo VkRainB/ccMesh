@@ -119,3 +119,4 @@ CI 里关闭 Rust 增量编译。增量产物体积大、跨 runner 无法复用
 - 更新签名与密钥管理：[`tauri-updater-signing.md`](./tauri-updater-signing.md)
 - 本地构建配置：[`tauri-build-config.md`](./tauri-build-config.md)
 - 本地打包指南：[`tauri-build-guide.md`](./tauri-build-guide.md)
+- 发版操作手册：[`tauri-release-ops.md`](./tauri-release-ops.md)

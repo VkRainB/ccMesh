@@ -10,6 +10,7 @@ ccMesh（tauri-gateway）项目文档，按主题分三组。
 | [tauri-ci-release-workflow.md](./build-release/tauri-ci-release-workflow.md) | GitHub Actions CI 与发版工作流，缓存提速策略 |
 | [tauri-build-config.md](./build-release/tauri-build-config.md) | Tauri 构建配置 |
 | [tauri-updater-signing.md](./build-release/tauri-updater-signing.md) | 自动更新签名与密钥管理 |
+| [tauri-release-ops.md](./build-release/tauri-release-ops.md) | 发版操作手册：打 tag、重新触发构建、正式发布 |
 
 ## 开发指南 · [`guides/`](./guides/)
 
