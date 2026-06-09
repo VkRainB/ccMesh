@@ -1,5 +1,5 @@
 {
-  "name": "r-app",
+  "name": "ccmesh",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -8,6 +8,9 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "check:front": "tsc --noEmit",
+    "check:rust": "cargo check --manifest-path src-tauri/Cargo.toml --message-format=short",
+    "check": "pnpm check:front && pnpm check:rust",
     "tauri": "tauri",
     "tauri:build": "dotenv -e .env.local -- tauri build"
   },
