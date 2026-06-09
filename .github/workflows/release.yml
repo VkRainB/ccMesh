@@ -13,6 +13,11 @@ on:
 permissions:
   contents: write
 
+# CI 里关闭增量编译：增量缓存巨大且跨 runner 无用，关掉可减小缓存、加快干净构建。
+env:
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: short
+
 concurrency:
   group: '${{ github.workflow }}-${{ github.ref }}'
   cancel-in-progress: true
@@ -54,16 +59,24 @@ jobs:
           node-version: lts/*
           cache: pnpm
 
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+      # 固定 Rust 版本（不用浮动 @stable）：版本一变缓存 key 就失效→全量重编。
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: '1.96.0'
           targets: ${{ matrix.rust_targets }}
 
-      # Rust 编译缓存，加速二次构建；缓存作用域限定到 src-tauri 工作区
+      # Rust 编译缓存。发版(tag)构建只读不写（save-if 仅对 master 成立）；
+      # 热缓存由 master 上的 ci.yml 维护，tag 构建从 master 缓存恢复（学 clash-verge-rev）。
+      # key 必须与 ci.yml 完全一致，否则跨 workflow 命中不了。
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
+          prefix-key: 'v1-rust'
+          key: 'release-${{ matrix.platform }}'
+          cache-all-crates: true
+          save-if: ${{ github.ref == 'refs/heads/master' }}
 
       # Linux 构建依赖：
       # - libwebkit2gtk-4.1-dev：Tauri 2 的 WebView 运行/编译依赖

@@ -1,0 +1,100 @@
+name: CI
+
+# push 到 master（默认分支）时跑全平台 release 编译，作用有二：
+#  1) 充当 CI：尽早发现三平台编译问题，不用等到发版才暴露；
+#  2) 写入 Rust 编译热缓存：GitHub 缓存按 ref 隔离，只有"默认分支(master)"的缓存
+#     对所有 tag 发版构建可读。release.yml(tag) 设了 save-if=master 只读不写，
+#     所以必须由本工作流在 master 上把缓存喂热。（方案学 clash-verge-rev）
+#
+# 注意：本工作流首次在 master 跑仍是 ~30 分钟冷编译（在建缓存）；之后命中缓存会快很多。
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'src-tauri/**'
+      - 'src/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: short
+
+concurrency:
+  group: '${{ github.workflow }}-${{ github.ref }}'
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build & warm cache (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: '--target universal-apple-darwin'
+            rust_targets: 'aarch64-apple-darwin,x86_64-apple-darwin'
+          - platform: ubuntu-22.04
+            args: ''
+            rust_targets: ''
+          - platform: windows-latest
+            args: ''
+            rust_targets: ''
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: pnpm
+
+      # 与 release.yml 保持同一固定版本，缓存 key 才能跨 workflow 命中。
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.96.0'
+          targets: ${{ matrix.rust_targets }}
+
+      # 缓存配置必须与 release.yml 完全一致（prefix-key / key / workspaces / toolchain）。
+      # save-if=master：本工作流跑在 master，会写缓存；供 tag 发版构建恢复。
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+          prefix-key: 'v1-rust'
+          key: 'release-${{ matrix.platform }}'
+          cache-all-crates: true
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      # --no-bundle：只编译 Rust + 前端，跳过 msi/dmg/AppImage 打包，省时间；
+      # 但所有依赖 crate 仍被完整编译，足以填满热缓存。
+      - name: Build (no bundle)
+        run: pnpm tauri build ${{ matrix.args }} --no-bundle
