@@ -1,7 +1,7 @@
 ---
 id: 2027-dashboard-endpoint-ui-polish
 title: 仪表盘/端点/设置 多项 UI 与熔断优化
-status: in_progress
+status: done
 priority: P2
 layer: 前端+后端
 deps: 
@@ -10,7 +10,7 @@ owner: claude
 branch: 
 base_branch: main
 created: 2026-06-10
-completed: 
+completed: 2026-06-10
 parent: 
 children: 
 note: 
