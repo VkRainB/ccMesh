@@ -12,12 +12,12 @@ export interface ImportSummary {
 
 export type ImportStrategy = "overwrite" | "skip";
 
-const JSON_FILTER = [{ name: "ccnexus 配置", extensions: ["json"] }];
+const JSON_FILTER = [{ name: "ccmesh 配置", extensions: ["json"] }];
 
 function defaultName(): string {
   const d = new Date();
   const p = (n: number) => String(n).padStart(2, "0");
-  return `ccnexus-config-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}.json`;
+  return `ccmesh-config-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}.json`;
 }
 
 export const backupApi = {

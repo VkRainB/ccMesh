@@ -6,7 +6,7 @@ use crate::error::{AppError, AppResult};
 use crate::models::backup::{ConfigBundle, CredentialItem, EndpointExport, ImportSummary};
 use crate::modules::storage::{config_repo, endpoint_repo};
 
-const BUNDLE_TYPE: &str = "ccnexus-config";
+const BUNDLE_TYPE: &str = "ccmesh-config";
 const BUNDLE_VERSION: u32 = 1;
 
 /// 迁移用配置键：取 `SAFE_CONFIG_KEYS` 去掉 webdav_* 同步凭证（换机重填，避免明文外泄）。
@@ -89,7 +89,7 @@ pub fn import_config_bundle(
 ) -> AppResult<ImportSummary> {
     if bundle.kind != BUNDLE_TYPE {
         return Err(AppError::InvalidArgument(
-            "文件类型不是 ccnexus-config 配置导出".to_string(),
+            "文件类型不是 ccmesh-config 配置导出".to_string(),
         ));
     }
     if bundle.version > BUNDLE_VERSION {
@@ -236,7 +236,7 @@ mod tests {
         let c = db();
         seed(&c);
         let bundle = build_config_bundle(&c).unwrap();
-        assert_eq!(bundle.kind, "ccnexus-config");
+        assert_eq!(bundle.kind, "ccmesh-config");
         assert_eq!(bundle.endpoints.len(), 1);
         let ep = &bundle.endpoints[0];
         assert_eq!(ep.models, vec!["gpt".to_string(), "o3".to_string()]);

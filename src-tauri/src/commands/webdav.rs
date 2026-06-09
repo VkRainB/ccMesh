@@ -38,7 +38,7 @@ pub async fn test_webdav(config: WebDavConfig) -> AppResult<WebDavTestResult> {
 #[tauri::command]
 pub async fn webdav_backup(state: State<'_, AppState>) -> AppResult<String> {
     let cfg = webdav_cfg(&state)?;
-    let temp = std::env::temp_dir().join("ccnexus_backup.db");
+    let temp = std::env::temp_dir().join("ccmesh_backup.db");
     {
         let conn = state.db_pool.get()?;
         sync::create_backup_copy(&conn, &temp)?;
@@ -46,7 +46,7 @@ pub async fn webdav_backup(state: State<'_, AppState>) -> AppResult<String> {
     let bytes = std::fs::read(&temp)?;
     let _ = std::fs::remove_file(&temp);
 
-    let filename = format!("ccnexus_{}.db", chrono::Local::now().format("%Y%m%d_%H%M%S"));
+    let filename = format!("ccmesh_{}.db", chrono::Local::now().format("%Y%m%d_%H%M%S"));
     let client = WebDavClient::connect(&cfg)?;
     client.put(&filename, bytes).await?;
     let meta = json!({ "backupTime": Utc::now().to_rfc3339(), "version": env!("CARGO_PKG_VERSION") });
@@ -69,7 +69,7 @@ pub async fn webdav_restore(
     let cfg = webdav_cfg(&state)?;
     let client = WebDavClient::connect(&cfg)?;
     let bytes = client.get(&filename).await?;
-    let temp = std::env::temp_dir().join("ccnexus_restore.db");
+    let temp = std::env::temp_dir().join("ccmesh_restore.db");
     std::fs::write(&temp, &bytes)?;
 
     let overwrite = strategy.as_deref() == Some("remote");

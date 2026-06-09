@@ -8,7 +8,7 @@ export function Logo({ iconOnly = false }: { iconOnly?: boolean }) {
       </div>
       {!iconOnly && (
         <span className="text-base font-semibold tracking-tight whitespace-nowrap">
-          ccNexus
+          ccMesh
         </span>
       )}
     </div>

@@ -51,7 +51,7 @@ pub struct EndpointExport {
     pub credentials: Vec<CredentialItem>,
 }
 
-/// 配置迁移包（JSON 信封）。`type` 固定 "ccnexus-config"。
+/// 配置迁移包（JSON 信封）。`type` 固定 "ccmesh-config"。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConfigBundle {

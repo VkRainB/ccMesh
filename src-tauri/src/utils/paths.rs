@@ -13,9 +13,9 @@ pub fn app_data_dir(app: &AppHandle) -> AppResult<PathBuf> {
     Ok(dir)
 }
 
-/// SQLite 数据库文件路径：`<app_data_dir>/ccnexus.db`。
+/// SQLite 数据库文件路径：`<app_data_dir>/ccmesh.db`。
 pub fn db_path(app: &AppHandle) -> AppResult<PathBuf> {
-    Ok(app_data_dir(app)?.join("ccnexus.db"))
+    Ok(app_data_dir(app)?.join("ccmesh.db"))
 }
 
 /// 用户主目录（Windows: `%USERPROFILE%`，Unix: `$HOME`）。用于定位本机工具会话日志。

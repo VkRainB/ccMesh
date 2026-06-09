@@ -17,7 +17,7 @@ const FIELDS: Array<{
   { k: "url", label: "服务器 URL", ph: "https://dav.example.com/" },
   { k: "username", label: "用户名" },
   { k: "password", label: "密码", type: "password" },
-  { k: "configPath", label: "配置路径", ph: "/ccNexus" },
+  { k: "configPath", label: "配置路径", ph: "/ccMesh" },
 ];
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));

@@ -59,7 +59,7 @@ pub fn build_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     let menu = Menu::with_items(app, &[&show, &start, &stop, &quit])?;
 
     let mut builder = TrayIconBuilder::with_id("main-tray")
-        .tooltip("ccNexus")
+        .tooltip("ccMesh")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {

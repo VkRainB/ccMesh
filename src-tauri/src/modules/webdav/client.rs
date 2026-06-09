@@ -5,7 +5,7 @@ use crate::error::{AppError, AppResult};
 use crate::models::config::WebDavConfig;
 use crate::models::webdav::BackupFile;
 
-const BASE_DIR: &str = "ccNexus";
+const BASE_DIR: &str = "ccMesh";
 
 /// reqwest_dav 客户端封装：连接、目录确保、上传/下载/列举/删除。
 pub struct WebDavClient {

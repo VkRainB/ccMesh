@@ -53,9 +53,9 @@ pnpm build
 ```
 src-tauri/target/release/bundle/
 ├── msi/
-│   └── ccNexus_0.1.0_x64_en-US.msi      # MSI 安装包
+│   └── ccMesh_0.1.0_x64_en-US.msi      # MSI 安装包
 └── nsis/
-    └── ccNexus_0.1.0_x64-setup.exe       # NSIS 安装包
+    └── ccMesh_0.1.0_x64-setup.exe       # NSIS 安装包
 ```
 
 ## 环境要求
