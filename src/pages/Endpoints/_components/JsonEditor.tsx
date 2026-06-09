@@ -10,12 +10,17 @@ interface Props {
 /** CodeMirror JSON 编辑器封装，供 EndpointForm 懒加载（仅打开 JSON 标签页时拉取 chunk）。 */
 export default function JsonEditor({ value, theme, onChange }: Props) {
   return (
-    <CodeMirror
-      value={value}
-      height="240px"
-      theme={theme}
-      extensions={[json()]}
-      onChange={onChange}
-    />
+    <div className="overflow-hidden rounded-md border border-edge">
+      <CodeMirror
+        value={value}
+        height="240px"
+        width="100%"
+        theme={theme}
+        extensions={[json()]}
+        onChange={onChange}
+        className="text-sm"
+        basicSetup={{ lineNumbers: true, foldGutter: false }}
+      />
+    </div>
   );
 }

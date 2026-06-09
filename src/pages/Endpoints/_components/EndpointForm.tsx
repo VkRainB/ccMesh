@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { PlusIcon, RefreshCwIcon, XIcon } from "lucide-react";
+import { EyeIcon, EyeOffIcon, PlusIcon, RefreshCwIcon, XIcon } from "lucide-react";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
 
@@ -65,6 +65,7 @@ export function EndpointForm({ open, onOpenChange, editing }: Props) {
   const [jsonText, setJsonText] = useState("");
   const [jsonErr, setJsonErr] = useState("");
   const [modelInput, setModelInput] = useState("");
+  const [showKey, setShowKey] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -84,6 +85,7 @@ export function EndpointForm({ open, onOpenChange, editing }: Props) {
     setJsonText(JSON.stringify(init, null, 2));
     setJsonErr("");
     setModelInput("");
+    setShowKey(false);
   }, [open, editing]);
 
   const update = (patch: Partial<FormState>) =>
@@ -163,13 +165,38 @@ export function EndpointForm({ open, onOpenChange, editing }: Props) {
             {fields.map((f) => (
               <div key={f.k} className="flex flex-col gap-1.5">
                 <Label htmlFor={f.k}>{f.label}</Label>
-                <Input
-                  id={f.k}
-                  type={f.type ?? "text"}
-                  placeholder={f.ph}
-                  value={form[f.k] as string}
-                  onChange={(e) => set(f.k, e.target.value)}
-                />
+                {f.k === "apiKey" ? (
+                  <div className="relative">
+                    <Input
+                      id={f.k}
+                      type={showKey ? "text" : "password"}
+                      placeholder={f.ph}
+                      value={form.apiKey}
+                      onChange={(e) => set(f.k, e.target.value)}
+                      className="pr-9"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowKey((v) => !v)}
+                      aria-label={showKey ? "隐藏密钥" : "查看密钥"}
+                      className="absolute inset-y-0 right-0 flex items-center px-2.5 text-ink-mute hover:text-ink-secondary"
+                    >
+                      {showKey ? (
+                        <EyeOffIcon className="size-4" />
+                      ) : (
+                        <EyeIcon className="size-4" />
+                      )}
+                    </button>
+                  </div>
+                ) : (
+                  <Input
+                    id={f.k}
+                    type={f.type ?? "text"}
+                    placeholder={f.ph}
+                    value={form[f.k] as string}
+                    onChange={(e) => set(f.k, e.target.value)}
+                  />
+                )}
               </div>
             ))}
 
