@@ -1,7 +1,7 @@
 ---
 id: 2027-request-log-actual-model
 title: 请求明细记录实际(出站)模型
-status: in_progress
+status: done
 priority: P2
 layer: 前端+后端
 deps: 
@@ -10,7 +10,7 @@ owner: claude
 branch: 
 base_branch: main
 created: 2026-06-10
-completed: 
+completed: 2026-06-10
 parent: 
 children: 
 note: 
