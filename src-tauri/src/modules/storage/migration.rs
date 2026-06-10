@@ -115,6 +115,8 @@ const MIGRATIONS: &[&str] = &[
     // v6：request_logs 记录首字节延迟（首字）。流式取首个内容分片到达耗时，缓冲取响应头到达。
     // 旧行 / 无数据为 NULL，前端显示 —。
     "ALTER TABLE request_logs ADD COLUMN first_byte_ms INTEGER;",
+    // v7：端点入站→出站模型映射（JSON 数组 [{from,to}]）。旧行默认空数组。
+    "ALTER TABLE endpoints ADD COLUMN model_mappings TEXT NOT NULL DEFAULT '[]';",
 ];
 
 /// 幂等执行迁移：读取 `schema_version` 当前版本，仅应用尚未执行的脚本。
@@ -225,5 +227,17 @@ mod tests {
             rows.filter_map(Result::ok).collect()
         };
         assert!(cols.contains(&"first_byte_ms".to_string()));
+    }
+
+    #[test]
+    fn v7_adds_model_mappings_column() {
+        let c = Connection::open_in_memory().unwrap();
+        run_migrations(&c).unwrap();
+        let cols: Vec<String> = {
+            let mut stmt = c.prepare("PRAGMA table_info(endpoints)").unwrap();
+            let rows = stmt.query_map([], |r| r.get::<_, String>(1)).unwrap();
+            rows.filter_map(Result::ok).collect()
+        };
+        assert!(cols.contains(&"model_mappings".to_string()));
     }
 }

@@ -367,6 +367,7 @@ mod tests {
             transformer: "claude".into(),
             model: "".into(),
             models: Vec::new(),
+            model_mappings: Vec::new(),
             remark: "".into(),
             sort_order: 0,
             test_status: "unknown".into(),

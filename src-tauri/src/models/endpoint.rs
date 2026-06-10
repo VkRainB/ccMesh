@@ -1,5 +1,13 @@
 use serde::{Deserialize, Serialize};
 
+/// 单条模型映射：入站模型名 `from` → 出站（上游真实）模型名 `to`。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelMapping {
+    pub from: String,
+    pub to: String,
+}
+
 /// 端点（上游 API 提供方）。对应 `endpoints` 表。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -19,6 +27,8 @@ pub struct Endpoint {
     pub model: String,
     /// 对外暴露/已选的模型清单（聚合型端点，供 /v1/models 公布与 UI 展示）。
     pub models: Vec<String>,
+    /// 入站→出站模型映射。客户端用入站名请求 → 路由匹配 + 改写为出站名转发上游。
+    pub model_mappings: Vec<ModelMapping>,
     pub remark: String,
     pub sort_order: i64,
     /// 测试状态：unknown / available / unavailable。
@@ -47,6 +57,8 @@ pub struct CreateEndpointRequest {
     #[serde(default)]
     pub models: Vec<String>,
     #[serde(default)]
+    pub model_mappings: Vec<ModelMapping>,
+    #[serde(default)]
     pub remark: String,
 }
 
@@ -62,6 +74,7 @@ pub struct UpdateEndpointRequest {
     pub transformer: Option<String>,
     pub model: Option<String>,
     pub models: Option<Vec<String>>,
+    pub model_mappings: Option<Vec<ModelMapping>>,
     pub remark: Option<String>,
 }
 
