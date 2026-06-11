@@ -17,7 +17,7 @@ export function Logo({
         className="size-7 shrink-0 rounded-md"
       />
       {!iconOnly && (
-        <div className="flex min-w-0 flex-col">
+        <div className="flex min-w-0 items-baseline gap-1.5">
           <span className="text-base font-semibold leading-tight tracking-tight whitespace-nowrap">
             ccMesh
           </span>

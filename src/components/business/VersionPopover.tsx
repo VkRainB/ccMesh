@@ -94,7 +94,7 @@ export function VersionPopover() {
         </button>
       </PopoverTrigger>
 
-      <PopoverContent align="start" side="right" className="w-72">
+      <PopoverContent align="start" side="bottom" className="w-72">
         {/* 标题行 */}
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-medium">版本信息</h3>
