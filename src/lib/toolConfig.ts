@@ -86,3 +86,71 @@ export function formatJson(text: string): string {
     return text;
   }
 }
+
+/** Claude settings.json 快捷开关（字段映射对齐 cc-switch CommonConfigEditor）。 */
+export interface ClaudeToggles {
+  /** 隐藏 AI 署名：attribution={commit:"",pr:""} */
+  hideAttribution: boolean;
+  /** Teammates 模式：env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS="1" */
+  teammates: boolean;
+  /** 启用 Tool Search：env.ENABLE_TOOL_SEARCH="true" */
+  toolSearch: boolean;
+  /** 最大强度思考：env.CLAUDE_CODE_EFFORT_LEVEL="max" */
+  effortMax: boolean;
+  /** 禁用自动升级：env.DISABLE_AUTOUPDATER="1" */
+  disableAutoUpdate: boolean;
+}
+
+export const DEFAULT_CLAUDE_TOGGLES: ClaudeToggles = {
+  hideAttribution: false,
+  teammates: false,
+  toolSearch: false,
+  effortMax: false,
+  disableAutoUpdate: false,
+};
+
+export const CLAUDE_TOGGLE_DEFS: Array<{ key: keyof ClaudeToggles; label: string }> = [
+  { key: "hideAttribution", label: "隐藏 AI 署名" },
+  { key: "teammates", label: "Teammates 模式" },
+  { key: "toolSearch", label: "启用 Tool Search" },
+  { key: "effortMax", label: "最大强度思考" },
+  { key: "disableAutoUpdate", label: "禁用自动升级" },
+];
+
+/** 从快照读取开关状态（用于回显）。 */
+export function parseClaudeToggles(snapshot: unknown): ClaudeToggles {
+  const root = asObject(snapshot);
+  const env = asObject(root.env);
+  const attribution = asObject(root.attribution);
+  return {
+    hideAttribution: attribution.commit === "" && attribution.pr === "",
+    teammates:
+      env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS === "1" ||
+      env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS === 1,
+    toolSearch:
+      env.ENABLE_TOOL_SEARCH === "true" ||
+      env.ENABLE_TOOL_SEARCH === "1" ||
+      env.ENABLE_TOOL_SEARCH === true,
+    effortMax: env.CLAUDE_CODE_EFFORT_LEVEL === "max",
+    disableAutoUpdate:
+      env.DISABLE_AUTOUPDATER === "1" || env.DISABLE_AUTOUPDATER === 1,
+  };
+}
+
+/** 把开关状态写进完整 settings.json（在 mergeClaudeSettings 之后调用）。 */
+export function applyClaudeToggles(settings: unknown, t: ClaudeToggles): JsonObject {
+  const root = asObject(settings);
+  if (t.hideAttribution) root.attribution = { commit: "", pr: "" };
+  else delete root.attribution;
+  const env = asObject(root.env);
+  const setEnv = (k: string, on: boolean, v: string) => {
+    if (on) env[k] = v;
+    else delete env[k];
+  };
+  setEnv("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", t.teammates, "1");
+  setEnv("ENABLE_TOOL_SEARCH", t.toolSearch, "true");
+  setEnv("CLAUDE_CODE_EFFORT_LEVEL", t.effortMax, "max");
+  setEnv("DISABLE_AUTOUPDATER", t.disableAutoUpdate, "1");
+  root.env = env;
+  return root;
+}

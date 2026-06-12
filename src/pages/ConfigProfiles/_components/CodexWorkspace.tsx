@@ -91,6 +91,7 @@ export function CodexWorkspace() {
   const [fields, setFields] = useState<CodexOperationFields>(EMPTY);
   const [rightText, setRightText] = useState("");
   const [rightEditable, setRightEditable] = useState(false);
+  const [goalMode, setGoalMode] = useState(false);
   const [showKey, setShowKey] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<ChannelMeta | null>(null);
 
@@ -106,7 +107,7 @@ export function CodexWorkspace() {
     let cancelled = false;
     const t = setTimeout(() => {
       toolConfigApi
-        .previewCodex(base.configToml ?? "", fields)
+        .previewCodex(base.configToml ?? "", fields, goalMode)
         .then((toml) => {
           if (!cancelled) setRightText(toml);
         })
@@ -118,13 +119,17 @@ export function CodexWorkspace() {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [fields, base, loaded, rightEditable]);
+  }, [fields, base, goalMode, loaded, rightEditable]);
+
+  const readGoals = (cfg: unknown): boolean =>
+    Boolean((cfg as { features?: { goals?: unknown } } | null)?.features?.goals);
 
   const resetEditor = () => {
     setLoaded(false);
     setSelectedId(null);
     setName("");
     setFields(EMPTY);
+    setGoalMode(false);
     setRightText("");
     setRightEditable(false);
   };
@@ -145,6 +150,7 @@ export function CodexWorkspace() {
       setSubTab("endpoint");
       const f = await toolConfigApi.parseCodex(baseSnap.auth, baseSnap.configToml);
       setFields({ ...f, baseUrl: gateway });
+      setGoalMode(readGoals(baseSnap.config));
       setRightEditable(false);
       setLoaded(true);
     } catch (e) {
@@ -162,6 +168,7 @@ export function CodexWorkspace() {
       setSubTab("custom");
       const f = await toolConfigApi.parseCodex(snap.auth ?? {}, snap.configToml ?? "");
       setFields(f);
+      setGoalMode(readGoals(snap.config));
       setRightEditable(false);
       setLoaded(true);
     } catch (e) {
@@ -322,6 +329,17 @@ export function CodexWorkspace() {
                   <option key={m} value={m} />
                 ))}
               </datalist>
+
+              <div className="flex flex-col gap-2">
+                <Label>配置开关</Label>
+                <label className="flex items-center justify-between gap-2 text-sm text-ink-secondary">
+                  <span>启用 Goal mode（features.goals）</span>
+                  <Switch checked={goalMode} onCheckedChange={setGoalMode} />
+                </label>
+                <p className="px-1 text-xs text-ink-mute">
+                  远程压缩 / 写入通用配置依赖代理命名约定与通用配置库，暂未接入。
+                </p>
+              </div>
 
               <div className="flex flex-col gap-1.5">
                 <Label>auth.json（随秘钥实时联动）</Label>

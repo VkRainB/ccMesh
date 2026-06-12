@@ -77,8 +77,11 @@ export const toolConfigApi = {
     request<unknown>("preview_claude_settings", { base, fields }),
   parseClaude: (snapshot: unknown) =>
     request<ClaudeOperationFields>("parse_claude_fields", { snapshot }),
-  previewCodex: (configToml: string, fields: CodexOperationFields) =>
-    request<string>("preview_codex_config", { configToml, fields }),
+  previewCodex: (
+    configToml: string,
+    fields: CodexOperationFields,
+    goalMode?: boolean,
+  ) => request<string>("preview_codex_config", { configToml, fields, goalMode }),
   parseCodex: (auth: unknown, configToml: string) =>
     request<CodexOperationFields>("parse_codex_fields", { auth, configToml }),
 };

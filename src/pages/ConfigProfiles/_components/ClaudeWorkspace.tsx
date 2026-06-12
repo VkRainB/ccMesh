@@ -19,12 +19,17 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useEndpoints } from "@/hooks/useEndpoints";
 import { useToolConfigChannels } from "@/hooks/useToolConfigChannels";
 import {
+  applyClaudeToggles,
+  CLAUDE_TOGGLE_DEFS,
   claudeOperationFragment,
+  DEFAULT_CLAUDE_TOGGLES,
   gatewayBaseUrl,
   mergeClaudeSettings,
   parseClaudeFields,
+  parseClaudeToggles,
   splitOneM,
   withOneM,
+  type ClaudeToggles,
 } from "@/lib/toolConfig";
 import { advertisedModels } from "@/services/modules/endpoint";
 import { configApi } from "@/services/modules/config";
@@ -87,6 +92,7 @@ export function ClaudeWorkspace() {
   const [subTab, setSubTab] = useState<"endpoint" | "custom">("endpoint");
   const [base, setBase] = useState<unknown>({});
   const [fields, setFields] = useState<ClaudeOperationFields>(EMPTY);
+  const [toggles, setToggles] = useState<ClaudeToggles>(DEFAULT_CLAUDE_TOGGLES);
   const [rightText, setRightText] = useState("");
   const [rightEditable, setRightEditable] = useState(false);
   const [showKey, setShowKey] = useState(false);
@@ -99,14 +105,16 @@ export function ClaudeWorkspace() {
 
   useEffect(() => {
     if (!loaded || rightEditable) return;
-    setRightText(JSON.stringify(mergeClaudeSettings(base, fields), null, 2));
-  }, [fields, base, loaded, rightEditable]);
+    const merged = applyClaudeToggles(mergeClaudeSettings(base, fields), toggles);
+    setRightText(JSON.stringify(merged, null, 2));
+  }, [fields, base, toggles, loaded, rightEditable]);
 
   const resetEditor = () => {
     setLoaded(false);
     setSelectedId(null);
     setName("");
     setFields(EMPTY);
+    setToggles(DEFAULT_CLAUDE_TOGGLES);
     setRightText("");
     setRightEditable(false);
   };
@@ -119,6 +127,7 @@ export function ClaudeWorkspace() {
       setSubTab("endpoint");
       setBase(snapshot ?? {});
       setFields({ ...parseClaudeFields(snapshot), baseUrl: gateway });
+      setToggles(parseClaudeToggles(snapshot));
       setRightEditable(false);
       setLoaded(true);
     } catch (e) {
@@ -134,6 +143,7 @@ export function ClaudeWorkspace() {
       setSubTab("custom");
       setBase(ch.snapshot ?? {});
       setFields(parseClaudeFields(ch.snapshot));
+      setToggles(parseClaudeToggles(ch.snapshot));
       setRightEditable(false);
       setLoaded(true);
     } catch (e) {
@@ -142,7 +152,9 @@ export function ClaudeWorkspace() {
   };
 
   const buildSnapshot = () =>
-    rightEditable ? JSON.parse(rightText) : mergeClaudeSettings(base, fields);
+    rightEditable
+      ? JSON.parse(rightText)
+      : applyClaudeToggles(mergeClaudeSettings(base, fields), toggles);
 
   const saveCh = useMutation({
     mutationFn: async () =>
@@ -302,6 +314,26 @@ export function ClaudeWorkspace() {
                   <option key={m} value={m} />
                 ))}
               </datalist>
+
+              <div className="flex flex-col gap-2">
+                <Label>配置开关</Label>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                  {CLAUDE_TOGGLE_DEFS.map((def) => (
+                    <label
+                      key={def.key}
+                      className="flex items-center justify-between gap-2 text-sm text-ink-secondary"
+                    >
+                      <span className="truncate">{def.label}</span>
+                      <Switch
+                        checked={toggles[def.key]}
+                        onCheckedChange={(v) =>
+                          setToggles((t) => ({ ...t, [def.key]: v }))
+                        }
+                      />
+                    </label>
+                  ))}
+                </div>
+              </div>
 
               <div className="flex flex-col gap-1.5">
                 <Label>操作字段（随表单实时联动）</Label>
