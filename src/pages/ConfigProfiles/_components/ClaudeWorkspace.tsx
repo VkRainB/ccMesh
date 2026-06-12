@@ -414,8 +414,8 @@ export function ClaudeWorkspace() {
       </div>
 
       {/* 底部固定操作区 */}
-      <div className="flex items-center justify-end gap-3 rounded-lg border border-edge bg-surface px-4 py-3">
-        <span className="mr-auto text-xs text-ink-mute">
+      <div className="relative flex items-center justify-center gap-3 rounded-lg border border-edge bg-surface px-4 py-3">
+        <span className="absolute left-4 hidden text-xs text-ink-mute md:block">
           应用将先备份再覆写 <code>~/.claude/settings.json</code>
         </span>
         <Button
