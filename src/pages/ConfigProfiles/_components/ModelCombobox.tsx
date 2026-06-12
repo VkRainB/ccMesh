@@ -87,8 +87,10 @@ export function ModelCombobox({
                   setOpen(false);
                 }}
                 className={cn(
-                  "block w-full truncate px-3 py-1.5 text-left text-sm hover:bg-edge/40",
-                  opt === value ? "text-accent" : "text-ink-secondary",
+                  "block w-full truncate px-3 py-1.5 text-left text-sm transition-colors hover:bg-surface-hover hover:text-ink-primary",
+                  opt === value
+                    ? "bg-surface-hover font-medium text-primary"
+                    : "text-ink-secondary",
                 )}
               >
                 {opt}
