@@ -4,21 +4,24 @@
   - 每轮 UserPromptSubmit hook 只「解析」本文件，不保存面包屑副本。
   - 改流程/改面包屑文案 → 只改本文件，不改 hook 脚本。
   - [workflow-state:STATUS] ... [/workflow-state:STATUS] 块是每轮注入的唯一来源。
-    STATUS ∈ no_task | planning | in_progress | done，对应 task.md 的 status 字段
-    （done 为 finish 之后、archive 之前的瞬态）。无激活任务时合成 no_task。
+    STATUS ∈ no_task | planning | in_progress | lite | done，对应 task.md 的 status 字段
+    （lite 块用于 mode=lite 的快速通道任务；done 为 finish 之后、archive 之前的瞬态）。
+    无激活任务时合成 no_task。
 -->
 
 # task-plan-workflow 工作流
 
-把一条需求沿 **需求 → 探索 → PRD → 任务/进度 → 编码 → 验证 → 按模块提交 → 收尾** 推到可交付。
+把一条需求沿 **需求 → 路由评估 → （探索 → PRD →）任务/进度 → 编码 → 验证 → 按模块提交 → 收尾** 推到可交付。
 与技术栈无关：所有构建/测试命令按当前项目实际探测，不写死。
 
-三阶段状态机：
+双通道状态机（入口智能路由）：
 
 ```
-Phase 1 规划 (planning) → 想清楚做什么：探索调研 → 澄清 → prd.md + feature.md → 整理 context.jsonl
-Phase 2 执行 (in_progress) → 写代码并通过检查：实现 → 验证 → 自修
-Phase 3 收尾 (in_progress→done) → 最终验证 → 更新 progress.csv → 按模块 scoped 提交 → 归档
+路由评估 ──简单──→ lite 快速通道 (mode=lite, 直接 in_progress)：实现 → 验证 → progress.csv → 提交 → 归档
+        └─标准──→ full 完整链路 (mode=full)：
+                   Phase 1 规划 (planning) → 探索调研 → 澄清 → prd.md + feature.md → 整理 context.jsonl
+                   Phase 2 执行 (in_progress) → 实现 → 验证 → 自修
+                   Phase 3 收尾 (in_progress→done) → 最终验证 → progress.csv → scoped 提交 → 归档
 ```
 
 任务产物（每任务一个隔离目录，互不污染）：
@@ -56,6 +59,9 @@ docs/task-plan/
 | 3.3 | 按模块 scoped 提交（派生 scoped-commit-bot，传精确文件清单） | required·once | scoped-commit-bot |
 | 3.4 | 标记完成 + 归档（`task.py finish` → `task.py archive`） | required·once | task.py |
 
+lite 快速通道（mode=lite，跳过 1.1–1.5 的文档产物）：`create --lite` → 登记 progress → 实现 → 验证 →
+progress set 完成 → scoped 提交 → finish/archive。中途变复杂用 `task.py mode full` 升级回 planning。
+
 恢复中断：`/task-plan-workflow:continue`，按 task.md.status + 产物存在性路由到具体步骤。
 
 ---
@@ -65,10 +71,28 @@ docs/task-plan/
 
 - **A 直接回答**：纯问答 / 解释 / 查询 / 闲聊，不产生文件改动 → 直接回答后停止，不要建任务。
 - **B 进入工作流**：实现、改文档、重构、构建、迁移，或任何需要交付产物的工作 →
-  先调研（必要时派生 Explore 子 agent），用 `AskUserQuestion` 澄清真歧义，
-  然后 `python "$TPW_TASK" create "<标题>" --slug <name>` 创建任务进入 planning。
+  先做**智能路由评估**（判据见下），再按路由建任务：
+  - **B1 简单 → lite 快速通道**：`python "$TPW_TASK" create "<标题>" --slug <name> --lite`
+    → 直达执行：不写 prd/feature/context，进度只记 progress.csv。
+  - **B2 标准 → full 完整链路**：`python "$TPW_TASK" create "<标题>" --slug <name>` → 进入 planning：
+    先调研（必要时派生 Explore 子 agent），用 `AskUserQuestion` 澄清真歧义，再写 prd/feature。
 - **C 本轮跳过工作流（逐轮逃逸口）**：仅当**用户当前消息**明确表达「这次直接改/不要走流程/skip」时，
   才在本轮 inline 改文件。不要自行替用户选择跳过。
+
+**智能路由判据**（评估在建任务前完成，不确定时先快速检索代码再判）：
+
+走 **lite** 须全部满足：
+1. 预计改动 ≤2 个文件、约 ≤50 行，无新文件结构；
+2. 需求明确、方案唯一，无需向用户澄清；
+3. 不涉及架构决策 / 新抽象 / 数据契约（接口、事件、存储结构）变更 / 外部系统集成；
+4. 失败易回滚，不碰关键路径的核心逻辑。
+典型：bug 修复、文案/样式微调、配置项增改、小函数、参数透传、依赖小版本升级。
+
+走 **full**（任一命中即是）：多文件/跨模块、新功能、需要架构或契约决策、需求含糊有真歧义、
+外部集成、影响面拿不准、用户明确要求 PRD/规划。
+
+**拿不准 → full**（宁可流程重，不可漏决策）；用户消息明确说「简单改一下/快速处理」可作为 lite 的加权信号，
+但判据不满足时仍走 full 并向用户说明原因。
 
 默认严格走 B：对话会被压缩重启，任务文件不会——工作产物需要持久任务文件。
 [/workflow-state:no_task]
@@ -109,6 +133,18 @@ docs/task-plan/
 8. **收尾**：全部提交完成后 `task.py finish` 标记 done，再 `task.py archive` 归档。
    有可复用经验（约定/契约/陷阱）就沉淀到项目 spec/CLAUDE.md，供未来任务复用。
 [/workflow-state:in_progress]
+
+[workflow-state:lite]
+当前任务走 **lite 快速通道**（简单任务：不写 prd/feature/context，进度只记 progress.csv）。按序推进：
+
+1. **登记进度**（若未记）：`python "$TPW_TASK" progress add --stage 执行 --milestone <里程碑> --id <NN前缀> --title <标题> --layer <层> --status 进行中`（整任务一行即可）。
+2. **实现**：最小必要调研（直接 Grep/codegraph 检索，不派子 agent）→ 直接改码，遵循周边代码风格。
+3. **验证**：跑项目自带 lint/typecheck/test（按栈探测，别臆造）；发现问题自修并重跑。
+4. **复杂度升级出口**：实现中发现超出 lite 判据（>2 文件 / 出现架构或契约决策 / 冒出需要澄清的真歧义）→
+   立即 `python "$TPW_TASK" mode full` 升级（缺 prd 时自动回 planning），补 prd.md/feature.md 后按标准链路推进。**别硬扛**。
+5. **收尾**：`progress set <NN前缀> --status 完成 --done <日期>` → 派生 `scoped-commit-bot`（传精确文件清单，
+   绝不 `git add -A`）→ `task.py finish` → `task.py archive`。
+[/workflow-state:lite]
 
 [workflow-state:done]
 任务已标记 done。确认工作改动已提交后，运行 `python "$TPW_TASK" archive` 归档到
