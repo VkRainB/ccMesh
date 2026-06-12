@@ -1,0 +1,6 @@
+{"file":"docs/task-plan/tasks/2028-endpoint-status-sync/prd.md","reason":"本任务需求决策：同步机制、可用性优先级、聚合与候选策略范围、/v1 处理方式"}
+{"file":"docs/task-plan/tasks/2028-endpoint-status-sync/feature.md","reason":"落地细节：文件落点、任务拆解 2028.x、数据契约（候选构造/探测顺序/默认模型映射/hook 签名）、提交策略"}
+{"file":"docs/task-plan/tasks/2028-endpoint-status-sync/research/health-sync.md","reason":"健康/启用状态同步链路调研：事件来源、queryKey 不一致根因、数据结构与可复用点"}
+{"file":"docs/task-plan/tasks/2028-endpoint-status-sync/research/models-fetch.md","reason":"fetch_endpoint_models 链路、调用方完整清单、硬编码回落与可复用点"}
+{"file":"docs/task-plan/tasks/2028-endpoint-status-sync/research/endpoint-form.md","reason":"端点表单结构、transformer 路径后缀证据、可复用 hint 样式模式"}
+{"file":"docs/task-plan/状态同步及时需求.txt","reason":"需求原文：6 个优化点与 KNOWN_COMPAT_SUFFIXES 清单、候选策略描述"}

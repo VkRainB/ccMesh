@@ -1,0 +1,96 @@
+端点管理和仪表盘之间状态变更延迟和端点状态不同步问题。
+
+优化点：
+
+1：当前在端点管理页面，进行端点开启和关闭，仪表盘页面启用的端点应该及时更新
+
+2：端点管理，具体某个端点的可用性状态显示，依据手动联通性测试，其次依据实时请求的端点有效性,如果成功请求的话，其端点可用性应该是正常的；优先级是：实时请求的端点有效性>手动联通性测试
+
+3:当前端点的健康状态指示，不太同步
+
+// Dashboard/ServiceCard.tsx L41-49
+
+healthApi.onHealthChanged(() => qc.invalidateQueries({ queryKey: ["endpoint-health"] }))
+
+// Endpoints/index.tsx L19-28
+
+healthApi.onHealthChanged(() => qc.invalidateQueries({ queryKey: ["endpoint-health"] }))
+
+// 同一事件 endpoint-health-changed → 两个地方都重新查询数据
+
+应该使用共享hook
+
+// src/hooks/useEndpointHealth.ts
+减少重复查询更好的维护端点健康信息
+
+4：模型拉取失败的回落
+
+/ src-tauri/src/modules/models_cache.rs L62-69
+
+存在硬编码处理：claude-3-5-sonnet-latest
+
+5：端点管理新建或者编辑api_url的时候，防止用户输入多/v1结尾，
+
+在输入api_url的下面使用辅助文字展示完整的url
+
+{{url}}/v1/responses ；{{url}}/v1/chat/completions ； {{url}}/v1/message，这个展示依据选择的转换器类型实时显示
+
+6:端点模型获取接口的问题。
+
+在添加编辑端点的时候，拉取模型，存在一个问题，就是不同端点获取的模型不一样
+
+当前是
+
+┌─ 前端：端点表单「刷新」按钮
+│
+├─ 调用 fetch_endpoint_models(api_url, api_key, transformer)
+│
+└─ 后端 Rust
+   │
+   ├─ 1. 判断 transformer 格式 (Claude / OpenAI)
+   │
+   ├─ 2. 构建对应的 HTTP 请求
+   │ ├─ Claude: x-api-key + anthropic-version
+   │ └─ OpenAI: Authorization: Bearer
+   │
+   ├─ 3. 发送 GET /v1/models
+   │
+   ├─ 4. 解析 response.data[].id
+   │ ├─ ✅ 成功: 返回模型 ID 列表
+   │ └─ ❌ 失败: 返回 [默认模型]
+   │
+   └─ 前端显示模型列表
+
+但是很多用户大概率不知道自己是什么端点，使用，需要聚合操作，不再区分ransformer 格式 (Claude / OpenAI)，如果用户选择的是Claude，优先使用Claude: x-api-key + anthropic-version构建请求模型，但是可能会存在获取不到模型列表的情况，这个时候需要多做一步，使用OpenAI: Authorization: Bearer构建再请求一次即可 。另外为了提高端点获取的成功率，需要采取
+
+URL 候选构造策略，这个策略是在上述情况没法获取到模型资源才进行，获取到了就提前返回结构，否则才执行URL 候选构造策略，去获取模型资源
+
+正确处理了不同格式的端点：
+
+1. 用户提供的 url地址（精确覆写）
+2. baseURL + /v1/models （剥离子路径）
+3. 如果已以 /v{N} 结尾，则用 /models（这个就不处理了，因为任务5做了提示，还错就不应该了）
+4. 剥离已知兼容子路径后再试（如剥离 /anthropic）
+
+// 已知兼容子路径列表：
+KNOWN_COMPAT_SUFFIXES: [
+    "/api/claudecode",
+    "/api/anthropic",
+    "/apps/anthropic",
+    "/api/coding",
+    "/claudecode",
+    "/anthropic",
+    "/step_plan",
+    "/coding",
+    "/claude",
+]
+
+例如，对于 DeepSeek：
+
+- 输入：https://api.deepseek.com/anthropic
+- 候选列表：
+  1. https://api.deepseek.com/anthropic/v1/models（原始路径）
+  2. https://api.deepseek.com/v1/models（剥离子路径）
+  3. https://api.deepseek.com/models（根路径）（不做了不再处理v1带来的麻烦工作）
+
+这部分逻辑有点复杂，请做好规划和代码拆分，另外需要fetch_endpoint_models(api_url, api_key, transformer)是否有被其他地方使用到，避免改动影响其他模块。
