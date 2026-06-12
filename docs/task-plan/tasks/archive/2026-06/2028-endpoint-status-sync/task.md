@@ -1,7 +1,7 @@
 ---
 id: 2028-endpoint-status-sync
 title: 端点状态同步与模型获取优化
-status: in_progress
+status: done
 priority: P2
 layer: 
 deps: 
@@ -10,7 +10,7 @@ owner: claude
 branch: 
 base_branch: main
 created: 2026-06-12
-completed: 
+completed: 2026-06-12
 parent: 
 children: 
 note: 
