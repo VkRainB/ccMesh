@@ -40,6 +40,7 @@ import {
   type ClaudeOperationFields,
 } from "@/services/modules/tool_config";
 import { ChannelList } from "./ChannelList";
+import { FormFieldLabel } from "./FormFieldLabel";
 import { ModelCombobox } from "./ModelCombobox";
 
 const JsonEditor = lazy(() => import("@/components/common/JsonEditor"));
@@ -189,7 +190,7 @@ export function ClaudeWorkspace() {
     mutationFn: async () =>
       toolConfigApi.save("claude", { id: selectedId, name, snapshot: buildSnapshot() }),
     onSuccess: (meta) => {
-      toast.success("已保存渠道");
+      toast.success("已保存渠道，点击「应用」后系统配置才会生效");
       setSelectedId(meta.id);
       qc.invalidateQueries({ queryKey: ["profile-channels", "claude"] });
     },
@@ -197,8 +198,21 @@ export function ClaudeWorkspace() {
   });
 
   const applyCfg = useMutation({
-    mutationFn: async () => toolConfigApi.apply("claude", buildSnapshot()),
-    onSuccess: () => toast.success("已应用并覆写 ~/.claude/settings.json"),
+    mutationFn: async () => {
+      const snapshot = buildSnapshot();
+      const meta = await toolConfigApi.save("claude", {
+        id: selectedId,
+        name,
+        snapshot,
+      });
+      await toolConfigApi.apply("claude", snapshot);
+      return meta;
+    },
+    onSuccess: (meta) => {
+      setSelectedId(meta.id);
+      qc.invalidateQueries({ queryKey: ["profile-channels", "claude"] });
+      toast.success("已保存渠道并应用，已覆写 ~/.claude/settings.json");
+    },
     onError: (e) => toast.error(errMsg(e)),
   });
 
@@ -293,7 +307,7 @@ export function ClaudeWorkspace() {
               </Tabs>
 
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="cl-base">地址（ANTHROPIC_BASE_URL）</Label>
+                <FormFieldLabel htmlFor="cl-base" label="地址" hint="ANTHROPIC_BASE_URL" />
                 <Input
                   id="cl-base"
                   value={fields.baseUrl}
@@ -307,7 +321,7 @@ export function ClaudeWorkspace() {
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="cl-key">秘钥（ANTHROPIC_API_KEY）</Label>
+                <FormFieldLabel htmlFor="cl-key" label="秘钥" hint="ANTHROPIC_API_KEY" />
                 <div className="relative">
                   <Input
                     id="cl-key"
@@ -371,7 +385,11 @@ export function ClaudeWorkspace() {
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="cl-default">默认兜底模型（ANTHROPIC_MODEL，可留空）</Label>
+                <FormFieldLabel
+                  htmlFor="cl-default"
+                  label="默认兜底模型"
+                  hint="ANTHROPIC_MODEL，可留空"
+                />
                 <ModelCombobox
                   id="cl-default"
                   value={fields.defaultModel}
@@ -402,7 +420,7 @@ export function ClaudeWorkspace() {
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <Label>操作字段（与表单双向联动，可直接编辑）</Label>
+                <Label>关键环境配置</Label>
                 <Suspense fallback={<EditorFallback />}>
                   <JsonEditor
                     value={opText}
@@ -419,7 +437,7 @@ export function ClaudeWorkspace() {
         {/* 右栏：整合配置编辑器 */}
         <div className="flex min-h-0 min-w-0 flex-[2] flex-col gap-2 rounded-lg border border-edge bg-surface p-4">
           <div className="flex items-center justify-between">
-            <Label>整合配置（完整 settings.json）</Label>
+            <Label>完整配置</Label>
             <div className="flex items-center gap-3">
               <Button
                 type="button"
@@ -473,7 +491,7 @@ export function ClaudeWorkspace() {
         >
           保存渠道
         </Button>
-        <Button disabled={!loaded || applyCfg.isPending} onClick={() => applyCfg.mutate()}>
+        <Button disabled={!canSubmit || applyCfg.isPending || saveCh.isPending} onClick={() => applyCfg.mutate()}>
           应用
         </Button>
       </div>

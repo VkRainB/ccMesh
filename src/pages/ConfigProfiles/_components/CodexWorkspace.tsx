@@ -29,6 +29,7 @@ import {
   type CodexSnapshot,
 } from "@/services/modules/tool_config";
 import { ChannelList } from "./ChannelList";
+import { FormFieldLabel } from "./FormFieldLabel";
 import { ModelCombobox } from "./ModelCombobox";
 
 const JsonEditor = lazy(() => import("@/components/common/JsonEditor"));
@@ -231,7 +232,7 @@ export function CodexWorkspace() {
         snapshot: { auth: buildAuth(), configToml: rightText, config: base.config },
       }),
     onSuccess: (meta) => {
-      toast.success("已保存渠道");
+      toast.success("已保存渠道，点击「应用」后系统配置才会生效");
       setSelectedId(meta.id);
       qc.invalidateQueries({ queryKey: ["profile-channels", "codex"] });
     },
@@ -239,9 +240,21 @@ export function CodexWorkspace() {
   });
 
   const applyCfg = useMutation({
-    mutationFn: async () =>
-      toolConfigApi.apply("codex", { auth: buildAuth(), configToml: rightText }),
-    onSuccess: () => toast.success("已应用并覆写 ~/.codex/auth.json + config.toml"),
+    mutationFn: async () => {
+      const auth = buildAuth();
+      const meta = await toolConfigApi.save("codex", {
+        id: selectedId,
+        name,
+        snapshot: { auth, configToml: rightText, config: base.config },
+      });
+      await toolConfigApi.apply("codex", { auth, configToml: rightText });
+      return meta;
+    },
+    onSuccess: (meta) => {
+      setSelectedId(meta.id);
+      qc.invalidateQueries({ queryKey: ["profile-channels", "codex"] });
+      toast.success("已保存渠道并应用，已覆写 ~/.codex/auth.json + config.toml");
+    },
     onError: (e) => toast.error(errMsg(e)),
   });
 
@@ -319,7 +332,7 @@ export function CodexWorkspace() {
               </Tabs>
 
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="cx-key">秘钥（auth.json · OPENAI_API_KEY）</Label>
+                <FormFieldLabel htmlFor="cx-key" label="秘钥" hint="auth.json · OPENAI_API_KEY" />
                 <div className="relative">
                   <Input
                     id="cx-key"
@@ -341,7 +354,7 @@ export function CodexWorkspace() {
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="cx-base">地址（base_url）</Label>
+                <FormFieldLabel htmlFor="cx-base" label="地址" hint="base_url" />
                 <Input
                   id="cx-base"
                   value={fields.baseUrl}
@@ -356,7 +369,7 @@ export function CodexWorkspace() {
 
               <div className="flex flex-col gap-1.5">
                 <div className="flex items-center justify-between gap-2">
-                  <Label htmlFor="cx-model">默认模型（model）</Label>
+                  <FormFieldLabel htmlFor="cx-model" label="默认模型" hint="model" />
                   {subTab === "custom" && (
                     <Button
                       type="button"
@@ -382,7 +395,7 @@ export function CodexWorkspace() {
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="cx-review">审核模型（review_model）</Label>
+                <FormFieldLabel htmlFor="cx-review" label="审核模型" hint="review_model" />
                 <ModelCombobox
                   id="cx-review"
                   value={fields.reviewModel}
@@ -404,7 +417,7 @@ export function CodexWorkspace() {
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <Label>auth.json（与秘钥双向联动，可直接编辑）</Label>
+                <Label>关键环境配置</Label>
                 <Suspense fallback={<EditorFallback />}>
                   <JsonEditor
                     value={authText}
@@ -421,7 +434,7 @@ export function CodexWorkspace() {
         {/* 右栏：整合 config.toml 编辑器 */}
         <div className="flex min-h-0 min-w-0 flex-[2] flex-col gap-2 rounded-lg border border-edge bg-surface p-4">
           <div className="flex items-center justify-between">
-            <Label>整合配置（config.toml · 保留注释/模板字段）</Label>
+            <Label>完整配置</Label>
             <label className="flex items-center gap-1.5 text-xs text-ink-mute">
               <Switch
                 checked={rightEditable}
@@ -459,7 +472,7 @@ export function CodexWorkspace() {
         >
           保存渠道
         </Button>
-        <Button disabled={!loaded || applyCfg.isPending} onClick={() => applyCfg.mutate()}>
+        <Button disabled={!canSubmit || applyCfg.isPending || saveCh.isPending} onClick={() => applyCfg.mutate()}>
           应用
         </Button>
       </div>
