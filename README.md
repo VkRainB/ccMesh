@@ -5,6 +5,7 @@
   <p><strong>轻量级跨平台 AI 代理网关桌面应用。</strong></p>
 
   <p>
+    <a href="https://linux.do/"><img src="https://img.shields.io/badge/Linux.do-Community-2b6de8?style=flat-square" alt="Linux.do"></a>
     <img src="https://img.shields.io/github/v/release/VkRainB/ccMesh?label=version&color=blue" alt="version" />
     <img src="https://img.shields.io/badge/license-Apache--2.0-green" alt="license" />
     <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey" alt="platform" />
@@ -168,6 +169,10 @@ pnpm check:rust
 ## 技术栈
 
 Tauri 2、Rust、axum、reqwest（rustls）、SQLite、React 19、TypeScript、Vite、TanStack Query、Tailwind CSS v4、shadcn/ui、CodeMirror 6。
+
+## 社区支持
+
+学 AI，上 L 站：[LinuxDO](https://linux.do/)
 
 ## 许可证
 
