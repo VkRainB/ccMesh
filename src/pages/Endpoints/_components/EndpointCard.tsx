@@ -24,6 +24,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useEndpointHealth } from "@/hooks/useEndpointHealth";
 import {
   advertisedModels,
@@ -36,6 +37,35 @@ import { ModelMappingDialog } from "./ModelMappingDialog";
 import { TestBadge } from "./TestBadge";
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+function IconAction({
+  label,
+  onClick,
+  disabled,
+  children,
+}: {
+  label: string;
+  onClick?: () => void;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          size="icon"
+          variant="ghost"
+          aria-label={label}
+          onClick={onClick}
+          disabled={disabled}
+        >
+          {children}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 interface Props {
   endpoint: Endpoint;
@@ -105,23 +135,35 @@ export function EndpointCard({
 
   const grip =
     draggable && dragHandleRef ? (
-      <span
-        ref={dragHandleRef}
-        aria-label="拖动以排序"
-        className="shrink-0 cursor-grab touch-none text-ink-mute"
-      >
-        <GripVerticalIcon className="size-4" />
-      </span>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span
+            ref={dragHandleRef}
+            aria-label="拖动以排序"
+            className="shrink-0 cursor-grab touch-none text-ink-mute"
+          >
+            <GripVerticalIcon className="size-4" />
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>拖动以排序</TooltipContent>
+      </Tooltip>
     ) : (
       <GripVerticalIcon className="size-4 shrink-0 text-ink-disabled" />
     );
 
   const enableSwitch = (
-    <Switch
-      checked={endpoint.enabled}
-      onCheckedChange={(v) => toggle.mutate(v)}
-      aria-label="启用"
-    />
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex">
+          <Switch
+            checked={endpoint.enabled}
+            onCheckedChange={(v) => toggle.mutate(v)}
+            aria-label={endpoint.enabled ? "禁用端点" : "启用端点"}
+          />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>{endpoint.enabled ? "禁用端点" : "启用端点"}</TooltipContent>
+    </Tooltip>
   );
 
   // 测试连通性用出站(真实)模型：test 直连上游、不经网关，入站映射名上游不认。
@@ -133,16 +175,21 @@ export function EndpointCard({
   const testButton =
     testModels.length >= 2 ? (
       <Popover open={testOpen} onOpenChange={setTestOpen}>
-        <PopoverTrigger asChild>
-          <Button
-            size="icon"
-            variant="ghost"
-            aria-label="测试连通性"
-            disabled={test.isPending}
-          >
-            <ActivityIcon className="size-4" />
-          </Button>
-        </PopoverTrigger>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <PopoverTrigger asChild>
+              <Button
+                size="icon"
+                variant="ghost"
+                aria-label="测试连通性"
+                disabled={test.isPending}
+              >
+                <ActivityIcon className="size-4" />
+              </Button>
+            </PopoverTrigger>
+          </TooltipTrigger>
+          <TooltipContent>测试连通性</TooltipContent>
+        </Tooltip>
         <PopoverContent align="end" className="w-56 p-2">
           <p className="mb-1.5 px-1 text-xs text-ink-mute">选择测试模型</p>
           <div className="flex max-h-60 flex-col gap-0.5 overflow-auto">
@@ -163,37 +210,30 @@ export function EndpointCard({
         </PopoverContent>
       </Popover>
     ) : (
-      <Button
-        size="icon"
-        variant="ghost"
-        aria-label="测试连通性"
+      <IconAction
+        label="测试连通性"
         onClick={() => test.mutate(testModels[0])}
         disabled={test.isPending}
       >
         <ActivityIcon className="size-4" />
-      </Button>
+      </IconAction>
     );
 
   const actions = (
     <div className="flex gap-0.5">
       {testButton}
-      <Button
-        size="icon"
-        variant="ghost"
-        aria-label="模型映射"
-        onClick={() => setMapOpen(true)}
-      >
+      <IconAction label="模型映射" onClick={() => setMapOpen(true)}>
         <WaypointsIcon className="size-4" />
-      </Button>
-      <Button size="icon" variant="ghost" aria-label="克隆" onClick={() => clone.mutate()}>
+      </IconAction>
+      <IconAction label="克隆" onClick={() => clone.mutate()}>
         <CopyIcon className="size-4" />
-      </Button>
-      <Button size="icon" variant="ghost" aria-label="编辑" onClick={() => onEdit(endpoint)}>
+      </IconAction>
+      <IconAction label="编辑" onClick={() => onEdit(endpoint)}>
         <PencilIcon className="size-4" />
-      </Button>
-      <Button size="icon" variant="ghost" aria-label="删除" onClick={() => del.mutate()}>
+      </IconAction>
+      <IconAction label="删除" onClick={() => del.mutate()}>
         <Trash2Icon className="size-4" />
-      </Button>
+      </IconAction>
       <ModelMappingDialog open={mapOpen} onOpenChange={setMapOpen} endpoint={endpoint} />
     </div>
   );

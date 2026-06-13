@@ -26,7 +26,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { endpointApi, type Endpoint } from "@/services/modules/endpoint";
 
-const JsonEditor = lazy(() => import("./JsonEditor"));
+const JsonEditor = lazy(() => import("@/components/common/JsonEditor"));
 
 interface FormState {
   name: string;
@@ -73,6 +73,7 @@ export function EndpointForm({ open, onOpenChange, editing }: Props) {
   const [jsonErr, setJsonErr] = useState("");
   const [modelInput, setModelInput] = useState("");
   const [showKey, setShowKey] = useState(false);
+  const [tab, setTab] = useState("form");
 
   useEffect(() => {
     if (!open) return;
@@ -93,6 +94,7 @@ export function EndpointForm({ open, onOpenChange, editing }: Props) {
     setJsonErr("");
     setModelInput("");
     setShowKey(false);
+    setTab("form");
   }, [open, editing]);
 
   const update = (patch: Partial<FormState>) =>
@@ -162,12 +164,12 @@ export function EndpointForm({ open, onOpenChange, editing }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg overflow-hidden">
         <DialogHeader>
           <DialogTitle>{editing ? "编辑端点" : "新建端点"}</DialogTitle>
         </DialogHeader>
 
-        <Tabs defaultValue="form">
+        <Tabs value={tab} onValueChange={setTab} className="min-w-0 overflow-hidden">
           <TabsList>
             <TabsTrigger value="form">表单</TabsTrigger>
             <TabsTrigger value="json">JSON</TabsTrigger>
@@ -312,20 +314,22 @@ export function EndpointForm({ open, onOpenChange, editing }: Props) {
             </div>
           </TabsContent>
 
-          <TabsContent value="json">
-            <Suspense
-              fallback={
-                <div className="flex h-[240px] items-center justify-center text-xs text-ink-mute">
-                  加载编辑器…
-                </div>
-              }
-            >
-              <JsonEditor
-                value={jsonText}
-                theme={resolvedTheme === "dark" ? "dark" : "light"}
-                onChange={onJsonChange}
-              />
-            </Suspense>
+          <TabsContent value="json" className="w-full min-w-0 overflow-hidden">
+            {tab === "json" ? (
+              <Suspense
+                fallback={
+                  <div className="flex h-[240px] items-center justify-center text-xs text-ink-mute">
+                    加载编辑器…
+                  </div>
+                }
+              >
+                <JsonEditor
+                  value={jsonText}
+                  theme={resolvedTheme === "dark" ? "dark" : "light"}
+                  onChange={onJsonChange}
+                />
+              </Suspense>
+            ) : null}
             {jsonErr ? <p className="mt-1 text-xs text-destructive">{jsonErr}</p> : null}
           </TabsContent>
         </Tabs>

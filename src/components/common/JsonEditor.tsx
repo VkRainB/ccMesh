@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { json } from "@codemirror/lang-json";
 import type { Extension } from "@codemirror/state";
+import { EditorView } from "@codemirror/view";
 import CodeMirror from "@uiw/react-codemirror";
 
 import { lineHighlight } from "./lineHighlight";
@@ -38,7 +39,8 @@ export default function JsonEditor({
 }: Props) {
   const patternKey = (highlightPatterns ?? []).join("\u0001");
   const extensions = useMemo(() => {
-    const ext: Extension[] = lang === "json" ? [json()] : [];
+    const ext: Extension[] = [EditorView.lineWrapping];
+    if (lang === "json") ext.push(json());
     const patterns = patternKey ? patternKey.split("\u0001") : [];
     if (patterns.length > 0) ext.push(...lineHighlight(patterns));
     return ext;
@@ -48,18 +50,19 @@ export default function JsonEditor({
   return (
     <div
       className={
-        "overflow-hidden rounded-md border border-edge" + (fill ? " h-full" : "")
+        "w-full max-w-full min-w-0 overflow-hidden rounded-md border border-edge " +
+        "[&_.cm-editor]:w-full [&_.cm-editor]:max-w-full [&_.cm-scroller]:overflow-x-hidden" +
+        (fill ? " h-full" : "")
       }
     >
       <CodeMirror
         value={value}
         height={fill ? "100%" : height}
-        width="100%"
         theme={theme}
         editable={!readOnly}
         extensions={extensions}
         onChange={(val) => onChange?.(val)}
-        className={"text-sm" + (fill ? " h-full" : "")}
+        className={"w-full text-sm" + (fill ? " h-full" : "")}
         basicSetup={{ lineNumbers: true, foldGutter: false }}
       />
     </div>
