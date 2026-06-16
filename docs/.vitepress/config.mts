@@ -34,6 +34,7 @@ export default defineConfig({
           items: [
             { text: '项目简介', link: '/guide/introduction' },
             { text: '安装', link: '/guide/installation' },
+            { text: '快速使用指南（图文）', link: '/guide/quickstart' },
             { text: '快速上手', link: '/guide/getting-started' },
             { text: '核心概念', link: '/guide/concepts' }
           ]

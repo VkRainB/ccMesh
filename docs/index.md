@@ -10,8 +10,8 @@ hero:
     alt: ccMesh
   actions:
     - theme: brand
-      text: 快速上手
-      link: /guide/getting-started
+      text: 快速使用指南
+      link: /guide/quickstart
     - theme: alt
       text: 项目简介
       link: /guide/introduction
