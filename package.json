@@ -17,6 +17,7 @@
     "vitepress": "^1.6.4"
   },
   "dependencies": {
-    "medium-zoom": "^1.1.0"
+    "viewerjs": "^1.11.7",
+    "vitepress-plugin-image-viewer": "^1.1.6"
   }
 }

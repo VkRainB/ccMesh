@@ -1,27 +1,20 @@
-// 扩展默认主题：叠加 Paper-Blueprint-Manual 样式层 + 图片点击放大（medium-zoom）
+// 扩展默认主题：叠加 Paper-Blueprint-Manual 样式层 + 图片查看器（viewerjs）
 import DefaultTheme from 'vitepress/theme'
-import mediumZoom from 'medium-zoom'
-import { onMounted, watch, nextTick } from 'vue'
+import type { EnhanceAppContext } from 'vitepress'
 import { useRoute } from 'vitepress'
+import imageViewer from 'vitepress-plugin-image-viewer'
+import vImageViewer from 'vitepress-plugin-image-viewer/lib/vImageViewer.vue'
+import 'viewerjs/dist/viewer.min.css'
 import './style/custom.css'
 
 export default {
   extends: DefaultTheme,
+  enhanceApp(ctx: EnhanceAppContext) {
+    ctx.app.component('vImageViewer', vImageViewer)
+  },
   setup() {
     const route = useRoute()
-
-    const initZoom = () => {
-      // 仅对正文区域的图片启用放大，跳过 logo / 图标等
-      mediumZoom('.vp-doc img:not(.no-zoom)', {
-        background: 'rgba(0, 0, 0, 0.7)',
-        margin: 24
-      })
-    }
-
-    onMounted(() => initZoom())
-    watch(
-      () => route.path,
-      () => nextTick(() => initZoom())
-    )
+    // 对正文区域 .vp-doc 内的图片启用点击放大（缩放 / 拖拽 / 旋转 / 全屏）
+    imageViewer(route)
   }
 }
