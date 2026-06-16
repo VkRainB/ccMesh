@@ -106,11 +106,19 @@
 }
 
 /* ============ 纸面：点阵网格底 ============ */
-body {
+/* 注意：不要用 background-attachment: fixed —— 它在部分 GPU/浏览器上会与
+   position:fixed 浮层（如图片查看器遮罩）发生合成 bug，导致遮罩变灰、图片不显示、
+   无法关闭。改用 fixed 定位的伪元素承载固定背景，效果一致但无此问题。 */
+body { background: var(--paper); }
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
   background:
     radial-gradient(circle at 1px 1px, rgba(43, 93, 138, 0.13) 1px, transparent 0) 0 0 / 26px 26px,
     linear-gradient(180deg, var(--paper) 0%, var(--paper-deep) 100%);
-  background-attachment: fixed;
 }
 .Layout { background: transparent; }
 .VPContent { background: transparent; }
@@ -352,3 +360,24 @@ body {
 
 /* 移动端局部导航 */
 .VPLocalNav { background: var(--paper) !important; border-bottom: 1px solid var(--hairline) !important; }
+
+/* ============ 图片查看器（viewerjs）稳定性兜底 ============ */
+/* 1) 提升层级，确保遮罩盖住导航栏等所有内容
+   2) 加深遮罩底色：默认半透明黑叠在纸面上会显出“灰蒙蒙”观感，加深后图片更清晰、
+      也明确提示这是一个可点击关闭的模态层
+   3) 强制 GPU 合成层独立，规避固定背景导致的渲染残影 */
+.viewer-container {
+  z-index: 2050 !important;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+.viewer-backdrop { background-color: rgba(20, 26, 32, 0.92) !important; }
+.viewer-canvas > img { background-color: transparent; }
+/* 关闭按钮始终清晰可见、可点击 */
+.viewer-close {
+  z-index: 2060;
+  background-color: rgba(212, 69, 29, 0.92) !important;
+}
+.viewer-close::before { opacity: 1; }
+/* 查看器内的图片不应被正文 img 的直角/边框等样式干扰 */
+.viewer-canvas img { border-radius: 0 !important; box-shadow: none !important; }
