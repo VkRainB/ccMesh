@@ -74,10 +74,9 @@ pub async fn webdav_restore(
     std::fs::write(&temp, &bytes)?;
 
     let overwrite = strategy.as_deref() == Some("remote");
-    let device_id = state.device_id.clone();
     {
         let mut conn = state.db_pool.get()?;
-        sync::merge_from_backup(&mut conn, &temp, overwrite, &device_id)?;
+        sync::merge_from_backup(&mut conn, &temp, overwrite)?;
     }
     let _ = std::fs::remove_file(&temp);
     Ok(())

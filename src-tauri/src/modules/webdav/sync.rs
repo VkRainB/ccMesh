@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use rusqlite::{params, params_from_iter, Connection};
+use rusqlite::{params_from_iter, Connection};
 
 use crate::error::AppResult;
 use crate::modules::storage::config_repo::SAFE_CONFIG_KEYS;
@@ -13,7 +13,7 @@ fn placeholders(n: usize) -> String {
     vec!["?"; n].join(",")
 }
 
-/// 生成可上传的数据库副本：VACUUM INTO 临时文件，并剔除设备特定配置（仅保留安全键）。
+/// 生成可上传的数据库副本：VACUUM INTO 临时文件，剔除设备特定配置与统计数据。
 pub fn create_backup_copy(conn: &Connection, temp_path: &Path) -> AppResult<()> {
     if temp_path.exists() {
         let _ = std::fs::remove_file(temp_path);
@@ -28,19 +28,15 @@ pub fn create_backup_copy(conn: &Connection, temp_path: &Path) -> AppResult<()> 
         ),
         params_from_iter(SAFE_CONFIG_KEYS.iter()),
     )?;
+    // ponytail: 统计不同步；云端体积与隐私一并收口。request_logs/usage 恢复本就不写，上传仍保留。
+    backup.execute("DELETE FROM daily_stats", [])?;
     Ok(())
 }
 
 /// 将备份库 ATTACH 后合并到本地：
 /// - app_config：仅安全键；overwrite=REPLACE / keep=IGNORE
-/// - endpoints：按 name；overwrite=REPLACE / keep=IGNORE
-/// - daily_stats：重打本地 device_id 并按 (endpoint,date) 聚合；overwrite 先删冲突日
-pub fn merge_from_backup(
-    conn: &mut Connection,
-    backup_path: &Path,
-    overwrite: bool,
-    device_id: &str,
-) -> AppResult<()> {
+/// - endpoints：按 name，含模型清单/点亮/映射等完整配置字段
+pub fn merge_from_backup(conn: &mut Connection, backup_path: &Path, overwrite: bool) -> AppResult<()> {
     conn.execute_batch(&format!(
         "ATTACH DATABASE '{}' AS backup",
         sql_quote(backup_path)
@@ -59,33 +55,19 @@ pub fn merge_from_backup(
             params_from_iter(SAFE_CONFIG_KEYS.iter()),
         )?;
 
+        // 旧备份缺列时 SELECT 会失败——需用当前版本重新上传后再恢复。
         tx.execute(
             &format!(
                 "INSERT {mode} INTO endpoints
-                    (name, api_url, api_key, auth_mode, enabled, transformer, model, remark, sort_order, test_status)
-                 SELECT name, api_url, api_key, auth_mode, enabled, transformer, model, remark, sort_order, test_status
+                    (name, api_url, api_key, auth_mode, enabled, use_proxy, transformer,
+                     model, models, active_models, model_mappings, remark,
+                     sort_order, fast, fast_sort_order, test_status, archived)
+                 SELECT name, api_url, api_key, auth_mode, enabled, use_proxy, transformer,
+                     model, models, active_models, model_mappings, remark,
+                     sort_order, fast, fast_sort_order, test_status, archived
                  FROM backup.endpoints"
             ),
             [],
-        )?;
-
-        if overwrite {
-            tx.execute(
-                "DELETE FROM daily_stats WHERE EXISTS (
-                    SELECT 1 FROM backup.daily_stats b
-                    WHERE b.endpoint_name = daily_stats.endpoint_name AND b.date = daily_stats.date
-                 )",
-                [],
-            )?;
-        }
-        tx.execute(
-            &format!(
-                "INSERT {mode} INTO daily_stats
-                    (endpoint_name, date, requests, errors, input_tokens, output_tokens, device_id)
-                 SELECT endpoint_name, date, SUM(requests), SUM(errors), SUM(input_tokens), SUM(output_tokens), ?1
-                 FROM backup.daily_stats GROUP BY endpoint_name, date"
-            ),
-            params![device_id],
         )?;
 
         tx.commit()?;
@@ -103,7 +85,7 @@ mod tests {
     use rusqlite::Connection;
 
     #[test]
-    fn backup_strips_device_config_and_merge_restamps_device() {
+    fn backup_strips_device_config_and_stats_merge_endpoints_full() {
         let dir = std::env::temp_dir();
         let pid = std::process::id();
         let src_path = dir.join(format!("ccx_src_{pid}.db"));
@@ -113,7 +95,6 @@ mod tests {
             let _ = std::fs::remove_file(p);
         }
 
-        // 源库：安全键 theme + 设备键 device_id + 一条统计（设备 SRC）
         let src = Connection::open(&src_path).unwrap();
         run_migrations(&src).unwrap();
         src.execute(
@@ -127,10 +108,20 @@ mod tests {
             [],
         )
         .unwrap();
+        src.execute(
+            "INSERT INTO endpoints
+                (name, api_url, api_key, auth_mode, enabled, use_proxy, transformer,
+                 model, models, active_models, model_mappings, remark,
+                 sort_order, fast, fast_sort_order, test_status, archived)
+             VALUES ('ep','https://x','k','api_key',1,1,'claude',
+                 '','[\"a\",\"b\"]','[\"a\"]','[{\"from\":\"x\",\"to\":\"a\"}]','r',
+                 0,1,0,'ok',0)",
+            [],
+        )
+        .unwrap();
 
         create_backup_copy(&src, &bk_path).unwrap();
 
-        // 备份副本：theme 保留，device_id 被剔除
         let bk = Connection::open(&bk_path).unwrap();
         let theme: Option<String> = bk
             .query_row("SELECT value FROM app_config WHERE key='theme'", [], |r| {
@@ -146,29 +137,51 @@ mod tests {
             )
             .ok();
         assert!(dev.is_none());
+        let stats: i64 = bk
+            .query_row("SELECT COUNT(*) FROM daily_stats", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(stats, 0);
         drop(bk);
 
-        // 目标库合并（overwrite）：daily_stats 重打本地 device_id
         let mut tgt = Connection::open(&tgt_path).unwrap();
         run_migrations(&tgt).unwrap();
-        merge_from_backup(&mut tgt, &bk_path, true, "LOCAL").unwrap();
+        // 本地已有同名端点（缺模型字段）与本地统计，恢复后统计应保留、端点应被补齐
+        tgt.execute(
+            "INSERT INTO endpoints (name, api_url, api_key) VALUES ('ep','https://old','old')",
+            [],
+        )
+        .unwrap();
+        tgt.execute(
+            "INSERT INTO daily_stats(endpoint_name,date,requests,errors,input_tokens,output_tokens,device_id)
+             VALUES('ep','2026-06-05',9,0,0,0,'LOCAL')",
+            [],
+        )
+        .unwrap();
 
-        let dev: String = tgt
+        merge_from_backup(&mut tgt, &bk_path, true).unwrap();
+
+        let (models, active, mappings, use_proxy, fast): (String, String, String, i64, i64) = tgt
             .query_row(
-                "SELECT device_id FROM daily_stats WHERE endpoint_name='ep'",
+                "SELECT models, active_models, model_mappings, use_proxy, fast FROM endpoints WHERE name='ep'",
                 [],
-                |r| r.get(0),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
             )
             .unwrap();
-        assert_eq!(dev, "LOCAL");
-        let reqs: i64 = tgt
+        assert_eq!(models, r#"["a","b"]"#);
+        assert_eq!(active, r#"["a"]"#);
+        assert!(mappings.contains("\"from\":\"x\""));
+        assert_eq!(use_proxy, 1);
+        assert_eq!(fast, 1);
+
+        let local_stats: i64 = tgt
             .query_row(
                 "SELECT requests FROM daily_stats WHERE endpoint_name='ep'",
                 [],
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(reqs, 5);
+        assert_eq!(local_stats, 9);
+
         let theme: String = tgt
             .query_row("SELECT value FROM app_config WHERE key='theme'", [], |r| {
                 r.get(0)
