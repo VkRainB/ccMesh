@@ -234,7 +234,7 @@ pub fn delete(conn: &Connection, id: i64) -> AppResult<()> {
 
 /// 按给定 id 顺序重写 sort_order（用于拖拽排序持久化）。
 ///
-/// ordered_ids 必须是当前全部端点 id 的完整排列；拒绝局部、重复或未知 id，
+/// ordered_ids 必须是当前全部未归档端点 id 的完整排列；拒绝局部、重复或未知 id，
 /// 避免筛选视角误提交局部列表破坏全局轮询顺序。
 pub fn reorder(conn: &mut Connection, ordered_ids: &[i64]) -> AppResult<()> {
     if ordered_ids.is_empty() {
@@ -242,12 +242,15 @@ pub fn reorder(conn: &mut Connection, ordered_ids: &[i64]) -> AppResult<()> {
     }
 
     let existing_ids = {
-        let mut stmt = conn.prepare("SELECT id FROM endpoints ORDER BY id ASC")?;
+        let mut stmt =
+            conn.prepare("SELECT id FROM endpoints WHERE archived = 0 ORDER BY id ASC")?;
         let rows = stmt.query_map([], |row| row.get::<_, i64>(0))?;
         rows.collect::<rusqlite::Result<Vec<_>>>()?
     };
     if ordered_ids.len() != existing_ids.len() {
-        return Err(AppError::InvalidArgument("排序列表必须包含全部端点".into()));
+        return Err(AppError::InvalidArgument(
+            "排序列表必须包含全部未归档端点".into(),
+        ));
     }
 
     let existing_set: HashSet<i64> = existing_ids.into_iter().collect();
@@ -441,6 +444,44 @@ mod tests {
         assert_eq!(
             list.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(),
             vec!["a", "b", "c"]
+        );
+    }
+
+    #[test]
+    fn reorder_succeeds_with_archived_present() {
+        let mut c = db();
+        let a = create(&c, &req("a")).unwrap();
+        let b = create(&c, &req("b")).unwrap();
+        let archived = create(&c, &req("archived")).unwrap();
+        let archived_order = archived.sort_order;
+        archive(&c, archived.id).unwrap();
+
+        reorder(&mut c, &[b.id, a.id]).unwrap();
+        let list = list_all(&c).unwrap();
+        assert_eq!(
+            list.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(),
+            vec!["b", "a"]
+        );
+        let still = get_by_id(&c, archived.id).unwrap().unwrap();
+        assert!(still.archived);
+        assert_eq!(still.sort_order, archived_order);
+    }
+
+    #[test]
+    fn reorder_rejects_archived_id_in_payload() {
+        let mut c = db();
+        let a = create(&c, &req("a")).unwrap();
+        let b = create(&c, &req("b")).unwrap();
+        let archived = create(&c, &req("archived")).unwrap();
+        archive(&c, archived.id).unwrap();
+
+        assert!(reorder(&mut c, &[b.id, a.id, archived.id]).is_err());
+        assert!(reorder(&mut c, &[archived.id, b.id]).is_err());
+
+        let list = list_all(&c).unwrap();
+        assert_eq!(
+            list.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(),
+            vec!["a", "b"]
         );
     }
 
