@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { InfoIcon, TriangleAlertIcon, Trash2Icon } from "lucide-react";
+import { InfoIcon, ReplaceIcon, TriangleAlertIcon, Trash2Icon } from "lucide-react";
 import { Anthropic, Codex, OpenAI } from "@lobehub/icons";
 import type { ComponentType } from "react";
 
@@ -147,6 +147,7 @@ export function RequestLogTable({ items }: { items: RequestLog[] }) {
             <th className="px-3 py-2 text-left font-medium">入站</th>
             <th className="px-3 py-2 text-left font-medium">出站</th>
             <th className="w-[5.5rem] px-3 py-2 text-left font-medium">状态</th>
+            <th className="max-w-[9rem] px-3 py-2 text-left font-medium">模型</th>
             <th className="px-3 py-2 text-right font-medium">用时</th>
             <th className="px-3 py-2 text-right font-medium">首字</th>
             <th className="px-3 py-2 text-right font-medium">Token</th>
@@ -307,6 +308,9 @@ function RequestRow({ log }: { log: RequestLog }) {
           )}
         </div>
       </td>
+      <td className="max-w-[9rem] px-3 py-2">
+        <ModelCell model={log.model} actualModel={log.actualModel} />
+      </td>
       <td className="px-3 py-2 text-right text-xs text-ink-secondary">
         <TabularText>
           {!log.isError && log.durationMs != null ? formatDuration(log.durationMs) : "—"}
@@ -334,6 +338,35 @@ function RequestRow({ log }: { log: RequestLog }) {
         </HoverCard>
       </td>
     </tr>
+  );
+}
+
+/** 模型列：透传单行；映射时上入站 / 中转化图标 / 下实际模型（同色）。无模型留白。 */
+export function ModelCell({
+  model,
+  actualModel,
+}: {
+  model: string | null;
+  actualModel: string | null;
+}) {
+  if (!model) return null;
+  if (!actualModel) {
+    return (
+      <span className="block truncate text-xs text-ink-secondary" title={model}>
+        {model}
+      </span>
+    );
+  }
+  return (
+    <div className="flex min-w-0 flex-col gap-0.5">
+      <span className="truncate text-xs text-ink-secondary" title={model}>
+        {model}
+      </span>
+      <ReplaceIcon className="size-3 shrink-0 text-ink-mute" aria-hidden />
+      <span className="truncate text-xs text-ink-secondary" title={actualModel}>
+        {actualModel}
+      </span>
+    </div>
   );
 }
 

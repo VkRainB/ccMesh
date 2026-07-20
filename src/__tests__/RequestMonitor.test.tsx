@@ -4,7 +4,14 @@ import { invoke } from "@tauri-apps/api/core";
 import { describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 
-import { ErrorDetail, fmtDateTime, fmtTime, RequestLogTable, TokenDetail } from "@/components/business/RequestMonitor";
+import {
+  ErrorDetail,
+  fmtDateTime,
+  fmtTime,
+  ModelCell,
+  RequestLogTable,
+  TokenDetail,
+} from "@/components/business/RequestMonitor";
 import { RequestLogsCleanupDialog } from "@/components/business/RequestLogsCleanupDialog";
 import type { RequestLog } from "@/services/modules/stats";
 
@@ -102,6 +109,62 @@ describe("RequestLogTable", () => {
   it("空数据显示占位", () => {
     render(<RequestLogTable items={[]} />);
     expect(screen.getByText("暂无请求记录")).toBeInTheDocument();
+  });
+
+  it("表头含模型列（位于用时前）", () => {
+    render(<RequestLogTable items={[log]} />);
+    const headers = screen.getAllByRole("columnheader").map((h) => h.textContent);
+    expect(headers).toEqual(["时间", "端点", "入站", "出站", "状态", "模型", "用时", "首字", "Token"]);
+  });
+
+  it("透传时模型列只显示请求模型", () => {
+    render(<RequestLogTable items={[log]} />);
+    expect(screen.getByText("claude-3")).toBeInTheDocument();
+  });
+
+  it("映射时模型列同时展示入站与实际模型", () => {
+    const mapped: RequestLog = {
+      ...log,
+      id: 5,
+      model: "claude-opus-4-8",
+      actualModel: "gpt-5.5",
+    };
+    render(<RequestLogTable items={[mapped]} />);
+    expect(screen.getByText("claude-opus-4-8")).toBeInTheDocument();
+    expect(screen.getByText("gpt-5.5")).toBeInTheDocument();
+  });
+
+  it("无模型时模型列留白（不显示 —）", () => {
+    const noModel: RequestLog = { ...log, id: 6, model: null, actualModel: null };
+    const { container } = render(<RequestLogTable items={[noModel]} />);
+    const row = container.querySelector("tbody tr");
+    expect(row).toBeTruthy();
+    // 模型列是第 6 个 td（时间/端点/入站/出站/状态/模型）
+    const modelTd = row!.querySelectorAll("td")[5];
+    expect(modelTd?.textContent?.trim()).toBe("");
+    expect(modelTd?.textContent).not.toContain("—");
+  });
+});
+
+describe("ModelCell", () => {
+  it("无模型返回空", () => {
+    const { container } = render(<ModelCell model={null} actualModel={null} />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("透传单行带 title", () => {
+    render(<ModelCell model="claude-3" actualModel={null} />);
+    expect(screen.getByText("claude-3")).toHaveAttribute("title", "claude-3");
+  });
+
+  it("映射上下两行同色，实际模型非 text-info", () => {
+    render(<ModelCell model="in" actualModel="out" />);
+    const inbound = screen.getByText("in");
+    const actual = screen.getByText("out");
+    expect(inbound.className).toContain("text-ink-secondary");
+    expect(actual.className).toContain("text-ink-secondary");
+    expect(actual.className).not.toContain("text-info");
+    expect(actual).toHaveAttribute("title", "out");
   });
 });
 
