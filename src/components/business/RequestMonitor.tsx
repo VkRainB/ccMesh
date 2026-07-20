@@ -349,23 +349,31 @@ export function ModelCell({
   model: string | null;
   actualModel: string | null;
 }) {
-  if (!model) return null;
-  if (!actualModel) {
+  // 后端入站缺失时可能是 ""，与 null 一并视为无入站。
+  const inbound = model?.trim() ? model : null;
+  const actual = actualModel?.trim() ? actualModel : null;
+  if (!inbound && !actual) return null;
+  // 仅有实际模型（入站空、出站改写）：仍展示唯一可用名。
+  if (!inbound) {
     return (
-      <span className="block truncate text-xs text-ink-secondary" title={model}>
-        {model}
+      <span className="block min-w-0 truncate text-xs text-ink-secondary" title={actual ?? undefined}>
+        {actual}
       </span>
     );
   }
   return (
     <div className="flex min-w-0 flex-col gap-0.5">
-      <span className="truncate text-xs text-ink-secondary" title={model}>
-        {model}
+      <span className="min-w-0 truncate text-xs text-ink-secondary" title={inbound}>
+        {inbound}
       </span>
-      <ReplaceIcon className="size-3 shrink-0 text-ink-mute" aria-hidden />
-      <span className="truncate text-xs text-ink-secondary" title={actualModel}>
-        {actualModel}
-      </span>
+      {actual && (
+        <>
+          <ReplaceIcon className="size-3 shrink-0 text-ink-mute" aria-hidden />
+          <span className="min-w-0 truncate text-xs text-ink-secondary" title={actual}>
+            {actual}
+          </span>
+        </>
+      )}
     </div>
   );
 }

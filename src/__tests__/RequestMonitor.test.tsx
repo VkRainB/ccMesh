@@ -147,11 +147,6 @@ describe("RequestLogTable", () => {
 });
 
 describe("ModelCell", () => {
-  it("无模型返回空", () => {
-    const { container } = render(<ModelCell model={null} actualModel={null} />);
-    expect(container).toBeEmptyDOMElement();
-  });
-
   it("透传单行带 title", () => {
     render(<ModelCell model="claude-3" actualModel={null} />);
     expect(screen.getByText("claude-3")).toHaveAttribute("title", "claude-3");
@@ -162,9 +157,17 @@ describe("ModelCell", () => {
     const inbound = screen.getByText("in");
     const actual = screen.getByText("out");
     expect(inbound.className).toContain("text-ink-secondary");
+    expect(inbound.className).toContain("min-w-0");
     expect(actual.className).toContain("text-ink-secondary");
+    expect(actual.className).toContain("min-w-0");
     expect(actual.className).not.toContain("text-info");
     expect(actual).toHaveAttribute("title", "out");
+  });
+
+  it("仅有实际模型时仍单行展示", () => {
+    render(<ModelCell model="" actualModel="gpt-5.5" />);
+    expect(screen.getByText("gpt-5.5")).toHaveAttribute("title", "gpt-5.5");
+    expect(screen.queryByText("—")).not.toBeInTheDocument();
   });
 });
 
