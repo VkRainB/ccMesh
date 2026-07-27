@@ -3,7 +3,7 @@ import { PanelLeftIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ThemeToggle, Logo, LangToggle } from "@/components/common";
-import { VersionPopover } from "@/components/business";
+import { UpdateBadge, VersionPopover } from "@/components/business";
 import { useLayoutStore } from "@/stores";
 import { NavItem } from "./NavItem";
 import { NAV_ITEMS, SETTINGS_ITEM, ABOUT_ITEM } from "./navConfig";
@@ -43,7 +43,13 @@ export function TopNav() {
           <NavItem key={item.id} item={item} variant="horizontal" />
         ))}
         <NavItem item={SETTINGS_ITEM} variant="horizontal" />
-        <NavItem item={ABOUT_ITEM} variant="horizontal" />
+        {/* 与侧边导航保持一致：有更新时在「关于」上冒红点 */}
+        <div className="relative shrink-0">
+          <NavItem item={ABOUT_ITEM} variant="horizontal" />
+          <span className="pointer-events-none absolute right-1 top-1">
+            <UpdateBadge />
+          </span>
+        </div>
       </nav>
 
       <div className="flex shrink-0 items-center gap-2">

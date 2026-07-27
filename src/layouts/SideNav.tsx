@@ -30,16 +30,11 @@ export function SideNav() {
         collapsed ? "w-14" : "w-[220px]"
       )}
     >
-      <div className="relative flex h-14 shrink-0 items-center border-b border-edge-subtle px-4">
+      <div className="flex h-14 shrink-0 items-center border-b border-edge-subtle px-4">
         <Logo
           iconOnly={collapsed}
           extra={!collapsed ? <VersionPopover /> : undefined}
         />
-        {collapsed && (
-          <span className="absolute right-2 top-2">
-            <VersionPopover compact />
-          </span>
-        )}
       </div>
 
       <div className="flex-1 overflow-y-auto px-2 py-2">
@@ -56,13 +51,14 @@ export function SideNav() {
       </div>
 
       <div className="flex flex-col gap-1 border-t border-edge px-2 py-2">
+        <NavItem item={SETTINGS_ITEM} variant="vertical" collapsed={collapsed} />
+        {/* 红点挂「关于」：更新入口在关于页，挂设置会把用户导到没有更新 UI 的页面 */}
         <div className="relative">
-          <NavItem item={SETTINGS_ITEM} variant="vertical" collapsed={collapsed} />
+          <NavItem item={ABOUT_ITEM} variant="vertical" collapsed={collapsed} />
           <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2">
             <UpdateBadge />
           </span>
         </div>
-        <NavItem item={ABOUT_ITEM} variant="vertical" collapsed={collapsed} />
         <div
           className={cn(
             "flex gap-1 pt-1",
@@ -72,6 +68,8 @@ export function SideNav() {
           <div className={cn("flex gap-1", collapsed && "flex-col")}>
             <ThemeToggle />
             <LangToggle />
+            {/* 折叠态标题栏塞不下版本号，挪到按钮组，保证仍能手动检查更新 */}
+            {collapsed && <VersionPopover compact />}
           </div>
           <div className={cn("flex gap-1", collapsed && "flex-col")}>
             <Tooltip>
