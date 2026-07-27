@@ -13,6 +13,7 @@ import {
   type UpdateInfo,
 } from "@/services/modules/update";
 import { useUpdateStore } from "@/stores/modules/update";
+import { useStartUpdate } from "@/hooks/useUpdate";
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -22,26 +23,14 @@ export function AppInfoSection() {
   const [version, setVersion] = useState("");
   const [info, setInfo] = useState<UpdateInfo | null>(null);
   const [checking, setChecking] = useState(false);
-  const [progress, setProgress] = useState<number | null>(null);
   const setUpdate = useUpdateStore((s) => s.set);
   const setUpdateFromInfo = useUpdateStore((s) => s.setFromInfo);
+  const startUpdate = useStartUpdate();
 
   useEffect(() => {
     getAppVersion()
       .then(setVersion)
       .catch(() => undefined);
-  }, []);
-
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    updateApi
-      .onProgress((p) => {
-        setProgress(p.total ? Math.round((p.downloaded / p.total) * 100) : null);
-      })
-      .then((u) => {
-        unlisten = u;
-      });
-    return () => unlisten?.();
   }, []);
 
   const check = async () => {
@@ -55,15 +44,6 @@ export function AppInfoSection() {
       toast.error(`检查失败：${errMsg(e)}`);
     } finally {
       setChecking(false);
-    }
-  };
-
-  const download = async () => {
-    try {
-      toast.info("开始下载更新…");
-      await updateApi.installUpdateAndRestart();
-    } catch (e) {
-      toast.error(`下载失败：${errMsg(e)}`);
     }
   };
 
@@ -122,16 +102,8 @@ export function AppInfoSection() {
               {info.notes}
             </p>
           ) : null}
-          {progress !== null ? (
-            <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-surface-hover">
-              <div
-                className="h-full rounded-full bg-primary transition-all"
-                style={{ width: `${progress}%` }}
-              />
-            </div>
-          ) : null}
           <div className="mt-3 flex gap-2">
-            <Button size="sm" onClick={download}>
+            <Button size="sm" onClick={() => void startUpdate()}>
               下载并安装
             </Button>
             <Button size="sm" variant="ghost" onClick={skip}>

@@ -1,3 +1,4 @@
+import { UpdateProgressCard } from "./components/business";
 import { CloseDialog } from "./components/common";
 import { useAutoTheme } from "./hooks/useAutoTheme";
 import { useThemeSync } from "./hooks/useThemeSync";
@@ -15,6 +16,7 @@ function App() {
     <>
       <AppLayout />
       <CloseDialog />
+      <UpdateProgressCard />
     </>
   );
 }

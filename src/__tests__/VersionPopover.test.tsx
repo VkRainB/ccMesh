@@ -13,12 +13,15 @@ const createStoreState = (
     version: string;
     set: ReturnType<typeof vi.fn>;
     setFromInfo: ReturnType<typeof vi.fn>;
+    setProgress: ReturnType<typeof vi.fn>;
   }> = {},
 ) => ({
   available: false,
   version: "",
+  progress: null,
   set: vi.fn(),
   setFromInfo: vi.fn(),
+  setProgress: vi.fn(),
   ...overrides,
 });
 

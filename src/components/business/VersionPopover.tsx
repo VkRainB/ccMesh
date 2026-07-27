@@ -5,6 +5,7 @@ import {
   ExternalLinkIcon,
   RefreshCwIcon,
   StarIcon,
+  TagIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -22,6 +23,7 @@ import {
 } from "@/services/modules/update";
 import { useUpdateStore } from "@/stores/modules/update";
 import { useLayoutStore } from "@/stores";
+import { useStartUpdate } from "@/hooks/useUpdate";
 import { cn } from "@/lib/utils";
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -30,12 +32,12 @@ export function VersionPopover({ compact = false }: { compact?: boolean }) {
   const [version, setVersion] = useState("");
   const [info, setInfo] = useState<UpdateInfo | null>(null);
   const [checking, setChecking] = useState(false);
-  const [progress, setProgress] = useState<number | null>(null);
 
   const updateAvailable = useUpdateStore((s) => s.available);
   const updateVersion = useUpdateStore((s) => s.version);
   const setUpdateFromInfo = useUpdateStore((s) => s.setFromInfo);
   const setActiveView = useLayoutStore((s) => s.setActiveView);
+  const startUpdate = useStartUpdate();
   const available = info?.available ?? updateAvailable;
   const availableVersion = info?.available ? info.version : updateVersion;
 
@@ -43,18 +45,6 @@ export function VersionPopover({ compact = false }: { compact?: boolean }) {
     getAppVersion()
       .then(setVersion)
       .catch(() => undefined);
-  }, []);
-
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    updateApi
-      .onProgress((p) => {
-        setProgress(p.total ? Math.round((p.downloaded / p.total) * 100) : null);
-      })
-      .then((u) => {
-        unlisten = u;
-      });
-    return () => unlisten?.();
   }, []);
 
   const handleCheck = async () => {
@@ -71,17 +61,12 @@ export function VersionPopover({ compact = false }: { compact?: boolean }) {
     }
   };
 
-  const handleDownload = async (e: React.MouseEvent) => {
+  const handleDownload = (e: React.MouseEvent) => {
     e.stopPropagation();
-    try {
-      toast.info("开始下载更新…");
-      await updateApi.installUpdateAndRestart();
-    } catch (err) {
-      toast.error(`下载失败：${errMsg(err)}`);
-    }
+    void startUpdate();
   };
 
-  if (!version || (compact && !available)) return null;
+  if (!version) return null;
 
   return (
     <Popover>
@@ -94,6 +79,8 @@ export function VersionPopover({ compact = false }: { compact?: boolean }) {
           )}
           aria-label={compact ? `版本 v${version}` : undefined}
         >
+          {/* 折叠侧栏里没有版本号文本可点，用一个图标兜住触发区 */}
+          {compact && <TagIcon className="size-4" />}
           <span className={compact ? "sr-only" : undefined}>v{version}</span>
           {available && (
             <DownloadIcon
@@ -151,16 +138,6 @@ export function VersionPopover({ compact = false }: { compact?: boolean }) {
           )}
         </div>
 
-        {/* 下载进度 */}
-        {progress !== null && (
-          <div className="mb-3 h-1.5 w-full overflow-hidden rounded-full bg-surface-hover">
-            <div
-              className="h-full rounded-full bg-primary transition-all"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-        )}
-
         {/* 更新日志 */}
         {info?.notes && (
           <p className="mb-3 max-h-32 overflow-y-auto whitespace-pre-wrap text-xs text-ink-mute">
@@ -169,7 +146,7 @@ export function VersionPopover({ compact = false }: { compact?: boolean }) {
         )}
 
         {/* 下载安装按钮 */}
-        {available && progress === null && (
+        {available && (
           <Button
             size="sm"
             className="mb-3 w-full"
