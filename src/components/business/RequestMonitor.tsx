@@ -356,20 +356,20 @@ export function ModelCell({
   // 仅有实际模型（入站空、出站改写）：仍展示唯一可用名。
   if (!inbound) {
     return (
-      <span className="block w-full min-w-0 truncate text-xs text-ink-secondary" title={actual ?? undefined}>
+      <span className="block w-full min-w-0  text-xs text-ink-secondary" title={actual ?? undefined}>
         {actual}
       </span>
     );
   }
   return (
     <div className="flex w-full min-w-0 flex-col gap-0.5">
-      <span className="block w-full min-w-0 truncate text-xs text-ink-secondary" title={inbound}>
+      <span className="block w-full min-w-0  text-xs text-ink-secondary" title={inbound}>
         {inbound}
       </span>
       {actual && (
         <>
           <ArrowDownRightIcon className="size-3 shrink-0 text-ink-mute" aria-hidden />
-          <span className="block w-full min-w-0 truncate text-xs text-ink-secondary" title={actual}>
+          <span className="block w-full min-w-0  text-xs text-ink-secondary" title={actual}>
             {actual}
           </span>
         </>
