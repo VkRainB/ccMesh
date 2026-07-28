@@ -13,13 +13,23 @@ export function useEndpointHealthEvents() {
   const qc = useQueryClient();
   useEffect(() => {
     const unlistens: Array<() => void> = [];
+    let cancelled = false;
     endpointApi
       .onChanged(() => qc.invalidateQueries({ queryKey: ["endpoints"] }))
-      .then((un) => unlistens.push(un));
+      .then((un) => {
+        if (cancelled) un();
+        else unlistens.push(un);
+      });
     healthApi
       .onHealthChanged(() => qc.invalidateQueries({ queryKey: ["endpoint-health"] }))
-      .then((un) => unlistens.push(un));
-    return () => unlistens.forEach((un) => un());
+      .then((un) => {
+        if (cancelled) un();
+        else unlistens.push(un);
+      });
+    return () => {
+      cancelled = true;
+      unlistens.forEach((un) => un());
+    };
   }, [qc]);
 }
 

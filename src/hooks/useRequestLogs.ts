@@ -42,6 +42,7 @@ export function useRequestLogs(params: RequestLogsParams) {
   useEffect(() => {
     if (mode !== "live") return;
     let un: (() => void) | undefined;
+    let cancelled = false;
     statsApi
       .onRequestLogged(() => {
         if (page === 1) {
@@ -49,9 +50,13 @@ export function useRequestLogs(params: RequestLogsParams) {
         }
       })
       .then((u) => {
-        un = u;
+        if (cancelled) u();
+        else un = u;
       });
-    return () => un?.();
+    return () => {
+      cancelled = true;
+      un?.();
+    };
   }, [mode, page, qc]);
 
   return useQuery({

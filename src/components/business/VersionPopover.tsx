@@ -4,9 +4,9 @@ import {
   DownloadIcon,
   ExternalLinkIcon,
   RefreshCwIcon,
-  StarIcon,
   TagIcon,
 } from "lucide-react";
+import { Github } from "@lobehub/icons";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -17,12 +17,12 @@ import {
 } from "@/components/ui/popover";
 import {
   getAppVersion,
+  openGitHubRepo,
   openReleases,
   updateApi,
   type UpdateInfo,
 } from "@/services/modules/update";
 import { useUpdateStore } from "@/stores/modules/update";
-import { useLayoutStore } from "@/stores";
 import { useStartUpdate } from "@/hooks/useUpdate";
 import { cn } from "@/lib/utils";
 
@@ -36,7 +36,6 @@ export function VersionPopover({ compact = false }: { compact?: boolean }) {
   const updateAvailable = useUpdateStore((s) => s.available);
   const updateVersion = useUpdateStore((s) => s.version);
   const setUpdateFromInfo = useUpdateStore((s) => s.setFromInfo);
-  const setActiveView = useLayoutStore((s) => s.setActiveView);
   const startUpdate = useStartUpdate();
   const available = info?.available ?? updateAvailable;
   const availableVersion = info?.available ? info.version : updateVersion;
@@ -116,7 +115,7 @@ export function VersionPopover({ compact = false }: { compact?: boolean }) {
         </div>
 
         {/* 版本号 + 状态 */}
-        <div className="mb-3">
+        <div className="mb-3 text-center">
           <p className="text-lg font-semibold tracking-tight">v{version}</p>
           {info ? (
             info.available ? (
@@ -133,9 +132,7 @@ export function VersionPopover({ compact = false }: { compact?: boolean }) {
             <span className="text-xs text-primary">
               发现新版本 v{updateVersion}
             </span>
-          ) : (
-            <span className="text-xs text-ink-mute">点击上方按钮检查更新</span>
-          )}
+          ) : null}
         </div>
 
         {/* 更新日志 */}
@@ -159,30 +156,21 @@ export function VersionPopover({ compact = false }: { compact?: boolean }) {
 
         {/* 底部链接 */}
         <div className="flex items-center justify-between border-t border-edge pt-3">
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              className="inline-flex items-center gap-1 text-xs text-ink-secondary hover:text-ink-primary transition-colors"
-              onClick={() => openReleases()}
-            >
-              <ExternalLinkIcon className="size-3" />
-              查看发布
-            </button>
-            <button
-              type="button"
-              className="text-xs text-primary-soft hover:text-primary transition-colors"
-              onClick={() => setActiveView("about")}
-            >
-              关于
-            </button>
-          </div>
           <button
             type="button"
-            className="text-amber-500 hover:text-amber-400 transition-colors"
+            className="inline-flex items-center gap-1 text-xs text-ink-secondary hover:text-ink-primary transition-colors"
             onClick={() => openReleases()}
-            aria-label="Star"
           >
-            <StarIcon className="size-4 fill-current" />
+            <ExternalLinkIcon className="size-3" />
+            查看发布
+          </button>
+          <button
+            type="button"
+            className="text-foreground/70 hover:text-foreground transition-colors"
+            onClick={() => openGitHubRepo()}
+            aria-label="GitHub 仓库"
+          >
+            <Github size={16} />
           </button>
         </div>
       </PopoverContent>

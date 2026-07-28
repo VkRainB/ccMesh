@@ -9,12 +9,17 @@ export function useStats() {
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
+    let cancelled = false;
     statsApi
       .onUpdated(() => qc.invalidateQueries({ queryKey: ["stats"] }))
       .then((un) => {
-        unlisten = un;
+        if (cancelled) un();
+        else unlisten = un;
       });
-    return () => unlisten?.();
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
   }, [qc]);
 
   return useQuery({ queryKey: ["stats"], queryFn: statsApi.getStats });

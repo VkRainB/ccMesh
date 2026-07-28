@@ -472,10 +472,15 @@ export function ServiceCard() {
   // 实时高亮：新请求明细到达即更新当前工作端点（与下方实时监控同一事件源）。
   useEffect(() => {
     let un: (() => void) | undefined;
+    let cancelled = false;
     statsApi.onRequestLogged((log) => setLiveEndpoint(log.endpointName)).then((u) => {
-      un = u;
+      if (cancelled) u();
+      else un = u;
     });
-    return () => un?.();
+    return () => {
+      cancelled = true;
+      un?.();
+    };
   }, []);
 
   const running = status?.running ?? false;
