@@ -36,7 +36,11 @@ pub fn create_backup_copy(conn: &Connection, temp_path: &Path) -> AppResult<()> 
 /// 将备份库 ATTACH 后合并到本地：
 /// - app_config：仅安全键；overwrite=REPLACE / keep=IGNORE
 /// - endpoints：按 name，含模型清单/点亮/映射等完整配置字段
-pub fn merge_from_backup(conn: &mut Connection, backup_path: &Path, overwrite: bool) -> AppResult<()> {
+pub fn merge_from_backup(
+    conn: &mut Connection,
+    backup_path: &Path,
+    overwrite: bool,
+) -> AppResult<()> {
     conn.execute_batch(&format!(
         "ATTACH DATABASE '{}' AS backup",
         sql_quote(backup_path)

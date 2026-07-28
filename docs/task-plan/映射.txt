@@ -1,0 +1,39 @@
+以下是gpt系列部分模型支持的推理强度
+
+### gpt-5.5
+1. Low              
+2. Medium 
+3. High 
+4. Extra high       
+
+
+### gpt-5.6-luna
+
+1.Low               
+2. Medium 
+3. High             
+4. Extra high 
+
+### gpt-5.6-terra
+
+1. Low        
+2. Medium 
+3. High           
+4. Extra high
+5.Max
+6.Ultra
+
+### gpt-5.6-sol
+
+1. Low        
+2. Medium 
+3. High           
+4. Extra high
+5.Max
+6.Ultra
+
+
+claude支持的推理强度
+low     medium     high     xhigh      max       ultracode
+
+所以claude_openai，在出站模型对应不同的模型出口，需要有不同的强度策略

@@ -3,6 +3,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 
 const mockGetAppVersion = vi.fn().mockResolvedValue("0.1.2");
 const mockOpenReleases = vi.fn().mockResolvedValue(undefined);
+const mockOpenGitHubRepo = vi.fn().mockResolvedValue(undefined);
 const mockCheck = vi.fn();
 const mockInstallUpdateAndRestart = vi.fn().mockResolvedValue(undefined);
 const mockOnProgress = vi.fn().mockResolvedValue(() => {});
@@ -25,9 +26,16 @@ const createStoreState = (
   ...overrides,
 });
 
+vi.mock("@lobehub/icons", () => ({
+  Github: ({ size }: { size?: number }) => (
+    <svg width={size} height={size} aria-hidden="true" />
+  ),
+}));
+
 vi.mock("@/services/modules/update", () => ({
   getAppVersion: (...args: unknown[]) => mockGetAppVersion(...args),
   openReleases: (...args: unknown[]) => mockOpenReleases(...args),
+  openGitHubRepo: (...args: unknown[]) => mockOpenGitHubRepo(...args),
   GITHUB_RELEASES_URL: "https://github.com/VkRainB/ccMesh/releases",
   updateApi: {
     check: (...args: unknown[]) => mockCheck(...args),
@@ -113,17 +121,17 @@ describe("VersionPopover", () => {
     expect(mockOpenReleases).toHaveBeenCalled();
   });
 
-  it("打开 Popover 后点 Star 图标调用 openReleases", async () => {
+  it("打开 Popover 后点 GitHub 图标调用 openGitHubRepo", async () => {
     render(<VersionPopover />);
     await waitFor(() => {
       expect(screen.getByText("v0.1.2")).toBeInTheDocument();
     });
     fireEvent.click(screen.getByText("v0.1.2"));
     await waitFor(() => {
-      expect(screen.getByLabelText("Star")).toBeInTheDocument();
+      expect(screen.getByLabelText("GitHub 仓库")).toBeInTheDocument();
     });
-    fireEvent.click(screen.getByLabelText("Star"));
-    expect(mockOpenReleases).toHaveBeenCalled();
+    fireEvent.click(screen.getByLabelText("GitHub 仓库"));
+    expect(mockOpenGitHubRepo).toHaveBeenCalled();
   });
 
   it("手动检查返回 available=false 时显示已是最新", async () => {

@@ -1,6 +1,7 @@
 use serde_json::{json, Value};
 
 use crate::error::AppResult;
+use crate::modules::transform::gpt_reasoning_effort::resolve_gpt_chat_reasoning_effort;
 use crate::modules::transform::json_canonical::canonical_json_string;
 use crate::modules::transform::transformer::Transformer;
 use crate::modules::transform::types::{extract_tool_result_content, map_finish_reason};
@@ -28,8 +29,11 @@ pub fn claude_request_to_openai(claude: &Value, endpoint_model: Option<&str>) ->
                 .and_then(|m| m.as_str())
                 .map(|s| s.to_string())
         });
-    if let Some(m) = model {
+    if let Some(m) = model.as_deref() {
         out.insert("model".into(), json!(m));
+        if let Some(effort) = resolve_gpt_chat_reasoning_effort(m, claude) {
+            out.insert("reasoning_effort".into(), json!(effort));
+        }
     }
 
     if let Some(mt) = claude.get("max_tokens").and_then(|v| v.as_i64()) {
@@ -391,6 +395,32 @@ pub fn split_think_tagged_text(text: &str) -> Vec<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn request_applies_gpt_reasoning_effort_strategy() {
+        let claude = json!({
+            "output_config": { "effort": "Ultracode" },
+            "messages": [{ "role": "user", "content": "hi" }]
+        });
+
+        let four_tier = claude_request_to_openai(&claude, Some("gpt-5.5"));
+        let six_tier = claude_request_to_openai(&claude, Some("gpt-5.6-sol"));
+
+        assert_eq!(four_tier["reasoning_effort"], json!("xhigh"));
+        assert_eq!(six_tier["reasoning_effort"], json!("ultra"));
+    }
+
+    #[test]
+    fn request_omits_reasoning_effort_for_non_gpt_model() {
+        let claude = json!({
+            "output_config": { "effort": "High" },
+            "messages": [{ "role": "user", "content": "hi" }]
+        });
+
+        assert!(claude_request_to_openai(&claude, Some("gpt-4o"))
+            .get("reasoning_effort")
+            .is_none());
+    }
 
     #[test]
     fn request_maps_system_and_max_tokens() {
