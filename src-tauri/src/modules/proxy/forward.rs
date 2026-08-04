@@ -682,8 +682,8 @@ pub async fn handle_proxy(
                         (false, false) => relay_buffered_response(resp, stats, meta, format).await,
                     };
                 }
-                // 非 200：按状态码归类上报熔断（客户端错误中性、其余计入失败）
-                match rotation::categorize_status(status) {
+                // 非 200：按状态码+入站 path 归类上报熔断（客户端错误/未知 path 的 404 中性，其余计入失败）
+                match rotation::categorize_status(status, &path) {
                     rotation::Outcome::NonRetryable => {
                         st.breakers.record_neutral(&ep.name, used_permit)
                     }

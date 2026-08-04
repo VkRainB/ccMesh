@@ -61,7 +61,7 @@ pub fn should_retry_status(status: u16) -> bool {
 pub enum Outcome {
     /// 可重试故障（5xx/429/网络错误等）：计入熔断失败。
     Retryable,
-    /// 客户端错误（4xx 业务错误）：不计入熔断（中性），仅释放半开许可。
+    /// 不计熔断（客户端错误 / 未知入站 path 的 404）：中性，仅释放半开许可。
     NonRetryable,
 }
 
@@ -70,9 +70,26 @@ fn is_client_error(status: u16) -> bool {
     matches!(status, 400 | 401 | 405 | 406 | 413 | 414 | 415 | 422)
 }
 
-/// 按状态码归类熔断结果（200 视为成功由调用方单独处理；此处用于非 200 路径）。
-pub fn categorize_status(status: u16) -> Outcome {
+/// 已知业务入站 path（与 url_normalize / 入站启发式对齐）。
+/// ponytail: 硬编码清单；漏加新业务 path 会将其 404 误标中性。升级=与 url_normalize 共用常量。
+fn is_known_business_path(path: &str) -> bool {
+    const KNOWN: &[&str] = &[
+        "/v1/messages",
+        "/v1/chat/completions",
+        "/v1/responses",
+        "/v1/models",
+    ];
+    // 代理根挂载：精确匹配即可；ends_with 会把 /evil/v1/messages 误判为已知。
+    let lower = path.trim_end_matches('/').to_ascii_lowercase();
+    KNOWN.iter().any(|k| lower == *k)
+}
+
+/// 按状态码 + 入站 path 归类熔断结果（200 由调用方单独处理；此处用于非 200）。
+/// 未知入站 path 的 404 视为扫描/误配，记中性；已知业务 path 的 404 仍计失败。
+pub fn categorize_status(status: u16, inbound_path: &str) -> Outcome {
     if is_client_error(status) {
+        Outcome::NonRetryable
+    } else if status == 404 && !is_known_business_path(inbound_path) {
         Outcome::NonRetryable
     } else {
         Outcome::Retryable
@@ -143,15 +160,54 @@ mod tests {
 
     #[test]
     fn categorize_status_separates_client_errors() {
+        let known = "/v1/messages";
         // 客户端错误 → 不污染熔断
-        assert_eq!(categorize_status(400), Outcome::NonRetryable);
-        assert_eq!(categorize_status(401), Outcome::NonRetryable);
-        assert_eq!(categorize_status(422), Outcome::NonRetryable);
+        assert_eq!(categorize_status(400, known), Outcome::NonRetryable);
+        assert_eq!(categorize_status(401, known), Outcome::NonRetryable);
+        assert_eq!(categorize_status(422, known), Outcome::NonRetryable);
         // 服务端/限流/网关错误 → 计入熔断
-        assert_eq!(categorize_status(403), Outcome::Retryable);
-        assert_eq!(categorize_status(429), Outcome::Retryable);
-        assert_eq!(categorize_status(500), Outcome::Retryable);
-        assert_eq!(categorize_status(502), Outcome::Retryable);
-        assert_eq!(categorize_status(503), Outcome::Retryable);
+        assert_eq!(categorize_status(403, known), Outcome::Retryable);
+        assert_eq!(categorize_status(429, known), Outcome::Retryable);
+        assert_eq!(categorize_status(500, known), Outcome::Retryable);
+        assert_eq!(categorize_status(502, known), Outcome::Retryable);
+        assert_eq!(categorize_status(503, known), Outcome::Retryable);
+    }
+
+    #[test]
+    fn unknown_path_404_is_neutral_known_path_404_trips() {
+        assert_eq!(
+            categorize_status(404, "/api/hello"),
+            Outcome::NonRetryable
+        );
+        assert_eq!(categorize_status(404, "/foo"), Outcome::NonRetryable);
+        assert_eq!(
+            categorize_status(404, "/v1/messages"),
+            Outcome::Retryable
+        );
+        assert_eq!(
+            categorize_status(404, "/v1/chat/completions"),
+            Outcome::Retryable
+        );
+        assert_eq!(
+            categorize_status(404, "/v1/responses"),
+            Outcome::Retryable
+        );
+        assert_eq!(categorize_status(404, "/v1/models"), Outcome::Retryable);
+        // 尾斜杠 / 大小写仍视为已知
+        assert_eq!(
+            categorize_status(404, "/v1/messages/"),
+            Outcome::Retryable
+        );
+        assert_eq!(
+            categorize_status(404, "/V1/Messages"),
+            Outcome::Retryable
+        );
+        // 带前缀的「假已知」仍算未知（根挂载精确匹配）
+        assert_eq!(
+            categorize_status(404, "/evil/v1/messages"),
+            Outcome::NonRetryable
+        );
+        // 未知 path 的 5xx 仍计失败
+        assert_eq!(categorize_status(500, "/api/hello"), Outcome::Retryable);
     }
 }
