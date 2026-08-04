@@ -61,3 +61,10 @@ pub fn codex_profiles_dir(app: &AppHandle) -> AppResult<PathBuf> {
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
 }
+
+/// 宠物资源根：`<app_data_dir>/pets`（不存在则创建）。
+pub fn pets_dir(app: &AppHandle) -> AppResult<PathBuf> {
+    let dir = app_data_dir(app)?.join("pets");
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
+}

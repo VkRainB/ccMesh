@@ -4,6 +4,7 @@ pub mod lifecycle;
 pub mod logs;
 pub mod models_cache;
 pub mod models_probe;
+pub mod pet;
 pub mod proxy;
 pub mod stats;
 pub mod storage;

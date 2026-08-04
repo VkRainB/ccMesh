@@ -5,6 +5,7 @@ pub mod endpoint;
 pub mod health;
 pub mod logs;
 pub mod models;
+pub mod pet;
 pub mod proxy;
 pub mod stats;
 pub mod tokens;
