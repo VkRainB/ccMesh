@@ -1,4 +1,5 @@
 import type { ComponentType } from "react";
+import { Cpu } from "lucide-react";
 import {
   Aws,
   Azure,
@@ -54,7 +55,7 @@ type ModelIconConfig = {
 /** 模型名前缀 → 品牌彩色图标映射（覆盖 40 组品牌前缀）。 */
 const MODEL_ICON_PATTERNS: ModelIconConfig[] = [
   // OpenAI - GPT series（OpenAI 无 Color 组件，用默认 Mono）
-  { prefixes: ["gpt-", "o1", "o3", "o4", "chatgpt", "text-embedding", "dall-e", "openai"], Icon: OpenAI },
+  { prefixes: ["gpt-", "o1", "o3", "o4", "chatgpt", "text-embedding", "dall-e", "openai", "codex"], Icon: OpenAI },
   // Anthropic - Claude series
   { prefixes: ["claude", "anthropic"], Icon: Claude.Color },
   // Google - Gemini / Gemma / PaLM
@@ -118,12 +119,12 @@ const MODEL_ICON_PATTERNS: ModelIconConfig[] = [
   { prefixes: ["mimo"], Icon: XiaomiMiMo },
 ];
 
-const DEFAULT_ICON = OpenAI;
+const DEFAULT_ICON = Cpu;
 
 /**
  * 按模型名前缀匹配品牌彩色图标（无背景圆，纯图标）。
  * 含 `/` 时取最后一段再匹配（如 `anthropic/claude-3-5-haiku` → `claude-3-5-haiku`）。
- * 未匹配回退 OpenAI 图标。
+ * 未匹配回退 lucide Cpu 图标。
  */
 export function getModelIcon(modelName: string): IconComponent {
   const nameToMatch = modelName.includes("/") ? modelName.split("/").pop()! : modelName;
