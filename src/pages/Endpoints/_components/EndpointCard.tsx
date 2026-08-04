@@ -337,11 +337,18 @@ export function EndpointCard({
     </>
   );
 
+  // 映射已启用且至少一条入站→出站配置时高亮图标。
+  const mappingActive =
+    endpoint.modelMappingsEnabled !== false &&
+    (endpoint.modelMappings?.length ?? 0) > 0;
+
   const actions = (
     <div className="flex gap-0.5">
       {testButton}
       <IconAction label="模型映射" onClick={() => setMapOpen(true)}>
-        <WaypointsIcon className="size-4" />
+        <WaypointsIcon
+          className={`size-4 ${mappingActive ? "text-primary" : ""}`}
+        />
       </IconAction>
       <IconAction label="编辑" onClick={() => onEdit(endpoint)}>
         <PencilIcon className="size-4" />

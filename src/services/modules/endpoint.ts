@@ -22,6 +22,8 @@ export interface Endpoint {
   /** 点亮（对外公布）的模型子集：`models` 的子集。空数组=全部公布（向后兼容旧端点）。 */
   activeModels: string[];
   modelMappings: ModelMapping[];
+  /** 是否启用模型映射；关闭时保留配置但不公布入站别名、不改写出站。 */
+  modelMappingsEnabled: boolean;
   remark: string;
   sortOrder: number;
   fast: boolean;
@@ -44,6 +46,7 @@ export interface CreateEndpointRequest {
   models?: string[];
   activeModels?: string[];
   modelMappings?: ModelMapping[];
+  modelMappingsEnabled?: boolean;
   remark?: string;
   fast?: boolean;
 }
@@ -74,10 +77,14 @@ export function litOutboundModels(
 
 /**
  * 对外公布的可用模型：基础集（锁定 model 优先；否则点亮子集 activeModels 非空则取它，
- * 空则回退全量 models）并入映射入站名，大小写去重（保留首次出现）。与后端 resolver 一致。
+ * 空则回退全量 models）并入映射入站名（仅 modelMappingsEnabled 时），大小写去重（保留首次出现）。
+ * 与后端 resolver 一致。缺省/旧数据未带开关时按开启处理。
  */
 export function advertisedModels(
-  ep: Pick<Endpoint, "model" | "models" | "activeModels" | "modelMappings">,
+  ep: Pick<
+    Endpoint,
+    "model" | "models" | "activeModels" | "modelMappings" | "modelMappingsEnabled"
+  >,
 ): string[] {
   const base = ep.model
     ? [ep.model]
@@ -93,7 +100,9 @@ export function advertisedModels(
     out.push(m);
   };
   for (const m of base) add(m);
-  for (const { from } of ep.modelMappings ?? []) add(from);
+  if (ep.modelMappingsEnabled !== false) {
+    for (const { from } of ep.modelMappings ?? []) add(from);
+  }
   return out;
 }
 

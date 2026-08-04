@@ -11,11 +11,13 @@ const ep = (over: {
   models?: string[];
   activeModels?: string[];
   modelMappings?: { from: string; to: string }[];
+  modelMappingsEnabled?: boolean;
 }) => ({
   model: over.model ?? "",
   models: over.models ?? [],
   activeModels: over.activeModels ?? [],
   modelMappings: over.modelMappings ?? [],
+  modelMappingsEnabled: over.modelMappingsEnabled ?? true,
 });
 
 describe("advertisedModels 点亮过滤", () => {
@@ -53,6 +55,18 @@ describe("advertisedModels 点亮过滤", () => {
       ep({ models: ["GPT-5", "gpt-5"], activeModels: ["GPT-5", "gpt-5"] }),
     );
     expect(adv).toEqual(["GPT-5"]);
+  });
+
+  it("关闭映射总开关 → 不并入入站别名（配置仍在）", () => {
+    const adv = advertisedModels(
+      ep({
+        models: ["claude-opus-4-8"],
+        modelMappings: [{ from: "gpt-5", to: "claude-opus-4-8" }],
+        modelMappingsEnabled: false,
+      }),
+    );
+    expect(adv).toEqual(["claude-opus-4-8"]);
+    expect(adv).not.toContain("gpt-5");
   });
 });
 
