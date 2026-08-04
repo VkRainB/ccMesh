@@ -11,3 +11,4 @@ export * from "./modules/endpoint";
 export * from "./modules/models";
 export * from "./modules/tokens";
 export * from "./modules/tool_config";
+export * from "./modules/pet";
