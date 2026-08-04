@@ -8,6 +8,7 @@ import { useAutostartEnabled } from "@/hooks/useAutostartEnabled";
 import { configApi } from "@/services/modules/config";
 import { AdvancedCard } from "./_components/AdvancedCard";
 import { GeneralCard } from "./_components/GeneralCard";
+import { PetCard } from "./_components/PetCard";
 import { ProxyCard } from "./_components/ProxyCard";
 import { StartupCard } from "./_components/StartupCard";
 
@@ -77,6 +78,7 @@ export function Settings() {
           testProxy={testProxy}
           testingProxy={testingProxy}
         />
+        <PetCard />
       </SettingsGrid>
     </div>
   );

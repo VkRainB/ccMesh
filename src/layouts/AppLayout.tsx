@@ -27,6 +27,7 @@ const Settings = lazy(() =>
 const About = lazy(() =>
   import("@/pages/About").then((m) => ({ default: m.About })),
 );
+const Pet = lazy(() => import("@/pages/Pet").then((m) => ({ default: m.Pet })));
 
 const PAGES: Record<ViewId, ComponentType> = {
   dashboard: Dashboard,
@@ -37,6 +38,7 @@ const PAGES: Record<ViewId, ComponentType> = {
   logs: Logs,
   settings: Settings,
   about: About,
+  pet: Pet,
 };
 
 export function AppLayout() {

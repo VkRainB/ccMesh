@@ -12,7 +12,8 @@ export type ViewId =
   | "sync"
   | "logs"
   | "settings"
-  | "about";
+  | "about"
+  | "pet";
 export type Lang = "zh" | "en";
 
 interface LayoutState {
