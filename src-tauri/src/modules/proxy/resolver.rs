@@ -91,7 +91,7 @@ fn by_name(name: &str, model_override: Option<String>, enabled: &[Endpoint]) -> 
 }
 
 /// 端点对外公布/可路由匹配的模型集合：基础可用模型（锁定 `model` 优先，否则 `models` 清单）
-/// 并入所有映射的入站名（`model_mappings[].from`）。大小写不敏感去重、保留首次出现的原样写法。
+/// 并入映射入站名（`model_mappings[].from`，仅当 `model_mappings_enabled`）。大小写不敏感去重、保留首次出现的原样写法。
 ///
 /// 点亮过滤：当 `active_models` 非空时，基础集合仅取点亮子集（其余视为保留不公布）；
 /// 空集表示全部公布（向后兼容旧端点）。锁定 `model` 优先于清单，不受点亮影响。
@@ -103,12 +103,17 @@ pub fn advertised_models(ep: &Endpoint) -> Vec<String> {
     } else {
         ep.models.clone()
     };
+    let mapping_from = if ep.model_mappings_enabled {
+        ep.model_mappings
+            .iter()
+            .map(|mm| mm.from.clone())
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
     let mut out: Vec<String> = Vec::new();
     let mut seen: Vec<String> = Vec::new();
-    for m in base
-        .into_iter()
-        .chain(ep.model_mappings.iter().map(|mm| mm.from.clone()))
-    {
+    for m in base.into_iter().chain(mapping_from) {
         let key = m.trim().to_ascii_lowercase();
         if key.is_empty() || seen.contains(&key) {
             continue;
@@ -119,18 +124,20 @@ pub fn advertised_models(ep: &Endpoint) -> Vec<String> {
     out
 }
 
-/// 解析转发上游应使用的出站模型：① 入站名命中映射 → 映射出站名；② 否则锁定 `model` 非空 → 锁定模型；
+/// 解析转发上游应使用的出站模型：① 映射开启且入站名命中 → 映射出站名；② 否则锁定 `model` 非空 → 锁定模型；
 /// ③ 否则 `None`（透传客户端原始 model）。大小写不敏感匹配入站名。
 pub fn resolve_outbound(ep: &Endpoint, inbound: Option<&str>) -> Option<String> {
-    if let Some(m) = inbound {
-        let m = m.trim();
-        if !m.is_empty() {
-            if let Some(map) = ep
-                .model_mappings
-                .iter()
-                .find(|mm| mm.from.trim().eq_ignore_ascii_case(m) && !mm.to.trim().is_empty())
-            {
-                return Some(map.to.clone());
+    if ep.model_mappings_enabled {
+        if let Some(m) = inbound {
+            let m = m.trim();
+            if !m.is_empty() {
+                if let Some(map) = ep
+                    .model_mappings
+                    .iter()
+                    .find(|mm| mm.from.trim().eq_ignore_ascii_case(m) && !mm.to.trim().is_empty())
+                {
+                    return Some(map.to.clone());
+                }
             }
         }
     }
@@ -192,6 +199,7 @@ mod tests {
             models: Vec::new(),
             active_models: Vec::new(),
             model_mappings: Vec::new(),
+            model_mappings_enabled: true,
             remark: "".into(),
             sort_order: 0,
             fast: false,
@@ -449,5 +457,23 @@ mod tests {
             resolve_outbound(&both, Some("a")).as_deref(),
             Some("mapped-to")
         );
+    }
+
+    #[test]
+    fn mappings_disabled_skips_advertise_and_rewrite() {
+        let off = Endpoint {
+            model_mappings_enabled: false,
+            ..ep_mapped("e", &["claude-opus-4-8"], &[("gpt-5", "claude-opus-4-8")])
+        };
+        let adv = advertised_models(&off);
+        assert!(adv.iter().any(|m| m == "claude-opus-4-8"));
+        assert!(!adv.iter().any(|m| m.eq_ignore_ascii_case("gpt-5")));
+        // 配置仍在，但不改写
+        assert_eq!(off.model_mappings.len(), 1);
+        assert_eq!(resolve_outbound(&off, Some("gpt-5")), None);
+        // 关闭映射后按入站名过滤也不再命中该端点（回退全列表）
+        let eps = vec![off.clone(), ep_with_models("cc", &["mimo"])];
+        let got = filter_by_model(&eps, Some("gpt-5"));
+        assert_eq!(got.len(), 2);
     }
 }

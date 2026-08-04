@@ -32,6 +32,8 @@ pub struct Endpoint {
     pub active_models: Vec<String>,
     /// 入站→出站模型映射。客户端用入站名请求 → 路由匹配 + 改写为出站名转发上游。
     pub model_mappings: Vec<ModelMapping>,
+    /// 是否启用模型映射。关闭时保留 `model_mappings` 配置，但不公布入站别名、不改写出站。
+    pub model_mappings_enabled: bool,
     pub remark: String,
     pub sort_order: i64,
     /// 是否属于快速队列。仅启用端点可为 true；禁用端点保存时会被清除。
@@ -69,6 +71,8 @@ pub struct CreateEndpointRequest {
     pub active_models: Vec<String>,
     #[serde(default)]
     pub model_mappings: Vec<ModelMapping>,
+    #[serde(default = "default_true")]
+    pub model_mappings_enabled: bool,
     #[serde(default)]
     pub remark: String,
     #[serde(default)]
@@ -89,6 +93,7 @@ pub struct UpdateEndpointRequest {
     pub models: Option<Vec<String>>,
     pub active_models: Option<Vec<String>>,
     pub model_mappings: Option<Vec<ModelMapping>>,
+    pub model_mappings_enabled: Option<bool>,
     pub remark: Option<String>,
     pub fast: Option<bool>,
 }

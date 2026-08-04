@@ -131,6 +131,8 @@ const MIGRATIONS: &[&str] = &[
      ALTER TABLE endpoints ADD COLUMN fast_sort_order INTEGER NOT NULL DEFAULT 0;",
     // v13：归档标记。归档端点从主列表隐藏但保留配置，可还原或删除。
     "ALTER TABLE endpoints ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;",
+    // v14：模型映射总开关。关闭时保留映射配置但不生效；旧行默认开启（向后兼容）。
+    "ALTER TABLE endpoints ADD COLUMN model_mappings_enabled INTEGER NOT NULL DEFAULT 1;",
 ];
 
 /// 幂等执行迁移：读取 `schema_version` 当前版本，仅应用尚未执行的脚本。
@@ -326,5 +328,17 @@ mod tests {
             rows.filter_map(Result::ok).collect()
         };
         assert!(cols.contains(&"archived".to_string()));
+    }
+
+    #[test]
+    fn v14_adds_model_mappings_enabled_column() {
+        let c = Connection::open_in_memory().unwrap();
+        run_migrations(&c).unwrap();
+        let cols: Vec<String> = {
+            let mut stmt = c.prepare("PRAGMA table_info(endpoints)").unwrap();
+            let rows = stmt.query_map([], |r| r.get::<_, String>(1)).unwrap();
+            rows.filter_map(Result::ok).collect()
+        };
+        assert!(cols.contains(&"model_mappings_enabled".to_string()));
     }
 }

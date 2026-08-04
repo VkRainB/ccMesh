@@ -377,6 +377,7 @@ mod tests {
             models: Vec::new(),
             active_models: Vec::new(),
             model_mappings: Vec::new(),
+            model_mappings_enabled: true,
             remark: "".into(),
             sort_order: 0,
             fast: false,

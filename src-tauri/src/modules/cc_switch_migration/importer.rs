@@ -130,6 +130,7 @@ pub async fn import(
             models: model_ids.clone(),
             active_models: vec![],
             model_mappings: vec![],
+            model_mappings_enabled: true,
             remark: p.remark.clone(),
             fast: false,
         };

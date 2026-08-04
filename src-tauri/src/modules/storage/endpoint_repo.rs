@@ -5,7 +5,7 @@ use rusqlite::{params, Connection, OptionalExtension, Row};
 use crate::error::{AppError, AppResult};
 use crate::models::endpoint::{CreateEndpointRequest, Endpoint, UpdateEndpointRequest};
 
-const COLS: &str = "id, name, api_url, api_key, auth_mode, enabled, use_proxy, transformer, model, models, active_models, model_mappings, remark, sort_order, fast, fast_sort_order, test_status, created_at, updated_at, archived";
+const COLS: &str = "id, name, api_url, api_key, auth_mode, enabled, use_proxy, transformer, model, models, active_models, model_mappings, model_mappings_enabled, remark, sort_order, fast, fast_sort_order, test_status, created_at, updated_at, archived";
 
 fn row_to_endpoint(row: &Row) -> rusqlite::Result<Endpoint> {
     Ok(Endpoint {
@@ -30,6 +30,7 @@ fn row_to_endpoint(row: &Row) -> rusqlite::Result<Endpoint> {
             let s: String = row.get("model_mappings")?;
             serde_json::from_str(&s).unwrap_or_default()
         },
+        model_mappings_enabled: row.get::<_, i64>("model_mappings_enabled")? != 0,
         remark: row.get("remark")?,
         sort_order: row.get("sort_order")?,
         fast: row.get::<_, i64>("fast")? != 0,
@@ -119,8 +120,8 @@ pub fn create(conn: &Connection, req: &CreateEndpointRequest) -> AppResult<Endpo
     let active = sanitize_active(&req.models, &req.active_models);
     conn.execute(
         "INSERT INTO endpoints
-            (name, api_url, api_key, auth_mode, enabled, use_proxy, transformer, model, models, active_models, model_mappings, remark, sort_order, fast, fast_sort_order)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+            (name, api_url, api_key, auth_mode, enabled, use_proxy, transformer, model, models, active_models, model_mappings, model_mappings_enabled, remark, sort_order, fast, fast_sort_order)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
         params![
             req.name,
             req.api_url,
@@ -133,6 +134,7 @@ pub fn create(conn: &Connection, req: &CreateEndpointRequest) -> AppResult<Endpo
             serde_json::to_string(&req.models).unwrap_or_else(|_| "[]".into()),
             serde_json::to_string(&active).unwrap_or_else(|_| "[]".into()),
             serde_json::to_string(&req.model_mappings).unwrap_or_else(|_| "[]".into()),
+            req.model_mappings_enabled as i64,
             req.remark,
             next_order,
             (req.enabled && req.fast) as i64,
@@ -186,6 +188,9 @@ pub fn update(conn: &Connection, id: i64, req: &UpdateEndpointRequest) -> AppRes
     if let Some(ref v) = req.model_mappings {
         e.model_mappings = v.clone();
     }
+    if let Some(v) = req.model_mappings_enabled {
+        e.model_mappings_enabled = v;
+    }
     if let Some(ref v) = req.remark {
         e.remark = v.clone();
     }
@@ -202,8 +207,9 @@ pub fn update(conn: &Connection, id: i64, req: &UpdateEndpointRequest) -> AppRes
         "UPDATE endpoints SET
             name = ?1, api_url = ?2, api_key = ?3, auth_mode = ?4, enabled = ?5,
             use_proxy = ?6, transformer = ?7, model = ?8, models = ?9, active_models = ?10,
-            model_mappings = ?11, remark = ?12, fast = ?13, updated_at = datetime('now')
-         WHERE id = ?14",
+            model_mappings = ?11, model_mappings_enabled = ?12, remark = ?13, fast = ?14,
+            updated_at = datetime('now')
+         WHERE id = ?15",
         params![
             e.name,
             e.api_url,
@@ -216,6 +222,7 @@ pub fn update(conn: &Connection, id: i64, req: &UpdateEndpointRequest) -> AppRes
             serde_json::to_string(&e.models).unwrap_or_else(|_| "[]".into()),
             serde_json::to_string(&e.active_models).unwrap_or_else(|_| "[]".into()),
             serde_json::to_string(&e.model_mappings).unwrap_or_else(|_| "[]".into()),
+            e.model_mappings_enabled as i64,
             e.remark,
             e.fast as i64,
             id,
@@ -392,6 +399,7 @@ mod tests {
             models: Vec::new(),
             active_models: Vec::new(),
             model_mappings: Vec::new(),
+            model_mappings_enabled: true,
             remark: String::new(),
             fast: false,
         }
@@ -616,12 +624,14 @@ mod tests {
         assert_eq!(created.model_mappings.len(), 1);
         assert_eq!(created.model_mappings[0].from, "gpt-5");
         assert_eq!(created.model_mappings[0].to, "claude-opus-4-8");
+        assert!(created.model_mappings_enabled); // 默认开启
 
         // 旧端点默认空映射
         let bare = create(&c, &req("bare")).unwrap();
         assert!(bare.model_mappings.is_empty());
+        assert!(bare.model_mappings_enabled);
 
-        // update 覆盖映射
+        // update 覆盖映射 + 关闭总开关（配置保留）
         update(
             &c,
             created.id,
@@ -636,12 +646,14 @@ mod tests {
                         to: "claude-opus-4-8".into(),
                     },
                 ]),
+                model_mappings_enabled: Some(false),
                 ..Default::default()
             },
         )
         .unwrap();
         let got = get_by_id(&c, created.id).unwrap().unwrap();
         assert_eq!(got.model_mappings.len(), 2);
+        assert!(!got.model_mappings_enabled);
     }
 
     #[test]

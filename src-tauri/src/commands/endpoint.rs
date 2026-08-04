@@ -112,6 +112,7 @@ pub fn clone_endpoint(state: State<AppState>, id: i64) -> AppResult<Endpoint> {
         models: src.models,
         active_models: src.active_models,
         model_mappings: src.model_mappings,
+        model_mappings_enabled: src.model_mappings_enabled,
         remark: src.remark,
         fast: src.fast,
     };
