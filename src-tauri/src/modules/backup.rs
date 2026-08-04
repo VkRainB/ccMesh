@@ -61,6 +61,8 @@ pub fn build_config_bundle(conn: &Connection) -> AppResult<ConfigBundle> {
             model: e.model,
             models: e.models,
             active_models: e.active_models,
+            model_mappings: e.model_mappings,
+            model_mappings_enabled: e.model_mappings_enabled,
             remark: e.remark,
             sort_order: e.sort_order,
             credentials,
@@ -124,12 +126,15 @@ pub fn import_config_bundle(
             .cloned()
             .collect();
         let active_json = serde_json::to_string(&active).unwrap_or_else(|_| "[]".to_string());
+        let mappings_json =
+            serde_json::to_string(&ep.model_mappings).unwrap_or_else(|_| "[]".to_string());
         let id = match existing {
             Some(id) if overwrite => {
                 tx.execute(
                     "UPDATE endpoints SET api_url=?1, api_key=?2, auth_mode=?3, enabled=?4,
-                        use_proxy=?5, transformer=?6, model=?7, models=?8, active_models=?9, remark=?10,
-                        sort_order=?11, updated_at=datetime('now') WHERE id=?12",
+                        use_proxy=?5, transformer=?6, model=?7, models=?8, active_models=?9,
+                        model_mappings=?10, model_mappings_enabled=?11, remark=?12,
+                        sort_order=?13, updated_at=datetime('now') WHERE id=?14",
                     params![
                         ep.api_url,
                         ep.api_key,
@@ -140,6 +145,8 @@ pub fn import_config_bundle(
                         ep.model,
                         models_json,
                         active_json,
+                        mappings_json,
+                        ep.model_mappings_enabled as i64,
                         ep.remark,
                         ep.sort_order,
                         id,
@@ -159,8 +166,9 @@ pub fn import_config_bundle(
             None => {
                 tx.execute(
                     "INSERT INTO endpoints
-                        (name, api_url, api_key, auth_mode, enabled, use_proxy, transformer, model, models, active_models, remark, sort_order)
-                     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
+                        (name, api_url, api_key, auth_mode, enabled, use_proxy, transformer, model,
+                         models, active_models, model_mappings, model_mappings_enabled, remark, sort_order)
+                     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
                     params![
                         ep.name,
                         ep.api_url,
@@ -172,6 +180,8 @@ pub fn import_config_bundle(
                         ep.model,
                         models_json,
                         active_json,
+                        mappings_json,
+                        ep.model_mappings_enabled as i64,
                         ep.remark,
                         ep.sort_order,
                     ],
@@ -222,8 +232,10 @@ mod tests {
 
     fn seed(conn: &Connection) {
         conn.execute(
-            "INSERT INTO endpoints(name, api_url, api_key, enabled, use_proxy, transformer, model, models, remark)
-             VALUES('ep1','https://a','k1',1,1,'openai','gpt', '[\"gpt\",\"o3\"]','r1')",
+            "INSERT INTO endpoints(name, api_url, api_key, enabled, use_proxy, transformer, model, models,
+                 model_mappings, model_mappings_enabled, remark)
+             VALUES('ep1','https://a','k1',1,1,'openai','gpt', '[\"gpt\",\"o3\"]',
+                 '[{\"from\":\"alias\",\"to\":\"gpt\"}]', 0, 'r1')",
             [],
         )
         .unwrap();
@@ -255,6 +267,9 @@ mod tests {
         let ep = &bundle.endpoints[0];
         assert_eq!(ep.models, vec!["gpt".to_string(), "o3".to_string()]);
         assert!(ep.use_proxy);
+        assert_eq!(ep.model_mappings.len(), 1);
+        assert_eq!(ep.model_mappings[0].from, "alias");
+        assert!(!ep.model_mappings_enabled);
         assert_eq!(ep.credentials.len(), 1);
         assert_eq!(ep.credentials[0].api_key, "cred-a");
         assert_eq!(bundle.config.get("theme").map(String::as_str), Some("dark"));
@@ -274,6 +289,15 @@ mod tests {
         assert_eq!(s1.endpoints_added, 1);
         assert_eq!(s1.credentials, 1);
         assert_eq!(s1.config_keys, 1); // 仅 theme
+        let (mappings, mappings_enabled): (String, i64) = dst
+            .query_row(
+                "SELECT model_mappings, model_mappings_enabled FROM endpoints WHERE name='ep1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert!(mappings.contains("\"from\":\"alias\""));
+        assert_eq!(mappings_enabled, 0);
 
         // 再次非覆盖导入：跳过同名
         let s2 = import_config_bundle(&mut dst, &bundle, false).unwrap();

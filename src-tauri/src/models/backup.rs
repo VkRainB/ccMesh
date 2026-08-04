@@ -2,6 +2,8 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::models::endpoint::ModelMapping;
+
 fn default_true() -> bool {
     true
 }
@@ -45,6 +47,11 @@ pub struct EndpointExport {
     pub models: Vec<String>,
     #[serde(default)]
     pub active_models: Vec<String>,
+    #[serde(default)]
+    pub model_mappings: Vec<ModelMapping>,
+    /// 旧导出包缺此字段时按开启处理（与 DB 默认一致）。
+    #[serde(default = "default_true")]
+    pub model_mappings_enabled: bool,
     #[serde(default)]
     pub remark: String,
     #[serde(default)]

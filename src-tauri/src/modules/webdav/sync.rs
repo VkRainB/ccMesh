@@ -64,10 +64,10 @@ pub fn merge_from_backup(
             &format!(
                 "INSERT {mode} INTO endpoints
                     (name, api_url, api_key, auth_mode, enabled, use_proxy, transformer,
-                     model, models, active_models, model_mappings, remark,
+                     model, models, active_models, model_mappings, model_mappings_enabled, remark,
                      sort_order, fast, fast_sort_order, test_status, archived)
                  SELECT name, api_url, api_key, auth_mode, enabled, use_proxy, transformer,
-                     model, models, active_models, model_mappings, remark,
+                     model, models, active_models, model_mappings, model_mappings_enabled, remark,
                      sort_order, fast, fast_sort_order, test_status, archived
                  FROM backup.endpoints"
             ),
@@ -115,10 +115,10 @@ mod tests {
         src.execute(
             "INSERT INTO endpoints
                 (name, api_url, api_key, auth_mode, enabled, use_proxy, transformer,
-                 model, models, active_models, model_mappings, remark,
+                 model, models, active_models, model_mappings, model_mappings_enabled, remark,
                  sort_order, fast, fast_sort_order, test_status, archived)
              VALUES ('ep','https://x','k','api_key',1,1,'claude',
-                 '','[\"a\",\"b\"]','[\"a\"]','[{\"from\":\"x\",\"to\":\"a\"}]','r',
+                 '','[\"a\",\"b\"]','[\"a\"]','[{\"from\":\"x\",\"to\":\"a\"}]',0,'r',
                  0,1,0,'ok',0)",
             [],
         )
@@ -164,16 +164,25 @@ mod tests {
 
         merge_from_backup(&mut tgt, &bk_path, true).unwrap();
 
-        let (models, active, mappings, use_proxy, fast): (String, String, String, i64, i64) = tgt
+        let (models, active, mappings, mappings_enabled, use_proxy, fast): (
+            String,
+            String,
+            String,
+            i64,
+            i64,
+            i64,
+        ) = tgt
             .query_row(
-                "SELECT models, active_models, model_mappings, use_proxy, fast FROM endpoints WHERE name='ep'",
+                "SELECT models, active_models, model_mappings, model_mappings_enabled, use_proxy, fast
+                 FROM endpoints WHERE name='ep'",
                 [],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
             )
             .unwrap();
         assert_eq!(models, r#"["a","b"]"#);
         assert_eq!(active, r#"["a"]"#);
         assert!(mappings.contains("\"from\":\"x\""));
+        assert_eq!(mappings_enabled, 0);
         assert_eq!(use_proxy, 1);
         assert_eq!(fast, 1);
 
