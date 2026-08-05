@@ -1,7 +1,7 @@
 /**
  * 模型映射弹窗「快捷添加」预设。
  * 改这里即可增删/换色；`from` 写入入站模型，出站由 UI 默认选第一个可用模型。
- * 取值对齐 sub2api openaiPresetMappings 中对应项。
+ * OpenAI 兼容项对齐 sub2api；Claude 项对齐 Anthropic models overview。
  */
 export interface ModelMappingPreset {
   /** 芯片上显示的文案 */
@@ -38,21 +38,27 @@ export const MODEL_MAPPING_PRESETS: ModelMappingPreset[] = [
       "bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400",
   },
   {
-    label: "Haiku",
-    from: "claude-haiku-4-5-20251001",
+    label: "Fable",
+    from: "claude-fable-5",
     color:
-      "bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400",
+      "bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/30 dark:text-rose-400",
   },
   {
     label: "Opus",
-    from: "claude-opus-4-6",
+    from: "claude-opus-5",
     color:
       "bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-400",
   },
   {
     label: "Sonnet",
-    from: "claude-sonnet-4-6",
+    from: "claude-sonnet-5",
     color:
       "bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400",
+  },
+  {
+    label: "Haiku",
+    from: "claude-haiku-4-5",
+    color:
+      "bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400",
   },
 ];

@@ -122,7 +122,7 @@ export function ModelMappingDialog({ open, onOpenChange, endpoint }: Props) {
         <div className="rounded-md border border-edge bg-surface-raised px-3 py-2.5 text-xs leading-relaxed text-ink-secondary">
           <p>「入站模型」请求时改写为「出站模型」转发上游；关闭则不生效</p>
           <p className="mt-1 pl-1.5 font-mono text-ink-mute">
-            例：客户端 gpt-5.5 → 上游 claude-opus-4-8
+            例：客户端 gpt-5.5 → 上游 claude-opus-5
           </p>
         </div>
 
