@@ -1,5 +1,6 @@
 pub mod backup;
 pub mod cc_switch_migration;
+pub mod chat;
 pub mod lifecycle;
 pub mod logs;
 pub mod models_cache;

@@ -1,5 +1,6 @@
 pub mod backup;
 pub mod cc_switch;
+pub mod chat;
 pub mod config;
 pub mod endpoint;
 pub mod health;

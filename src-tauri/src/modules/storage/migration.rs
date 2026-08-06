@@ -133,6 +133,33 @@ const MIGRATIONS: &[&str] = &[
     "ALTER TABLE endpoints ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;",
     // v14：模型映射总开关。关闭时保留映射配置但不生效；旧行默认开启（向后兼容）。
     "ALTER TABLE endpoints ADD COLUMN model_mappings_enabled INTEGER NOT NULL DEFAULT 1;",
+    // v15：最小对话——会话与扁平消息（参考 Cherry topic/message，无消息树）。
+    "CREATE TABLE IF NOT EXISTS chat_topics (
+        id          TEXT PRIMARY KEY,
+        title       TEXT    NOT NULL DEFAULT '',
+        endpoint_id INTEGER NOT NULL,
+        model       TEXT    NOT NULL DEFAULT '',
+        created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+        updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+     );
+     CREATE INDEX IF NOT EXISTS idx_chat_topics_updated ON chat_topics(updated_at DESC);
+
+     CREATE TABLE IF NOT EXISTS chat_messages (
+        id         TEXT PRIMARY KEY,
+        topic_id   TEXT    NOT NULL,
+        role       TEXT    NOT NULL,
+        content    TEXT    NOT NULL DEFAULT '',
+        status     TEXT    NOT NULL DEFAULT 'success',
+        created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT    NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY(topic_id) REFERENCES chat_topics(id) ON DELETE CASCADE
+     );
+     CREATE INDEX IF NOT EXISTS idx_chat_messages_topic ON chat_messages(topic_id, created_at);",
+    // v16：消息树（parent_id + active_node_id）与持久化压缩摘要。
+    "ALTER TABLE chat_topics ADD COLUMN active_node_id TEXT;
+     ALTER TABLE chat_messages ADD COLUMN parent_id TEXT;
+     ALTER TABLE chat_messages ADD COLUMN compaction_summary TEXT;
+     CREATE INDEX IF NOT EXISTS idx_chat_messages_parent ON chat_messages(topic_id, parent_id);",
 ];
 
 /// 幂等执行迁移：读取 `schema_version` 当前版本，仅应用尚未执行的脚本。
