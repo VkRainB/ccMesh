@@ -16,6 +16,7 @@ const Endpoints = lazy(() =>
 const ConfigProfiles = lazy(() =>
   import("@/pages/ConfigProfiles").then((m) => ({ default: m.ConfigProfiles })),
 );
+const Chat = lazy(() => import("@/pages/Chat").then((m) => ({ default: m.Chat })));
 const Statistics = lazy(() =>
   import("@/pages/Statistics").then((m) => ({ default: m.Statistics })),
 );
@@ -33,6 +34,7 @@ const PAGES: Record<ViewId, ComponentType> = {
   dashboard: Dashboard,
   endpoints: Endpoints,
   configProfiles: ConfigProfiles,
+  chat: Chat,
   statistics: Statistics,
   sync: Sync,
   logs: Logs,
@@ -69,7 +71,14 @@ export function AppLayout() {
         )}
       >
         {navMode === "horizontal" ? <TopNav /> : <SideNav />}
-        <main className="flex-1 overflow-y-auto p-8">
+        <main
+          className={cn(
+            "flex-1 min-h-0",
+            activeView === "chat"
+              ? "overflow-hidden p-0"
+              : "overflow-y-auto p-8",
+          )}
+        >
           <Suspense fallback={null}>
             <ActivePage />
           </Suspense>

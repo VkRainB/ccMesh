@@ -39,4 +39,7 @@ export const Events = {
   endpointsChanged: "endpoints-changed",
   logLine: "log-line",
   updateProgress: "update-progress",
+  chatChunk: "chat-chunk",
+  chatDone: "chat-done",
+  chatError: "chat-error",
 } as const;
