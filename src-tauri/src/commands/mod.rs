@@ -12,6 +12,7 @@ pub mod stats;
 pub mod tokens;
 pub mod tool_config;
 pub mod tool_env;
+pub mod tool_sessions;
 pub mod update;
 pub mod usage;
 pub mod webdav;

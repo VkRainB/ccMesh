@@ -11,6 +11,7 @@ pub mod stats;
 pub mod storage;
 pub mod tokens;
 pub mod tool_config;
+pub mod tool_sessions;
 pub mod transform;
 pub mod tray;
 pub mod usage;

@@ -272,7 +272,11 @@ pub fn run() {
             commands::tool_config::apply_claude_desktop_3p_mode,
             commands::tool_env::get_tool_versions,
             commands::tool_env::run_tool_lifecycle_action,
-            commands::tool_env::probe_tool_installations
+            commands::tool_env::probe_tool_installations,
+            commands::tool_sessions::list_tool_sessions,
+            commands::tool_sessions::get_tool_session_messages,
+            commands::tool_sessions::delete_tool_session,
+            commands::tool_sessions::delete_tool_sessions
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
