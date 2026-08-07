@@ -17,6 +17,9 @@ const ConfigProfiles = lazy(() =>
   import("@/pages/ConfigProfiles").then((m) => ({ default: m.ConfigProfiles })),
 );
 const Chat = lazy(() => import("@/pages/Chat").then((m) => ({ default: m.Chat })));
+const ToolSessions = lazy(() =>
+  import("@/pages/ToolSessions").then((m) => ({ default: m.ToolSessions })),
+);
 const Statistics = lazy(() =>
   import("@/pages/Statistics").then((m) => ({ default: m.Statistics })),
 );
@@ -35,6 +38,7 @@ const PAGES: Record<ViewId, ComponentType> = {
   endpoints: Endpoints,
   configProfiles: ConfigProfiles,
   chat: Chat,
+  toolSessions: ToolSessions,
   statistics: Statistics,
   sync: Sync,
   logs: Logs,
@@ -74,7 +78,7 @@ export function AppLayout() {
         <main
           className={cn(
             "flex-1 min-h-0",
-            activeView === "chat"
+            activeView === "chat" || activeView === "toolSessions"
               ? "overflow-hidden p-0"
               : "overflow-y-auto p-8",
           )}
