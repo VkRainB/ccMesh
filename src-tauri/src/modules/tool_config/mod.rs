@@ -7,6 +7,7 @@
 //! - 所有写盘走 [`crate::utils::atomic_write`]。
 
 pub mod claude;
+pub mod claude_desktop;
 pub mod codex;
 
 use std::fs;

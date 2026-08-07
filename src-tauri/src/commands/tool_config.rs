@@ -1,9 +1,14 @@
-//! 配置文件管理命令（Claude Code / Codex 渠道的 抽取/存储/应用/覆盖）。
+//! 配置文件管理命令（Claude Code / Codex 渠道的 抽取/存储/应用/覆盖；
+//! 以及 Claude Desktop 真实文件接管）。
 
 use serde_json::Value;
 use tauri::AppHandle;
 
 use crate::error::AppResult;
+use crate::models::claude_desktop_config::{
+    ApplyClaudeDesktop3pRequest, ApplyClaudeDesktop3pResult, ClaudeDesktopPathsDto,
+    ClaudeDesktopProfileDataDto, ClaudeDesktopProfileMetaDto, SaveClaudeDesktopProfileRequest,
+};
 use crate::models::tool_config::{
     ChannelData, ChannelMeta, ClaudeOperationFields, CodexOperationFields, ExtractResult,
     SaveChannelRequest,
@@ -66,4 +71,53 @@ pub fn preview_codex_config(
 #[tauri::command]
 pub fn parse_codex_fields(auth: Value, config_toml: String) -> AppResult<CodexOperationFields> {
     Ok(tc::codex::parse_operation_fields(&auth, &config_toml))
+}
+
+// ─── Claude Desktop（真实文件接管）──────────────────────────
+
+#[tauri::command]
+pub fn resolve_claude_desktop_paths() -> AppResult<ClaudeDesktopPathsDto> {
+    tc::claude_desktop::resolve_paths()
+}
+
+#[tauri::command]
+pub fn list_claude_desktop_profiles() -> AppResult<Vec<ClaudeDesktopProfileMetaDto>> {
+    tc::claude_desktop::list_profiles()
+}
+
+#[tauri::command]
+pub fn get_claude_desktop_profile(id: String) -> AppResult<ClaudeDesktopProfileDataDto> {
+    tc::claude_desktop::get_profile(&id)
+}
+
+#[tauri::command]
+pub fn save_claude_desktop_profile(
+    app: AppHandle,
+    req: SaveClaudeDesktopProfileRequest,
+) -> AppResult<ClaudeDesktopProfileMetaDto> {
+    tc::claude_desktop::save_profile(&app, req)
+}
+
+#[tauri::command]
+pub fn unregister_claude_desktop_profile(app: AppHandle, id: String) -> AppResult<()> {
+    tc::claude_desktop::unregister_profile(&app, &id)
+}
+
+#[tauri::command]
+pub fn delete_claude_desktop_profile_file(app: AppHandle, id: String) -> AppResult<()> {
+    tc::claude_desktop::delete_profile_file(&app, &id)
+}
+
+/// 默认删除：解除 `_meta.json` 注册，并删除真实 `<profile-id>.json`。
+#[tauri::command]
+pub fn delete_claude_desktop_profile(app: AppHandle, id: String) -> AppResult<()> {
+    tc::claude_desktop::delete_profile(&app, &id)
+}
+
+#[tauri::command]
+pub fn apply_claude_desktop_3p_mode(
+    app: AppHandle,
+    req: ApplyClaudeDesktop3pRequest,
+) -> AppResult<ApplyClaudeDesktop3pResult> {
+    tc::claude_desktop::apply_3p_mode(&app, req)
 }
