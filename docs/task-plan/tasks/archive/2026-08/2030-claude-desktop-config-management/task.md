@@ -1,7 +1,7 @@
 ---
 id: 2030-claude-desktop-config-management
 title: Claude Desktop 配置文件接管管理
-status: in_progress
+status: done
 mode: full
 priority: P1
 layer: fullstack
@@ -11,7 +11,7 @@ owner: claude
 branch: ""
 base_branch: ""
 created: 2026-08-07
-completed: ""
+completed: 2026-08-07
 parent: ""
 children: []
 note: "已确认：保存直接写真实文件；删除=解除注册+删真实文件。编码进行中。"

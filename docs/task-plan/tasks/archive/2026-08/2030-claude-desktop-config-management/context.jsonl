@@ -1,0 +1,7 @@
+{"file":"docs/task-plan/claude desktop配置管理功能.txt","reason":"原始需求，明确 Claude Desktop 配置接管、_meta.json 关系、3P 文件和 Windows 精简路径要求。"}
+{"file":"docs/task-plan/tasks/2030-claude-desktop-config-management/research/claude-desktop-config-research.md","reason":"本任务调研结论，汇总外部报告和项目现有配置管理架构。"}
+{"file":"docs/task-plan/tasks/2030-claude-desktop-config-management/prd.md","reason":"产品目标、范围、验收标准和关键实现决策。"}
+{"file":"docs/task-plan/tasks/2030-claude-desktop-config-management/feature.md","reason":"具体技术落点、伪代码、数据契约、任务拆解和验证路径。"}
+{"file":"E:\\check-claude-desktop\\CLAUDE_DESKTOP_CONFIG_PATH_CROSS_PLATFORM.md","reason":"Claude Desktop 跨平台路径、文件清单和推荐解析算法来源。"}
+{"file":"E:\\check-claude-desktop\\CLAUDE_MSIX_PATH_REPORT.md","reason":"Windows MSIX 逻辑路径与物理路径差异、Package Family Name 背景。"}
+{"file":"E:\\check-claude-desktop\\CLAUDE_PHYSICAL_PATH_INTEGRATION.md","reason":"Windows 真实物理目录获取方式，本任务只选 Get-AppxPackage 与候选探测两种。"}
