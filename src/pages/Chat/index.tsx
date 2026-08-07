@@ -1,12 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  MessageSquarePlusIcon,
-  PencilIcon,
-  Trash2Icon,
-  SquareIcon,
-  ArrowUpIcon,
-} from "lucide-react";
+import { HistoryIcon, PanelLeftIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -18,7 +12,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useEndpoints } from "@/hooks/useEndpoints";
 import { advertisedModels } from "@/services/modules/endpoint";
@@ -29,155 +27,20 @@ import {
 } from "@/services/modules/chat";
 import { useLayoutStore } from "@/stores";
 
+import { ComposerBar } from "./_components/ComposerBar";
 import { MessageBubble } from "./_components/MessageBubble";
 import {
   ModelSelector,
   modelKey,
   parseModelKey,
 } from "./_components/ModelSelector";
-
-function TopicList({
-  topics,
-  activeId,
-  onSelect,
-  onNew,
-  onRename,
-  onDelete,
-}: {
-  topics: ChatTopic[];
-  activeId: string | null;
-  onSelect: (id: string) => void;
-  onNew: () => void;
-  onRename: (topic: ChatTopic, title: string) => Promise<void>;
-  onDelete: (t: ChatTopic) => void;
-}) {
-  const [editingTopicId, setEditingTopicId] = useState<string | null>(null);
-  const [editingTitle, setEditingTitle] = useState("");
-  const editingInputRef = useRef<HTMLInputElement>(null);
-  const savingRenameRef = useRef(false);
-  const ignoreRenameBlurRef = useRef(false);
-
-  useEffect(() => {
-    editingInputRef.current?.focus();
-    editingInputRef.current?.select();
-  }, [editingTopicId]);
-
-  const beginRename = (topic: ChatTopic) => {
-    setEditingTopicId(topic.id);
-    setEditingTitle(topic.title || "新对话");
-  };
-
-  const cancelRename = () => {
-    setEditingTopicId(null);
-    setEditingTitle("");
-  };
-
-  const commitRename = async (topic: ChatTopic) => {
-    if (savingRenameRef.current) return;
-    const nextTitle = editingTitle.trim();
-    const currentTitle = topic.title || "新对话";
-    if (!nextTitle || nextTitle === currentTitle) {
-      cancelRename();
-      return;
-    }
-    savingRenameRef.current = true;
-    cancelRename();
-    try {
-      await onRename(topic, nextTitle);
-    } finally {
-      savingRenameRef.current = false;
-    }
-  };
-
-  return (
-    <aside className="flex w-56 shrink-0 flex-col border-r border-edge bg-surface-raised">
-      <div className="flex items-center justify-between gap-2 border-b border-edge px-3 py-3">
-        <span className="text-xs font-medium tracking-wide text-ink-secondary uppercase">
-          会话
-        </span>
-        <Button variant="ghost" size="icon-xs" onClick={onNew} title="新建对话">
-          <MessageSquarePlusIcon />
-        </Button>
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto p-2">
-        {topics.length === 0 ? (
-          <p className="px-2 py-6 text-center text-xs text-ink-mute">暂无会话</p>
-        ) : (
-          <ul className="flex flex-col gap-0.5">
-            {topics.map((t) => (
-              <li key={t.id}>
-                <div
-                  className={cn(
-                    "group flex items-center gap-1 rounded-md px-2 py-1.5 text-sm",
-                    activeId === t.id
-                      ? "bg-primary/12 text-ink-primary"
-                      : "text-ink-secondary hover:bg-surface-hover hover:text-ink-primary",
-                  )}
-                >
-                  {editingTopicId === t.id ? (
-                    <Input
-                      ref={editingInputRef}
-                      className="h-7 min-w-0 flex-1 rounded px-2 text-sm"
-                      value={editingTitle}
-                      onChange={(event) => setEditingTitle(event.target.value)}
-                      onClick={(event) => event.stopPropagation()}
-                      onBlur={() => {
-                        if (ignoreRenameBlurRef.current) {
-                          ignoreRenameBlurRef.current = false;
-                          return;
-                        }
-                        void commitRename(t);
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          event.preventDefault();
-                          void commitRename(t);
-                        }
-                        if (event.key === "Escape") {
-                          event.preventDefault();
-                          ignoreRenameBlurRef.current = true;
-                          cancelRename();
-                        }
-                      }}
-                    />
-                  ) : (
-                    <button
-                      type="button"
-                      className="min-w-0 flex-1 truncate text-left"
-                      onClick={() => onSelect(t.id)}
-                    >
-                      {t.title || "新对话"}
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className="opacity-0 group-hover:opacity-100"
-                    title="重命名"
-                    onClick={() => beginRename(t)}
-                  >
-                    <PencilIcon className="size-3.5 text-ink-mute" />
-                  </button>
-                  <button
-                    type="button"
-                    className="opacity-0 group-hover:opacity-100"
-                    title="删除"
-                    onClick={() => onDelete(t)}
-                  >
-                    <Trash2Icon className="size-3.5 text-ink-mute" />
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </aside>
-  );
-}
+import { TopicList } from "./_components/TopicList";
 
 export function Chat() {
   const qc = useQueryClient();
   const setActiveView = useLayoutStore((s) => s.setActiveView);
+  const chatTopicListCollapsed = useLayoutStore((s) => s.chatTopicListCollapsed);
+  const toggleChatTopicList = useLayoutStore((s) => s.toggleChatTopicList);
   const { data: endpoints = [] } = useEndpoints();
 
   const modelOptions = useMemo(() => {
@@ -249,6 +112,7 @@ export function Chat() {
   const [deletingTopic, setDeletingTopic] = useState<ChatTopic | null>(null);
   const [deleting, setDeleting] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const [columnEl, setColumnEl] = useState<HTMLElement | null>(null);
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [localMessages]);
@@ -257,6 +121,17 @@ export function Chat() {
     if (!activeTopic) return;
     setSelectedKey(modelKey(activeTopic.endpointId, activeTopic.model));
   }, [activeTopic?.id, activeTopic?.endpointId, activeTopic?.model]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.isComposing) return;
+      if (!(e.ctrlKey || e.metaKey) || e.key !== "[") return;
+      e.preventDefault();
+      useLayoutStore.getState().toggleChatTopicList();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   useEffect(() => {
     const unlistens: Array<() => void> = [];
@@ -511,21 +386,62 @@ export function Chat() {
     }
   };
 
+  const sidebarToggleLabel = chatTopicListCollapsed
+    ? "显示侧边栏"
+    : "隐藏侧边栏";
+
   return (
     <div className="flex h-full min-h-0 bg-background">
-      <TopicList
-        topics={topics}
-        activeId={activeId}
-        onSelect={setActiveId}
-        onNew={() => void handleNew()}
-        onRename={handleRename}
-        onDelete={setDeletingTopic}
-      />
+      <div
+        className={cn(
+          "shrink-0 overflow-hidden transition-[width] duration-200 ease-in-out",
+          chatTopicListCollapsed ? "w-0" : "w-56",
+        )}
+        inert={chatTopicListCollapsed || undefined}
+        aria-hidden={chatTopicListCollapsed || undefined}
+      >
+        <TopicList
+          topics={topics}
+          activeId={activeId}
+          onSelect={setActiveId}
+          onNew={() => void handleNew()}
+          onRename={handleRename}
+          onDelete={setDeletingTopic}
+        />
+      </div>
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div ref={setColumnEl} className="flex min-w-0 flex-1 flex-col">
         <header className="flex items-center justify-between gap-3 border-b border-edge px-5 py-3">
-          <h1 className="text-2xl font-light tracking-tight">对话</h1>
           <div className="flex items-center gap-2">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={toggleChatTopicList}
+                  aria-label={sidebarToggleLabel}
+                  aria-pressed={!chatTopicListCollapsed}
+                >
+                  <PanelLeftIcon className="size-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {sidebarToggleLabel} (Ctrl+[)
+              </TooltipContent>
+            </Tooltip>
+            <h1 className="text-2xl font-light tracking-tight">对话</h1>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setActiveView("toolSessions")}
+              title="管理本机 Claude / Codex 工具会话"
+            >
+              <HistoryIcon className="size-3.5" />
+              会话管理
+            </Button>
             {modelOptions.length === 0 ? (
               <Button
                 variant="outline"
@@ -550,7 +466,7 @@ export function Chat() {
             <div className="flex h-full flex-col items-center justify-center gap-2 text-ink-mute">
               <p className="text-sm">选择模型后开始对话</p>
               <p className="text-xs">
-                支持重生成与分支切换；长对话会自动压缩早期上下文
+                非核心功能，对话无工具支持，可用于测试连通性
               </p>
             </div>
           ) : (
@@ -571,44 +487,15 @@ export function Chat() {
           )}
         </div>
 
-        <div className="border-t border-edge px-5 py-3">
-          <div className="mx-auto flex max-w-3xl items-end gap-2 rounded-lg border border-edge bg-surface-card p-2">
-            <textarea
-              className="max-h-40 min-h-[44px] flex-1 resize-none bg-transparent px-2 py-2 text-sm text-ink-primary outline-none placeholder:text-ink-mute"
-              placeholder="输入消息，Enter 发送，Shift+Enter 换行"
-              rows={2}
-              value={draft}
-              disabled={modelOptions.length === 0}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  void handleSend();
-                }
-              }}
-            />
-            {busy ? (
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => void handleAbort()}
-                title="停止"
-                aria-label="停止生成"
-              >
-                <SquareIcon className="size-4" />
-              </Button>
-            ) : (
-              <Button
-                size="icon"
-                disabled={!draft.trim() || modelOptions.length === 0}
-                onClick={() => void handleSend()}
-                title="发送"
-              >
-                <ArrowUpIcon className="size-4" />
-              </Button>
-            )}
-          </div>
-        </div>
+        <ComposerBar
+          value={draft}
+          disabled={modelOptions.length === 0}
+          busy={busy}
+          columnEl={columnEl}
+          onChange={setDraft}
+          onSend={() => void handleSend()}
+          onAbort={() => void handleAbort()}
+        />
       </div>
 
       <Dialog
