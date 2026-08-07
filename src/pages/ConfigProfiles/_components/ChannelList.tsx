@@ -2,37 +2,50 @@ import { PlusIcon, Trash2Icon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { ChannelMeta } from "@/services/modules/tool_config";
 
-interface Props {
-  channels: ChannelMeta[];
+interface ListItem {
+  id: string;
+  name: string;
+}
+
+interface Props<T extends ListItem> {
+  channels: T[];
   loading: boolean;
   selectedId: string | null;
   onSelect: (id: string) => void;
   onNew: () => void;
-  onDelete: (channel: ChannelMeta) => void;
+  onDelete: (channel: T) => void;
+  /** 左栏标题，默认「渠道」。 */
+  title?: string;
+  /** 空态提示，默认「暂无渠道，点击右上角 + 新增」。 */
+  emptyLabel?: string;
+  /** 新增按钮 aria/title，默认「新增渠道」。 */
+  newLabel?: string;
 }
 
-/** 左栏：已保存渠道列表 + 顶部新增按钮。行内删除按钮与右键菜单都触发 onDelete。 */
-export function ChannelList({
+/** 左栏：已保存渠道/配置文件列表 + 顶部新增按钮。行内删除按钮与右键菜单都触发 onDelete。 */
+export function ChannelList<T extends ListItem>({
   channels,
   loading,
   selectedId,
   onSelect,
   onNew,
   onDelete,
-}: Props) {
+  title = "渠道",
+  emptyLabel = "暂无渠道，点击右上角 + 新增",
+  newLabel = "新增渠道",
+}: Props<T>) {
   return (
     <div className="flex h-full min-h-0 w-56 shrink-0 flex-col rounded-lg border border-edge bg-surface">
       <div className="flex items-center justify-between border-b border-edge px-3 py-2">
-        <span className="text-sm font-medium text-ink-secondary">渠道</span>
+        <span className="text-sm font-medium text-ink-secondary">{title}</span>
         <Button
           type="button"
           variant="ghost"
           size="icon"
           onClick={onNew}
-          aria-label="新增渠道"
-          title="新增渠道"
+          aria-label={newLabel}
+          title={newLabel}
         >
           <PlusIcon className="size-4" />
         </Button>
@@ -41,9 +54,7 @@ export function ChannelList({
         {loading ? (
           <p className="px-2 py-4 text-center text-xs text-ink-mute">加载中…</p>
         ) : channels.length === 0 ? (
-          <p className="px-2 py-4 text-center text-xs text-ink-mute">
-            暂无渠道，点击右上角 + 新增
-          </p>
+          <p className="px-2 py-4 text-center text-xs text-ink-mute">{emptyLabel}</p>
         ) : (
           <ul className="flex flex-col gap-1">
             {channels.map((ch) => (
