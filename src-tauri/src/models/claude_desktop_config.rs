@@ -17,6 +17,8 @@ pub struct ClaudeDesktopPathsDto {
     pub resolution_source: String,
     pub package_family_name: Option<String>,
     pub is_msix_virtualized: bool,
+    /// 3P 根 `claude_desktop_config.json` 是否含 `deploymentMode: "3p"`。
+    pub threep_enabled: bool,
     pub candidates: Vec<ClaudeDesktopPathCandidateDto>,
     pub warning: Option<String>,
 }
@@ -82,7 +84,7 @@ pub struct SaveClaudeDesktopProfileRequest {
     pub desktop_config_json: Option<Value>,
 }
 
-/// 启用 / 应用 3P 模式请求。
+/// 启用 / 应用 3P 模式请求（含写入 active profile）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApplyClaudeDesktop3pRequest {
@@ -93,6 +95,16 @@ pub struct ApplyClaudeDesktop3pRequest {
     pub write_threep_config: bool,
     #[serde(default = "default_true")]
     pub write_developer_settings: bool,
+}
+
+/// 仅开关 `deploymentMode: "3p"`（不改 profile / _meta）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetClaudeDesktop3pEnabledRequest {
+    pub enabled: bool,
+    /// 同步写入普通 Claude 侧 config（若已解析到路径）。
+    #[serde(default = "default_true")]
+    pub write_normal_config: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -18,7 +18,7 @@ use crate::error::{AppError, AppResult};
 use crate::models::claude_desktop_config::{
     ApplyClaudeDesktop3pRequest, ApplyClaudeDesktop3pResult, ClaudeDesktopPathCandidateDto,
     ClaudeDesktopPathsDto, ClaudeDesktopProfileDataDto, ClaudeDesktopProfileMetaDto,
-    SaveClaudeDesktopProfileRequest,
+    SaveClaudeDesktopProfileRequest, SetClaudeDesktop3pEnabledRequest,
 };
 use crate::utils::atomic_write::{atomic_write, atomic_write_str};
 use crate::utils::paths;
@@ -82,6 +82,7 @@ fn unsupported_paths(platform: &str) -> ClaudeDesktopPathsDto {
         resolution_source: "unsupported".into(),
         package_family_name: None,
         is_msix_virtualized: false,
+        threep_enabled: false,
         candidates: vec![],
         warning: Some(format!("当前平台 {platform} 暂不支持 Claude Desktop 配置接管")),
     }
@@ -381,23 +382,31 @@ fn build_paths_dto(
         meta_path,
         threep_config_path,
         developer_settings_path,
+        threep_enabled,
     ) = match &resolved {
-        Some(root) => (
-            Some(root.join(CONFIG_LIBRARY_DIR).to_string_lossy().into_owned()),
-            Some(
-                root.join(CONFIG_LIBRARY_DIR)
-                    .join(META_FILE)
-                    .to_string_lossy()
-                    .into_owned(),
-            ),
-            Some(root.join(THREEP_CONFIG_FILE).to_string_lossy().into_owned()),
-            Some(
-                root.join(DEVELOPER_SETTINGS_FILE)
-                    .to_string_lossy()
-                    .into_owned(),
-            ),
-        ),
-        None => (None, None, None, None),
+        Some(root) => {
+            let threep_path = root.join(THREEP_CONFIG_FILE);
+            let enabled = read_json_or_default(&threep_path, json!({}))
+                .ok()
+                .is_some_and(|v| is_deployment_mode_3p(&v));
+            (
+                Some(root.join(CONFIG_LIBRARY_DIR).to_string_lossy().into_owned()),
+                Some(
+                    root.join(CONFIG_LIBRARY_DIR)
+                        .join(META_FILE)
+                        .to_string_lossy()
+                        .into_owned(),
+                ),
+                Some(threep_path.to_string_lossy().into_owned()),
+                Some(
+                    root.join(DEVELOPER_SETTINGS_FILE)
+                        .to_string_lossy()
+                        .into_owned(),
+                ),
+                enabled,
+            )
+        }
+        None => (None, None, None, None, false),
     };
 
     ClaudeDesktopPathsDto {
@@ -413,6 +422,7 @@ fn build_paths_dto(
         resolution_source: source,
         package_family_name,
         is_msix_virtualized,
+        threep_enabled,
         candidates,
         warning: None,
     }
@@ -854,10 +864,75 @@ pub fn delete_profile(app: &AppHandle, id: &str) -> AppResult<()> {
 
 // ─── 3P 模式应用 ────────────────────────────────────────────
 
+fn is_deployment_mode_3p(config: &Value) -> bool {
+    config
+        .get("deploymentMode")
+        .and_then(Value::as_str)
+        .is_some_and(|m| m == "3p")
+}
+
 fn set_deployment_mode_3p(config: Value) -> Value {
     let mut obj = ensure_object(config);
     obj.insert("deploymentMode".into(), Value::String("3p".into()));
     Value::Object(obj)
+}
+
+fn clear_deployment_mode(config: Value) -> Value {
+    let mut obj = ensure_object(config);
+    obj.remove("deploymentMode");
+    Value::Object(obj)
+}
+
+/// 仅开关 3P 根（及可选普通侧）`claude_desktop_config.json` 的 `deploymentMode`。
+pub fn set_3p_enabled(
+    app: &AppHandle,
+    req: SetClaudeDesktop3pEnabledRequest,
+) -> AppResult<ApplyClaudeDesktop3pResult> {
+    let (paths_dto, root) = require_resolved_paths()?;
+    let mut written_files = Vec::new();
+    let mut backup_files = Vec::new();
+    let mut warnings = Vec::new();
+
+    let patch = if req.enabled {
+        set_deployment_mode_3p as fn(Value) -> Value
+    } else {
+        clear_deployment_mode as fn(Value) -> Value
+    };
+
+    let threep_path = root.join(THREEP_CONFIG_FILE);
+    if let Some(parent) = threep_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let old = read_json_or_default(&threep_path, json!({}))?;
+    if let Some(dest) = backup_file_if_exists(app, &threep_path, "claude-desktop-threep-config")? {
+        backup_files.push(dest.to_string_lossy().into_owned());
+    }
+    write_pretty_json(&threep_path, &patch(old))?;
+    written_files.push(threep_path.to_string_lossy().into_owned());
+
+    if req.write_normal_config {
+        if let Some(normal) = paths_dto.normal_config_path.as_ref() {
+            let path = PathBuf::from(normal);
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            let old = read_json_or_default(&path, json!({}))?;
+            if let Some(dest) = backup_file_if_exists(app, &path, "claude-desktop-normal-config")? {
+                backup_files.push(dest.to_string_lossy().into_owned());
+            }
+            write_pretty_json(&path, &patch(old))?;
+            written_files.push(path.to_string_lossy().into_owned());
+        } else {
+            warnings.push("未解析到普通 Claude 配置路径，已跳过 1P 侧写入".into());
+        }
+    }
+
+    Ok(ApplyClaudeDesktop3pResult {
+        written_files,
+        backup_files,
+        warnings,
+        restart_required: true,
+    })
 }
 
 pub fn apply_3p_mode(
@@ -1037,6 +1112,17 @@ mod tests {
     fn parse_single_non_empty_line_trims() {
         let out = parse_single_non_empty_line(b"\r\n  Claude_pzs8sxrjxfjjc  \n").unwrap();
         assert_eq!(out, "Claude_pzs8sxrjxfjjc");
+    }
+
+    #[test]
+    fn deployment_mode_helpers_set_and_clear() {
+        let enabled = set_deployment_mode_3p(json!({"foo": 1}));
+        assert!(is_deployment_mode_3p(&enabled));
+        assert_eq!(enabled["foo"], 1);
+        let cleared = clear_deployment_mode(enabled);
+        assert!(!is_deployment_mode_3p(&cleared));
+        assert_eq!(cleared["foo"], 1);
+        assert!(cleared.get("deploymentMode").is_none());
     }
 
     #[test]

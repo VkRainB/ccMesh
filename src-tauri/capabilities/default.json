@@ -19,6 +19,15 @@
     "dialog:default",
     "opener:allow-default-urls",
     {
+      "identifier": "opener:allow-open-path",
+      "allow": [
+        { "path": "$HOME/**" },
+        { "path": "$LOCALDATA/**" },
+        { "path": "$DATA/**" },
+        { "path": "$CONFIG/**" }
+      ]
+    },
+    {
       "identifier": "opener:allow-open-url",
       "allow": [
         { "url": "http://**" },

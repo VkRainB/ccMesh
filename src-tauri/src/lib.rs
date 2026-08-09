@@ -270,6 +270,7 @@ pub fn run() {
             commands::tool_config::delete_claude_desktop_profile_file,
             commands::tool_config::delete_claude_desktop_profile,
             commands::tool_config::apply_claude_desktop_3p_mode,
+            commands::tool_config::set_claude_desktop_3p_enabled,
             commands::tool_env::get_tool_versions,
             commands::tool_env::run_tool_lifecycle_action,
             commands::tool_env::probe_tool_installations,

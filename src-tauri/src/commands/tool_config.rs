@@ -8,6 +8,7 @@ use crate::error::AppResult;
 use crate::models::claude_desktop_config::{
     ApplyClaudeDesktop3pRequest, ApplyClaudeDesktop3pResult, ClaudeDesktopPathsDto,
     ClaudeDesktopProfileDataDto, ClaudeDesktopProfileMetaDto, SaveClaudeDesktopProfileRequest,
+    SetClaudeDesktop3pEnabledRequest,
 };
 use crate::models::tool_config::{
     ChannelData, ChannelMeta, ClaudeOperationFields, CodexOperationFields, ExtractResult,
@@ -120,4 +121,12 @@ pub fn apply_claude_desktop_3p_mode(
     req: ApplyClaudeDesktop3pRequest,
 ) -> AppResult<ApplyClaudeDesktop3pResult> {
     tc::claude_desktop::apply_3p_mode(&app, req)
+}
+
+#[tauri::command]
+pub fn set_claude_desktop_3p_enabled(
+    app: AppHandle,
+    req: SetClaudeDesktop3pEnabledRequest,
+) -> AppResult<ApplyClaudeDesktop3pResult> {
+    tc::claude_desktop::set_3p_enabled(&app, req)
 }
