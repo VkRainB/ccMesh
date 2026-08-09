@@ -789,11 +789,6 @@ function PathStatusBanner({
   };
   return (
     <div className="rounded-lg border border-edge bg-surface px-3 py-2 text-xs text-ink-secondary">
-      {paths.packageFamilyName && (
-        <div className="mb-1">
-          PFN：<code>{paths.packageFamilyName}</code>
-        </div>
-      )}
       <div className="flex min-w-0 flex-col gap-2">
         <div className="flex min-w-0 items-center gap-2">
           {paths.isMsixVirtualized && (
