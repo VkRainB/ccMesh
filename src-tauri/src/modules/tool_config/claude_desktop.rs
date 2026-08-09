@@ -9,7 +9,6 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use serde_json::{json, Map, Value};
 use tauri::AppHandle;
@@ -34,6 +33,13 @@ const CONFIG_LIBRARY_DIR: &str = "configLibrary";
 struct Candidate {
     path: PathBuf,
     source: String,
+}
+
+#[derive(Debug, Clone)]
+struct MsixCandidate {
+    package_family_name: String,
+    threep_path: PathBuf,
+    normal_config_path: PathBuf,
 }
 
 #[derive(Debug, Clone)]
@@ -132,41 +138,19 @@ fn resolve_windows_paths(platform: String) -> AppResult<ClaudeDesktopPathsDto> {
     let mut pfn: Option<String> = None;
     let mut normal_config: Option<PathBuf> = None;
 
-    match get_appx_package_family_name() {
-        Ok(name) => {
-            pfn = Some(name.clone());
+    // 枚举 LocalAppData\Packages\Claude_* 目录获取 MSIX 候选、PFN 与普通配置路径。
+    // 替代 Get-AppxPackage PowerShell 调用，避免 GUI 应用启动子进程时闪现控制台黑框。
+    for msix in probe_windows_msix_candidates(&local) {
+        if pfn.is_none() {
+            pfn = Some(msix.package_family_name);
+            normal_config = Some(msix.normal_config_path);
+        }
+        if !candidates.iter().any(|c| c.path == msix.threep_path) {
             candidates.push(Candidate {
-                path: local
-                    .join("Packages")
-                    .join(&name)
-                    .join("LocalCache")
-                    .join("Local")
-                    .join("Claude-3p"),
-                source: "get-appxpackage-msix-local".into(),
+                path: msix.threep_path,
+                source: "probe-msix-local".into(),
             });
-            normal_config = Some(
-                local
-                    .join("Packages")
-                    .join(&name)
-                    .join("LocalCache")
-                    .join("Roaming")
-                    .join("Claude")
-                    .join(THREEP_CONFIG_FILE),
-            );
         }
-        Err(_) => {
-            // Get-AppxPackage 失败时继续候选探测。
-        }
-    }
-
-    for path in probe_windows_msix_candidates(&local) {
-        if candidates.iter().any(|c| c.path == path) {
-            continue;
-        }
-        candidates.push(Candidate {
-            path,
-            source: "probe-msix-local".into(),
-        });
     }
 
     candidates.push(Candidate {
@@ -215,43 +199,10 @@ fn env_path(key: &str) -> AppResult<PathBuf> {
         .ok_or_else(|| AppError::Config(format!("环境变量 {key} 未设置")))
 }
 
-/// 方法 1：`Get-AppxPackage -Name Claude` 取 PackageFamilyName。
-fn get_appx_package_family_name() -> AppResult<String> {
-    #[cfg(not(windows))]
-    {
-        Err(AppError::Config("Get-AppxPackage 仅 Windows 可用".into()))
-    }
-    #[cfg(windows)]
-    {
-        let output = Command::new("powershell.exe")
-            .args([
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-Command",
-                "$pkg = Get-AppxPackage -Name Claude | Select-Object -First 1; if ($pkg) { $pkg.PackageFamilyName }",
-            ])
-            .output()
-            .map_err(|e| AppError::Config(format!("执行 Get-AppxPackage 失败: {e}")))?;
-        if !output.status.success() {
-            return Err(AppError::Config("Get-AppxPackage 命令失败".into()));
-        }
-        parse_single_non_empty_line(&output.stdout)
-    }
-}
-
-fn parse_single_non_empty_line(stdout: &[u8]) -> AppResult<String> {
-    let text = String::from_utf8_lossy(stdout);
-    let line = text
-        .lines()
-        .map(str::trim)
-        .find(|l| !l.is_empty())
-        .ok_or_else(|| AppError::Config("Get-AppxPackage 未返回 PackageFamilyName".into()))?;
-    Ok(line.to_string())
-}
-
-/// 方法 2：枚举 `LocalAppData\Packages\Claude_*\LocalCache\Local\Claude-3p`。
-fn probe_windows_msix_candidates(local_app_data: &Path) -> Vec<PathBuf> {
+/// 枚举 `LocalAppData\Packages\Claude_*\LocalCache\Local\Claude-3p`。
+/// 同时提取 PackageFamilyName（即目录名）与普通配置路径，替代 Get-AppxPackage PowerShell 调用，
+/// 避免 GUI 应用启动子进程时闪现控制台黑框。
+fn probe_windows_msix_candidates(local_app_data: &Path) -> Vec<MsixCandidate> {
     // ponytail: 只枚举 LocalAppData\Packages\Claude_* 一层；若未来 Anthropic 改包名，再增加手动目录覆盖。
     let packages = local_app_data.join("Packages");
     let Ok(entries) = fs::read_dir(packages) else {
@@ -266,12 +217,18 @@ fn probe_windows_msix_candidates(local_app_data: &Path) -> Vec<PathBuf> {
         if !name.starts_with("Claude_") {
             continue;
         }
-        out.push(
-            package_dir
+        out.push(MsixCandidate {
+            package_family_name: name.to_string(),
+            threep_path: package_dir
                 .join("LocalCache")
                 .join("Local")
                 .join("Claude-3p"),
-        );
+            normal_config_path: package_dir
+                .join("LocalCache")
+                .join("Roaming")
+                .join("Claude")
+                .join(THREEP_CONFIG_FILE),
+        });
     }
     out
 }
@@ -1106,12 +1063,6 @@ mod tests {
         let entries = next["entries"].as_array().unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0]["id"], "b");
-    }
-
-    #[test]
-    fn parse_single_non_empty_line_trims() {
-        let out = parse_single_non_empty_line(b"\r\n  Claude_pzs8sxrjxfjjc  \n").unwrap();
-        assert_eq!(out, "Claude_pzs8sxrjxfjjc");
     }
 
     #[test]
