@@ -1,7 +1,4 @@
-import type {
-  ClaudeDesktopPaths,
-  ClaudeDesktopProfileData,
-} from "@/services/modules/claude_desktop_config";
+import type { ClaudeDesktopProfileData } from "@/services/modules/claude_desktop_config";
 import { splitOneM, withOneM } from "@/lib/toolConfig";
 
 export type EditableClaudeDesktopFile =
@@ -138,7 +135,7 @@ function buildModelEntry(
 
 /**
  * 把操作字段合并进 profile JSON（保留未知字段）。
- * 模型行写入 inferenceModels；空模型行不生成对应条目。
+ * modelDiscoveryEnabled=true 时不写 inferenceModels；关闭时模型行写入 inferenceModels。
  */
 export function mergeClaudeDesktopOperationFields(
   base: unknown,
@@ -154,6 +151,11 @@ export function mergeClaudeDesktopOperationFields(
   else delete root.inferenceGatewayAuthScheme;
   root.modelDiscoveryEnabled = fields.modelDiscoveryEnabled;
 
+  if (fields.modelDiscoveryEnabled) {
+    delete root.inferenceModels;
+    return root;
+  }
+
   const models: JsonObject[] = [];
   const sonnet = buildModelEntry(ROUTE.sonnet, "sonnet", fields.sonnetModel, true);
   const opus = buildModelEntry(ROUTE.opus, "opus", fields.opusModel, true);
@@ -166,12 +168,6 @@ export function mergeClaudeDesktopOperationFields(
   else delete root.inferenceModels;
 
   return root;
-}
-
-export function formatPathSourceLabel(paths: ClaudeDesktopPaths): string {
-  const src = paths.resolutionSource || "unknown";
-  if (paths.isMsixVirtualized) return `${src}（MSIX 物理路径）`;
-  return src;
 }
 
 export function getEditableFileText(

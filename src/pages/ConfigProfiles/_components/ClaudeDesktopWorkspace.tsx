@@ -1,6 +1,7 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { EyeIcon, EyeOffIcon, FileCogIcon, RefreshCwIcon } from "lucide-react";
+import { openPath } from "@tauri-apps/plugin-opener";
+import { EyeIcon, EyeOffIcon, FileCogIcon, FolderOpenIcon, RefreshCwIcon } from "lucide-react";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
 
@@ -19,7 +20,6 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   buildDefaultClaudeDesktopProfile,
   EMPTY_CLAUDE_DESKTOP_FIELDS,
-  formatPathSourceLabel,
   getEditableFileText,
   mergeClaudeDesktopOperationFields,
   parseClaudeDesktopOperationFields,
@@ -57,9 +57,110 @@ const MODEL_ROWS: Array<{
 const FILE_TABS: Array<{ value: EditableClaudeDesktopFile; label: string }> = [
   { value: "profile", label: "Profile" },
   { value: "meta", label: "_meta.json" },
-  { value: "developerSettings", label: "developer_settings.json" },
   { value: "desktopConfig", label: "claude_desktop_config.json" },
+  { value: "developerSettings", label: "developer_settings.json" },
 ];
+
+/** 右侧文件 Tab：宽度受限 + 横向 overflow；左键拖动滚动，单击仍切换。 */
+function FileTabStrip({
+  value,
+  onChange,
+}: {
+  value: EditableClaudeDesktopFile;
+  onChange: (v: EditableClaudeDesktopFile) => void;
+}) {
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  // 不用 setPointerCapture：捕获在父层会吞掉子按钮 click。
+  const dragRef = useRef({
+    pressing: false,
+    moved: false,
+    suppressClick: false,
+    startX: 0,
+    startScroll: 0,
+  });
+
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      const d = dragRef.current;
+      if (!d.pressing) return;
+      const el = scrollerRef.current;
+      if (!el) return;
+      const dx = e.clientX - d.startX;
+      if (!d.moved && Math.abs(dx) > 5) {
+        d.moved = true;
+        el.dataset.dragging = "1";
+      }
+      if (!d.moved) return;
+      el.scrollLeft = d.startScroll - dx;
+    };
+    const onUp = () => {
+      const d = dragRef.current;
+      if (!d.pressing) return;
+      if (d.moved) d.suppressClick = true;
+      d.pressing = false;
+      d.moved = false;
+      const el = scrollerRef.current;
+      if (el) el.dataset.dragging = "0";
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+  }, []);
+
+  return (
+    <div className="min-w-0 max-w-full overflow-hidden">
+      <div
+        ref={scrollerRef}
+        className="scrollbar-none w-full min-w-0 cursor-grab select-none overflow-x-auto rounded-lg bg-muted p-[3px] data-[dragging=1]:cursor-grabbing"
+        onPointerDown={(e) => {
+          if (e.button !== 0) return;
+          const el = scrollerRef.current;
+          if (!el) return;
+          dragRef.current.pressing = true;
+          dragRef.current.moved = false;
+          dragRef.current.suppressClick = false;
+          dragRef.current.startX = e.clientX;
+          dragRef.current.startScroll = el.scrollLeft;
+          el.dataset.dragging = "0";
+        }}
+        onClickCapture={(e) => {
+          // 仅拖动后吞 click；纯单击放行给按钮 onClick。
+          if (!dragRef.current.suppressClick) return;
+          e.preventDefault();
+          e.stopPropagation();
+          dragRef.current.suppressClick = false;
+        }}
+        onDragStart={(e) => e.preventDefault()}
+      >
+        <div className="inline-flex w-max flex-nowrap items-center">
+          {FILE_TABS.map((tab) => {
+            const active = value === tab.value;
+            return (
+              <button
+                key={tab.value}
+                type="button"
+                onClick={() => onChange(tab.value)}
+                className={cn(
+                  "shrink-0 whitespace-nowrap rounded-md px-2 py-1 text-xs font-medium transition-all",
+                  active
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-foreground/60 hover:text-foreground dark:text-muted-foreground",
+                )}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function ClaudeDesktopWorkspace() {
   const qc = useQueryClient();
@@ -110,7 +211,8 @@ export function ClaudeDesktopWorkspace() {
   const [fetchedModels, setFetchedModels] = useState<string[]>([]);
   const [showKey, setShowKey] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<ClaudeDesktopProfileMeta | null>(null);
-  const [pendingApply, setPendingApply] = useState(false);
+  /** 确认对话框目标：true=开启 3P，false=关闭 3P，null=关闭对话框。 */
+  const [pending3p, setPending3p] = useState<boolean | null>(null);
 
   const updateFields = (patch: Partial<ClaudeDesktopOperationFields>) =>
     setFields((f) => ({ ...f, ...patch }));
@@ -200,7 +302,7 @@ export function ClaudeDesktopWorkspace() {
     qc.invalidateQueries({ queryKey: CLAUDE_DESKTOP_QUERY_KEYS.profiles });
   };
 
-  const saveProfile = useMutation({
+  const applyProfile = useMutation({
     mutationFn: async () => {
       const profileJson = buildProfileJson();
       const req: Parameters<typeof claudeDesktopConfigApi.saveProfile>[0] = {
@@ -208,19 +310,30 @@ export function ClaudeDesktopWorkspace() {
         name,
         profileJson,
         registerInMeta: true,
-        makeActive: false,
+        // 写入 _meta.json.appliedId，使当前 Profile 成为应用中的配置。
+        makeActive: true,
       };
-      // 右栏编辑 sidecar 时随保存一并落盘。
+      // 右栏编辑 sidecar 时随应用一并落盘。
       if (fileTextDirty && rightEditable && editableFile !== "profile") {
         const parsed = JSON.parse(fileText);
-        if (editableFile === "meta") req.metaJson = parsed;
+        if (editableFile === "meta") {
+          // 仅已有 id 时整文件覆写 meta，并强制 appliedId；新建交给 makeActive。
+          if (selectedId) {
+            const obj =
+              parsed && typeof parsed === "object" && !Array.isArray(parsed)
+                ? { ...(parsed as Record<string, unknown>) }
+                : {};
+            obj.appliedId = selectedId;
+            req.metaJson = obj;
+          }
+        }
         if (editableFile === "developerSettings") req.developerSettingsJson = parsed;
         if (editableFile === "desktopConfig") req.desktopConfigJson = parsed;
       }
       return claudeDesktopConfigApi.saveProfile(req);
     },
     onSuccess: async (meta) => {
-      toast.success("已直接写入 Claude Desktop 真实配置文件");
+      toast.success("已应用当前配置");
       setSelectedId(meta.id);
       invalidateAll();
       await loadProfile(meta.id);
@@ -228,39 +341,23 @@ export function ClaudeDesktopWorkspace() {
     onError: (e) => toast.error(errMsg(e)),
   });
 
-  const apply3p = useMutation({
-    mutationFn: async () => {
-      const profileJson = buildProfileJson();
-      const meta = await claudeDesktopConfigApi.saveProfile({
-        id: selectedId,
-        name,
-        profileJson,
-        registerInMeta: true,
-        makeActive: true,
-      });
-      const result = await claudeDesktopConfigApi.apply3pMode({
-        activeProfileId: meta.id,
-        writeNormalConfig: true,
-        writeThreepConfig: true,
-        writeDeveloperSettings: true,
-      });
-      return { meta, result };
-    },
-    onSuccess: async ({ meta, result }) => {
-      setPendingApply(false);
-      setSelectedId(meta.id);
+  const set3pEnabled = useMutation({
+    mutationFn: (enabled: boolean) =>
+      claudeDesktopConfigApi.set3pEnabled({ enabled, writeNormalConfig: true }),
+    onSuccess: async (result, enabled) => {
+      setPending3p(null);
       invalidateAll();
-      await loadProfile(meta.id);
       const warn =
         result.warnings.length > 0 ? `（${result.warnings.slice(0, 2).join("；")}）` : "";
+      const action = enabled ? "已启用" : "已关闭";
       toast.success(
         result.restartRequired
-          ? `已启用 3P 模式并写入 ${result.writtenFiles.length} 个文件，请重启 Claude Desktop${warn}`
-          : `已写入 ${result.writtenFiles.length} 个文件${warn}`,
+          ? `${action} 3P 模式，请重启 Claude Desktop${warn}`
+          : `${action} 3P 模式${warn}`,
       );
     },
     onError: (e) => {
-      setPendingApply(false);
+      setPending3p(null);
       toast.error(errMsg(e));
     },
   });
@@ -295,6 +392,7 @@ export function ClaudeDesktopWorkspace() {
   const canSubmit = loaded && name.trim().length > 0;
   const paths = pathsQ.data;
   const pathUnsupported = paths && !paths.supported;
+  const threepEnabled = paths?.threepEnabled === true;
 
   const onSelectFileTab = (kind: EditableClaudeDesktopFile) => {
     if (kind === editableFile) return;
@@ -323,6 +421,9 @@ export function ClaudeDesktopWorkspace() {
         loading={pathsQ.isLoading}
         error={pathsQ.error ? errMsg(pathsQ.error) : null}
         paths={paths}
+        threepEnabled={threepEnabled}
+        threepPending={set3pEnabled.isPending}
+        onToggleThreep={(enabled) => setPending3p(enabled)}
       />
 
       <div className="flex min-h-0 flex-1 gap-3">
@@ -330,6 +431,20 @@ export function ClaudeDesktopWorkspace() {
           title="配置文件"
           newLabel="新增配置文件"
           emptyLabel="暂无配置文件，点击右上角 + 新增"
+          headerAddon={
+            pathUnsupported ? null : (
+              <span
+                className={cn(
+                  "rounded px-1.5 py-0.5 text-[10px] font-medium",
+                  threepEnabled
+                    ? "bg-primary/15 text-primary-soft"
+                    : "bg-muted text-ink-mute",
+                )}
+              >
+                {threepEnabled ? "生效中" : "未启用"}
+              </span>
+            )
+          }
           channels={profilesQ.data ?? []}
           loading={profilesQ.isLoading}
           selectedId={selectedId}
@@ -362,23 +477,29 @@ export function ClaudeDesktopWorkspace() {
               </div>
 
               {selectedId && (
-                <div className="grid grid-cols-2 gap-2 text-xs text-ink-mute">
+                <div className="flex flex-col gap-1.5 text-xs text-ink-mute">
                   <div>
                     Profile ID：<code className="text-ink-secondary">{selectedId}</code>
                   </div>
-                  <div>
-                    文件名：
-                    <code className="text-ink-secondary">{selectedId}.json</code>
-                  </div>
-                  <div>
-                    注册状态：
-                    <span className="text-ink-secondary">
-                      {data?.meta.registered ? "已注册" : "未注册 / 新建"}
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                    <span>
+                      注册状态：
+                      <span className="text-ink-secondary">
+                        {data?.meta.registered ? "已注册" : "未注册 / 新建"}
+                      </span>
                     </span>
-                  </div>
-                  <div>
-                    当前应用：
-                    <span className="text-ink-secondary">{data?.meta.active ? "是" : "否"}</span>
+                    <span>
+                      当前应用：
+                      <span
+                        className={
+                          data?.meta.active
+                            ? "font-medium text-primary-soft"
+                            : "text-ink-secondary"
+                        }
+                      >
+                        {data?.meta.active ? "是" : "否"}
+                      </span>
+                    </span>
                   </div>
                 </div>
               )}
@@ -433,61 +554,75 @@ export function ClaudeDesktopWorkspace() {
                 </div>
               </div>
 
-              <div className="flex flex-col gap-2">
-                <div className="flex items-center justify-between gap-2">
-                  <Label>模型映射（写入 inferenceModels；1M 对应 supports1m）</Label>
-                  {writeMode === "custom" && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="xs"
-                      disabled={fetchModels.isPending || !fields.baseUrl}
-                      onClick={() => fetchModels.mutate()}
-                    >
-                      <RefreshCwIcon
-                        className={cn("size-3", fetchModels.isPending && "animate-spin")}
-                      />
-                      拉取模型
-                    </Button>
-                  )}
-                </div>
-                {MODEL_ROWS.map((row) => {
-                  const { base: b, is1m } = splitOneM(fields[row.key]);
-                  return (
-                    <div key={row.key} className="flex items-center gap-2">
-                      <span className="w-16 shrink-0 text-sm text-ink-secondary">{row.role}</span>
-                      <ModelCombobox
-                        className="flex-1"
-                        value={b}
-                        onChange={(v) => setModel(row.key, v, is1m)}
-                        options={modelOptions}
-                        placeholder="模型显示名"
-                      />
-                      <label className="flex shrink-0 items-center gap-1 text-xs text-ink-mute">
-                        <Switch checked={is1m} onCheckedChange={(v) => setModel(row.key, b, v)} />
-                        1M
-                      </label>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <label className="inline-flex cursor-pointer items-center gap-1.5 text-sm text-ink-secondary">
+              <div className="inline-flex items-center gap-1.5">
                 <Switch
+                  id="cd-model-discovery"
                   checked={fields.modelDiscoveryEnabled}
                   onCheckedChange={(v) => updateFields({ modelDiscoveryEnabled: v })}
                 />
-                启用模型发现（modelDiscoveryEnabled）
-              </label>
+                <FormFieldLabel
+                  htmlFor="cd-model-discovery"
+                  label="启用模型发现"
+                  hint="使用 /v1/model 自动获取 Claude 模型，Claude前缀才能识别"
+                />
+              </div>
+
+              {!fields.modelDiscoveryEnabled && (
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <FormFieldLabel
+                      label="模型别名（用于界面展示）"
+                      hint="写入 inferenceModels；1M 对应 supports1m"
+                    />
+                    {writeMode === "custom" && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="xs"
+                        disabled={fetchModels.isPending || !fields.baseUrl}
+                        onClick={() => fetchModels.mutate()}
+                      >
+                        <RefreshCwIcon
+                          className={cn("size-3", fetchModels.isPending && "animate-spin")}
+                        />
+                        拉取模型
+                      </Button>
+                    )}
+                  </div>
+                  {MODEL_ROWS.map((row) => {
+                    const { base: b, is1m } = splitOneM(fields[row.key]);
+                    return (
+                      <div key={row.key} className="flex items-center gap-2">
+                        <span className="w-16 shrink-0 text-sm text-ink-secondary">{row.role}</span>
+                        <ModelCombobox
+                          className="flex-1"
+                          value={b}
+                          onChange={(v) => setModel(row.key, v, is1m)}
+                          options={modelOptions}
+                          placeholder="模型显示名"
+                        />
+                        <label className="flex shrink-0 items-center gap-1 text-xs text-ink-mute">
+                          <Switch checked={is1m} onCheckedChange={(v) => setModel(row.key, b, v)} />
+                          1M
+                        </label>
+                      </div>
+                    );
+                  })}
+                  <p className="text-xs text-ink-mute">
+                    Claude Desktop 只能识别 Claude 系列模型，所以需要在端点管理正确映射
+                    Claude 系列模型方可正常使用
+                  </p>
+                </div>
+              )}
             </>
           )}
         </div>
 
-        <div className="flex min-h-0 min-w-0 flex-[2] flex-col gap-2 rounded-lg border border-edge bg-surface p-4">
-          <div className="flex flex-col gap-2">
+        <div className="flex min-h-0 min-w-0 flex-[2] flex-col gap-2 overflow-hidden rounded-lg border border-edge bg-surface p-4">
+          <div className="flex min-w-0 flex-col gap-2 overflow-hidden">
             <div className="flex items-center justify-between gap-2">
               <Label>配置文件</Label>
-              <div className="flex items-center gap-3">
+              <div className="flex shrink-0 items-center gap-3">
                 <Button
                   type="button"
                   variant="ghost"
@@ -515,18 +650,7 @@ export function ClaudeDesktopWorkspace() {
                 </label>
               </div>
             </div>
-            <Tabs
-              value={editableFile}
-              onValueChange={(v) => onSelectFileTab(v as EditableClaudeDesktopFile)}
-            >
-              <TabsList className="h-auto flex-wrap">
-                {FILE_TABS.map((tab) => (
-                  <TabsTrigger key={tab.value} value={tab.value} className="text-xs">
-                    {tab.label}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </Tabs>
+            <FileTabStrip value={editableFile} onChange={onSelectFileTab} />
           </div>
           <div className="min-h-0 flex-1">
             <Suspense fallback={<EditorFallback />}>
@@ -553,22 +677,16 @@ export function ClaudeDesktopWorkspace() {
         </div>
       </div>
 
-      <div className="relative flex items-center justify-center gap-3 rounded-lg border border-edge bg-surface px-4 py-3">
-        <span className="absolute left-4 hidden max-w-[40%] truncate text-xs text-ink-mute md:block">
-          保存将直接写入真实 Claude Desktop 文件；启用 3P 前会自动备份
+      <div className="relative flex items-center justify-center rounded-lg border border-edge bg-surface px-4 py-3">
+        <span className="absolute left-4 hidden max-w-[45%] truncate text-xs text-ink-mute md:block">
+          启用 3P 模式后，应用配置即可生效
         </span>
         <Button
-          variant="outline"
-          disabled={!canSubmit || saveProfile.isPending || pathUnsupported}
-          onClick={() => saveProfile.mutate()}
+          variant="default"
+          disabled={!canSubmit || applyProfile.isPending || pathUnsupported}
+          onClick={() => applyProfile.mutate()}
         >
-          保存配置文件
-        </Button>
-        <Button
-          disabled={!canSubmit || apply3p.isPending || saveProfile.isPending || pathUnsupported}
-          onClick={() => setPendingApply(true)}
-        >
-          启用 3P 模式
+          应用配置
         </Button>
       </div>
 
@@ -578,9 +696,7 @@ export function ClaudeDesktopWorkspace() {
             <DialogTitle>删除配置文件</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-ink-secondary">
-            确定删除「<span className="font-medium">{pendingDelete?.name}</span>」吗？将从{" "}
-            <code>_meta.json</code> 解除注册，并删除真实文件{" "}
-            <code>{pendingDelete?.fileName || `${pendingDelete?.id}.json`}</code>。
+            确定删除「<span className="font-medium">{pendingDelete?.name}</span>」吗？
           </p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setPendingDelete(null)}>
@@ -591,33 +707,38 @@ export function ClaudeDesktopWorkspace() {
               disabled={delProfile.isPending}
               onClick={() => pendingDelete && delProfile.mutate(pendingDelete.id)}
             >
-              解除注册并删除文件
+              确认
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={pendingApply} onOpenChange={(o) => !o && setPendingApply(false)}>
+      <Dialog
+        open={pending3p !== null}
+        onOpenChange={(o) => !o && setPending3p(null)}
+      >
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>启用 3P 模式</DialogTitle>
+            <DialogTitle>{pending3p ? "启用 3P 模式" : "关闭 3P 模式"}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-2 text-sm text-ink-secondary">
-            <p>将先保存当前配置文件，再备份并写入：</p>
-            <ul className="list-inside list-disc text-xs text-ink-mute">
-              <li>configLibrary/_meta.json（设为当前应用）</li>
-              <li>claude_desktop_config.json（deploymentMode=3p）</li>
-              <li>普通 Claude 侧 claude_desktop_config.json（如可解析）</li>
-              <li>developer_settings.json（确认存在，保留原字段）</li>
-            </ul>
-            <p className="text-amber-700 dark:text-amber-400">完成后通常需要重启 Claude Desktop。</p>
-          </div>
+          {pending3p ? (
+            <div className="space-y-1.5 text-sm">
+              <p className="text-ink-secondary">启用 3P，即使用第三方配置</p>
+              <p className="text-warning">操作完成后，重启 Claude Desktop 即可</p>
+            </div>
+          ) : (
+            <p className="text-sm text-warning">操作完成后，重启 Claude Desktop 即可</p>
+          )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setPendingApply(false)}>
+            <Button variant="outline" onClick={() => setPending3p(null)}>
               取消
             </Button>
-            <Button disabled={apply3p.isPending} onClick={() => apply3p.mutate()}>
-              确认启用
+            <Button
+              variant={pending3p ? "default" : "destructive"}
+              disabled={set3pEnabled.isPending || pending3p === null}
+              onClick={() => pending3p !== null && set3pEnabled.mutate(pending3p)}
+            >
+              {pending3p ? "确认启用" : "确认关闭"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -630,10 +751,16 @@ function PathStatusBanner({
   loading,
   error,
   paths,
+  threepEnabled,
+  threepPending,
+  onToggleThreep,
 }: {
   loading: boolean;
   error: string | null;
   paths: import("@/services/modules/claude_desktop_config").ClaudeDesktopPaths | undefined;
+  threepEnabled: boolean;
+  threepPending: boolean;
+  onToggleThreep: (enabled: boolean) => void;
 }) {
   if (loading) {
     return (
@@ -650,23 +777,59 @@ function PathStatusBanner({
     );
   }
   if (!paths) return null;
+  const dir = paths.threepRootResolved || "";
+  const canToggle = Boolean(dir) && paths.supported !== false;
+  const openDir = async () => {
+    if (!dir) return;
+    try {
+      await openPath(dir);
+    } catch (e) {
+      toast.error(errMsg(e) || "无法打开配置目录");
+    }
+  };
   return (
     <div className="rounded-lg border border-edge bg-surface px-3 py-2 text-xs text-ink-secondary">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-        <span>
-          来源：<code>{formatPathSourceLabel(paths)}</code>
-        </span>
-        {paths.packageFamilyName && (
-          <span>
-            PFN：<code>{paths.packageFamilyName}</code>
-          </span>
+      {paths.packageFamilyName && (
+        <div className="mb-1">
+          PFN：<code>{paths.packageFamilyName}</code>
+        </div>
+      )}
+      <div className="flex min-w-0 flex-col gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          {paths.isMsixVirtualized && (
+            <span className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-400">
+              MSIX
+            </span>
+          )}
+          <div className="min-w-0 truncate text-ink-mute" title={dir || undefined}>
+            配置目录：{dir || "未解析"}
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="xs"
+            className="shrink-0"
+            disabled={!dir}
+            onClick={() => void openDir()}
+            aria-label="在文件管理器中打开配置目录"
+          >
+            <FolderOpenIcon className="size-3" />
+            打开
+          </Button>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-ink-mute">启用 3P 模式</span>
+          <Switch
+            checked={threepEnabled}
+            disabled={threepPending || !canToggle}
+            onCheckedChange={onToggleThreep}
+            aria-label={threepEnabled ? "关闭 3P 模式" : "启用 3P 模式"}
+          />
+        </div>
+        {paths.warning && (
+          <div className="text-amber-700 dark:text-amber-400">{paths.warning}</div>
         )}
-        {paths.isMsixVirtualized && <span className="text-amber-700 dark:text-amber-400">MSIX</span>}
       </div>
-      <div className="mt-1 truncate text-ink-mute" title={paths.threepRootResolved || undefined}>
-        3P 目录：{paths.threepRootResolved || "未解析"}
-      </div>
-      {paths.warning && <div className="mt-1 text-amber-700 dark:text-amber-400">{paths.warning}</div>}
     </div>
   );
 }

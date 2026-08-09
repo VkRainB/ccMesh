@@ -1,4 +1,5 @@
-import { PlusIcon, Trash2Icon } from "lucide-react";
+import type { ReactNode } from "react";
+import { BookmarkIcon, PlusIcon, Trash2Icon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -6,6 +7,8 @@ import { cn } from "@/lib/utils";
 interface ListItem {
   id: string;
   name: string;
+  /** 当前应用中的配置（如 Claude Desktop appliedId）。 */
+  active?: boolean;
 }
 
 interface Props<T extends ListItem> {
@@ -17,6 +20,8 @@ interface Props<T extends ListItem> {
   onDelete: (channel: T) => void;
   /** 左栏标题，默认「渠道」。 */
   title?: string;
+  /** 标题与新增按钮之间的附加内容（如状态徽章）。 */
+  headerAddon?: ReactNode;
   /** 空态提示，默认「暂无渠道，点击右上角 + 新增」。 */
   emptyLabel?: string;
   /** 新增按钮 aria/title，默认「新增渠道」。 */
@@ -32,17 +37,22 @@ export function ChannelList<T extends ListItem>({
   onNew,
   onDelete,
   title = "渠道",
+  headerAddon,
   emptyLabel = "暂无渠道，点击右上角 + 新增",
   newLabel = "新增渠道",
 }: Props<T>) {
   return (
     <div className="flex h-full min-h-0 w-56 shrink-0 flex-col rounded-lg border border-edge bg-surface">
-      <div className="flex items-center justify-between border-b border-edge px-3 py-2">
-        <span className="text-sm font-medium text-ink-secondary">{title}</span>
+      <div className="flex items-center justify-between gap-2 border-b border-edge px-3 py-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="shrink-0 text-sm font-medium text-ink-secondary">{title}</span>
+          {headerAddon}
+        </div>
         <Button
           type="button"
           variant="ghost"
           size="icon"
+          className="shrink-0"
           onClick={onNew}
           aria-label={newLabel}
           title={newLabel}
@@ -72,8 +82,11 @@ export function ChannelList<T extends ListItem>({
                     onDelete(ch);
                   }}
                 >
-                  <span className="truncate" title={ch.name}>
-                    {ch.name}
+                  <span className="flex min-w-0 items-center gap-1.5" title={ch.name}>
+                    <span className="truncate">{ch.name}</span>
+                    {ch.active && (
+                      <BookmarkIcon className="size-3.5 shrink-0" aria-label="当前应用" />
+                    )}
                   </span>
                   <button
                     type="button"

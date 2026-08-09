@@ -21,6 +21,8 @@ export interface ClaudeDesktopPaths {
   resolutionSource: string;
   packageFamilyName?: string | null;
   isMsixVirtualized: boolean;
+  /** 3P 根 claude_desktop_config.json 是否含 deploymentMode: "3p"。 */
+  threepEnabled: boolean;
   candidates: ClaudeDesktopPathCandidate[];
   warning?: string | null;
 }
@@ -65,6 +67,11 @@ export interface ApplyClaudeDesktop3pRequest {
   writeDeveloperSettings?: boolean;
 }
 
+export interface SetClaudeDesktop3pEnabledRequest {
+  enabled: boolean;
+  writeNormalConfig?: boolean;
+}
+
 export interface ApplyClaudeDesktop3pResult {
   writtenFiles: string[];
   backupFiles: string[];
@@ -94,4 +101,7 @@ export const claudeDesktopConfigApi = {
   deleteProfile: (id: string) => request<void>("delete_claude_desktop_profile", { id }),
   apply3pMode: (req: ApplyClaudeDesktop3pRequest) =>
     request<ApplyClaudeDesktop3pResult>("apply_claude_desktop_3p_mode", { req }),
+  /** 仅增删 claude_desktop_config.json 的 deploymentMode: "3p"。 */
+  set3pEnabled: (req: SetClaudeDesktop3pEnabledRequest) =>
+    request<ApplyClaudeDesktop3pResult>("set_claude_desktop_3p_enabled", { req }),
 };
