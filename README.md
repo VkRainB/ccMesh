@@ -191,11 +191,11 @@ ccMesh 采用 [Apache License 2.0](LICENSE) 开源协议。
 ## Star History
 
 <div align="center">
-  <a href="https://www.star-history.com/#VkRainB/ccMesh&Date">
+  <a href="https://www.star-history.com/?repos=VkRainB%2FccMesh&type=date&legend=top-left">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=VkRainB/ccMesh&type=Date&theme=dark" />
-      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=VkRainB/ccMesh&type=Date" />
-      <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=VkRainB/ccMesh&type=Date" />
+      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=VkRainB/ccMesh&type=date&theme=dark&legend=top-left&sealed_token=OmgnNNQzzclHtZwIuWrOEc8XxKo3xhsRpveK8T6fe0ujcCtBDFp9vTV-0IQwQmf6310YFt_94eHJxLySyo02c1QHWKCUbODCsJu19q9woXAmu3g6VYECt6pvAl2OQypOOpUC66C14v5-kbrs4ZPl5t8CHARbYFiFo_APGYn_WIHs79VX9_78FvLS1xYT" />
+      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=VkRainB/ccMesh&type=date&legend=top-left&sealed_token=OmgnNNQzzclHtZwIuWrOEc8XxKo3xhsRpveK8T6fe0ujcCtBDFp9vTV-0IQwQmf6310YFt_94eHJxLySyo02c1QHWKCUbODCsJu19q9woXAmu3g6VYECt6pvAl2OQypOOpUC66C14v5-kbrs4ZPl5t8CHARbYFiFo_APGYn_WIHs79VX9_78FvLS1xYT" />
+      <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=VkRainB/ccMesh&type=date&legend=top-left&sealed_token=OmgnNNQzzclHtZwIuWrOEc8XxKo3xhsRpveK8T6fe0ujcCtBDFp9vTV-0IQwQmf6310YFt_94eHJxLySyo02c1QHWKCUbODCsJu19q9woXAmu3g6VYECt6pvAl2OQypOOpUC66C14v5-kbrs4ZPl5t8CHARbYFiFo_APGYn_WIHs79VX9_78FvLS1xYT" />
     </picture>
   </a>
 </div>
