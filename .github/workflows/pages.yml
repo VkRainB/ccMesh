@@ -1,0 +1,100 @@
+name: Pages
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - "docs-site/**"
+      - ".github/workflows/pages.yml"
+  pull_request:
+    branches:
+      - master
+    paths:
+      - "docs-site/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build VitePress site
+    runs-on: ubuntu-latest
+    # 站点部署在 https://vkrainb.github.io/ccMesh/，base 由 docs-site/.vitepress/config.mts 硬编码为 /ccMesh/。
+    env:
+      DOCS_SITE_ORIGIN: https://vkrainb.github.io/ccMesh
+
+    defaults:
+      run:
+        working-directory: docs-site
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: docs-site/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Build documentation site
+        run: npm run docs:build
+
+      - name: Generate sitemap
+        working-directory: .
+        run: |
+          ORIGIN="${DOCS_SITE_ORIGIN:-https://vkrainb.github.io/ccMesh}"
+          BASE="/"
+          SITEMAP="docs-site/.vitepress/dist/sitemap.xml"
+          echo '<?xml version="1.0" encoding="UTF-8"?>' > "$SITEMAP"
+          echo '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' >> "$SITEMAP"
+          find docs-site/.vitepress/dist -type f -name '*.html' | sort | while read -r file; do
+            rel="${file#docs-site/.vitepress/dist/}"
+            rel="${rel%.html}"
+            if [ "$rel" = "index" ]; then
+              loc="$BASE"
+            else
+              loc="$BASE$rel/"
+            fi
+            echo "  <url><loc>${ORIGIN}${loc}</loc></url>" >> "$SITEMAP"
+          done
+          echo '</urlset>' >> "$SITEMAP"
+          cat "$SITEMAP"
+
+      - name: Upload Pages artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs-site/.vitepress/dist
+
+  deploy:
+    name: Deploy to GitHub Pages
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

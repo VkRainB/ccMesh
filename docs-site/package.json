@@ -1,0 +1,23 @@
+{
+  "name": "vitepress-paper",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "docs:dev": "vitepress dev .",
+    "docs:build": "vitepress build .",
+    "docs:preview": "vitepress preview ."
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "type": "module",
+  "devDependencies": {
+    "vitepress": "^1.6.4"
+  },
+  "dependencies": {
+    "viewerjs": "^1.11.7",
+    "vitepress-plugin-image-viewer": "^1.1.6"
+  }
+}

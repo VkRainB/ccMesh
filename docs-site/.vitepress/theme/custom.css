@@ -1,0 +1,219 @@
+@font-face {
+  font-family: "PiDeckPlantin";
+  src: url("./fonts/PlantinNowVariable-Upright.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 300 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "PiDeckPlantin";
+  src: url("./fonts/PlantinNowVariable-Italic.woff2") format("woff2");
+  font-style: italic;
+  font-weight: 300 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "PiDeckCommitMono";
+  src: url("./fonts/CommitMono-400-Regular.otf") format("opentype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "PiDeckDepartureMono";
+  src: url("./fonts/DepartureMono-Regular.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+:root {
+  --pideck-color-brand-green: #0f766e;
+  --pideck-color-brand-blue: #2563eb;
+  --pideck-color-brand-amber: #b45309;
+  --pideck-hero-gradient: linear-gradient(
+    120deg,
+    var(--pideck-color-brand-green) 0%,
+    var(--pideck-color-brand-blue) 54%,
+    var(--pideck-color-brand-amber) 100%
+  );
+  --vp-c-brand-1: var(--pideck-color-brand-green);
+  --vp-c-brand-2: #0d9488;
+  --vp-c-brand-3: #14b8a6;
+  --vp-c-brand-soft: rgba(20, 184, 166, 0.14);
+  --vp-c-bg: #f7faf9;
+  --vp-c-bg-alt: #eef5f3;
+  --vp-c-bg-soft: #ffffff;
+  --vp-c-text-1: #14211f;
+  --vp-c-text-2: #43524f;
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: var(--pideck-hero-gradient);
+  --vp-font-family-base: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --vp-font-family-mono: "PiDeckCommitMono", "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  --pideck-font-brand: "PiDeckPlantin", Georgia, "Times New Roman", serif;
+  --pideck-font-display-mono: "PiDeckDepartureMono", "PiDeckCommitMono", ui-monospace, monospace;
+}
+
+.dark {
+  --vp-c-bg: #101615;
+  --vp-c-bg-alt: #151d1b;
+  --vp-c-bg-soft: #18211f;
+  --vp-c-text-1: #ecf4f2;
+  --vp-c-text-2: #afbfbb;
+  --vp-c-brand-soft: rgba(20, 184, 166, 0.18);
+}
+
+.VPHome {
+  background:
+    linear-gradient(180deg, rgba(15, 118, 110, 0.08), transparent 360px),
+    radial-gradient(circle at 100% 0%, rgba(180, 83, 9, 0.08), transparent 340px);
+}
+
+.VPHero .name,
+.VPHero .text {
+  letter-spacing: 0;
+}
+
+.VPHero .name {
+  font-family: var(--pideck-font-brand);
+  font-style: italic;
+  font-weight: 760;
+}
+
+.VPHero .text {
+  font-family: var(--pideck-font-brand);
+  font-weight: 560;
+}
+
+.VPNavBarTitle .title {
+  font-family: var(--pideck-font-brand);
+  font-style: italic;
+  font-weight: 680;
+  letter-spacing: 0;
+}
+
+.VPHero .tagline {
+  max-width: 680px;
+  line-height: 1.75;
+}
+
+.VPButton {
+  border-radius: 8px !important;
+}
+
+.VPFeature {
+  border-radius: 8px !important;
+  border-color: rgba(15, 118, 110, 0.16) !important;
+  box-shadow: 0 12px 30px rgba(20, 33, 31, 0.05);
+}
+
+.home-showcase {
+  margin: 24px auto 56px;
+  max-width: 1120px;
+  padding: 0 24px;
+}
+
+.home-showcase img,
+.screenshot-card img,
+.doc-screenshot {
+  display: block;
+  width: 100%;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 8px;
+  box-shadow: 0 22px 60px rgba(20, 33, 31, 0.16);
+}
+
+.home-showcase figcaption {
+  margin-top: 14px;
+  color: var(--vp-c-text-2);
+  font-size: 14px;
+  text-align: center;
+}
+
+.screenshot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 18px;
+  margin: 28px 0;
+}
+
+.screenshot-card {
+  color: inherit;
+  text-decoration: none;
+}
+
+.screenshot-card strong {
+  display: block;
+  margin-top: 10px;
+  letter-spacing: 0;
+  font-family: var(--pideck-font-brand);
+  font-weight: 620;
+}
+
+.screenshot-card span {
+  display: block;
+  margin-top: 4px;
+  color: var(--vp-c-text-2);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.info-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin: 28px 0;
+}
+
+.info-strip > div {
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 8px;
+  padding: 16px;
+  background: var(--vp-c-bg-soft);
+}
+
+.info-strip strong {
+  display: block;
+  margin-bottom: 6px;
+  font-family: var(--pideck-font-brand);
+  font-weight: 620;
+}
+
+.VPFeature .title,
+.content h1,
+.content h2 {
+  font-family: var(--pideck-font-brand);
+  font-weight: 620;
+  letter-spacing: 0;
+}
+
+.VPFeature .title {
+  font-style: italic;
+}
+
+.VPDoc code,
+.VPDoc pre,
+.VPDoc kbd,
+.VPDoc table code {
+  font-family: var(--vp-font-family-mono);
+}
+
+.VPDoc table td:first-child code,
+.VPDoc table td:first-child {
+  font-family: var(--pideck-font-display-mono);
+}
+
+@media (max-width: 760px) {
+  .home-showcase {
+    margin-top: 8px;
+    padding: 0 18px;
+  }
+
+  .screenshot-grid,
+  .info-strip {
+    grid-template-columns: 1fr;
+  }
+}
