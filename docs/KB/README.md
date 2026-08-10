@@ -58,6 +58,7 @@
 | [config-single-source-of-truth.md](./pitfalls/config-single-source-of-truth.md) | 同一语义只用一个配置键，读写路径必须共用解析函数 |
 | [webkitgtk-linux-click-unresponsive.md](./pitfalls/webkitgtk-linux-click-unresponsive.md) | Linux 设 DMABUF 环境变量，show 后 nudge 窗口 |
 | [advertised-models-routing-mismatch.md](./pitfalls/advertised-models-routing-mismatch.md) | 入站模型名必须出现在 advertised 集合，否则 filter 会漏端点或误匹配 |
+| [readme-star-history-token-restriction.md](./pitfalls/readme-star-history-token-restriction.md) | GitHub 2026-06 限 stargazers API，README star-history 图需改用带 sealed_token 的 /chart 端点 |
 
 ## testing
 
@@ -73,4 +74,4 @@
 
 ---
 
-_索引最后更新：2026-06-28（kb-calibrate 全量校准）· 共 21 篇文档、22 条经验条目_
+_索引最后更新：2026-08-10（新增 star-history sealed_token 条目）· 共 22 篇文档、23 条经验条目_
