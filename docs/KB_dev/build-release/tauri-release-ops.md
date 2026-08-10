@@ -9,18 +9,32 @@ ccMesh 发版的日常操作：打 tag、重新触发构建、正式发布、紧
 ## 一、正常发版流程
 
 ```bash
-# 1. 改版本号（tauri.conf.json + package.json 保持一致）
-# 2. 提交并推送到 master
+# 1. 改版本号（tauri.conf.json + package.json + Cargo.toml 保持一致）
+#    用统一脚本：node scripts/update-version.mjs 0.2.0
+# 2. 在 CHANGELOG.md 顶部补对应版本段落（新增/调整/修复）
+#    格式：
+#      ## [0.2.0]
+#
+#      ### 新增
+#      - ...
+#      ### 调整
+#      - ...
+#      ### 修复
+#      - ...
+#    缺这一步，release.yml 的 prepare-notes 切片会拿到空正文并失败
+# 3. 提交并推送到 master
 git add -A && git commit -m "release: v0.2.0"
 git push origin master
 
-# 3. 等 master 的 ci.yml 跑完（热缓存就绪）
-# 4. 打 tag 并推送，触发 release.yml 三平台构建
+# 4. 等 master 的 ci.yml 跑完（热缓存就绪）
+# 5. 打 tag 并推送，触发 release.yml 三平台构建
 git tag v0.2.0
 git push origin v0.2.0
 ```
 
 CI 完成后到 GitHub → Releases → 找到 Draft → 点 **Publish release** 正式发布。
+
+Release 说明由 `prepare-notes` job 自动生成：从 `CHANGELOG.md` 切出对应版本段落，拼接 `.github/release-template.md`（含下载按钮 + 下载数 badge + 联系方式）。只需检查无需手写。
 
 ### 发布后 checklist
 
@@ -76,7 +90,7 @@ Draft 只有仓库协作者可见，普通用户和 updater 都检测不到。
 1. GitHub → **Releases** → 找到对应版本的 Draft
 2. 点右上角 **Edit**（铅笔图标）
 3. 检查 Assets 文件是否齐全
-4. 填写 Release 标题和说明（可选）
+4. 检查 Release 说明（由 CI 自动生成，含版本变更 + 下载按钮 + 联系方式，一般无需修改）
 5. 点底部绿色按钮 **Publish release**
 
 > **不要勾选 Pre-release**。Pre-release 是标记"非正式版"的标签，和 Draft/Published 是独立的概念。

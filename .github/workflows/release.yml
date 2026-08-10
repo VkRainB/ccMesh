@@ -23,8 +23,58 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  prepare-notes:
+    name: Prepare release notes
+    runs-on: ubuntu-latest
+    outputs:
+      release_body: ${{ steps.build-notes.outputs.release_body }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build release notes
+        id: build-notes
+        shell: bash
+        run: |
+          # 手动触发（非 tag）时不切片，用兜底文案，tauri-action 也不会创建 Release
+          if [ "${{ github.ref_type }}" != "tag" ]; then
+            echo "release_body=查看下方 Assets 下载对应平台安装包。" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "Extracting changelog for [${VERSION}]..."
+
+          # 切片 CHANGELOG.md 对应版本段落；遇到 `---` 分隔线停止，避免误带末尾联系方式
+          BODY=$(awk -v ver="[${VERSION}]" '/^## \[/{if(found) exit; if($2==ver) found=1; next} found && /^---$/{exit} found{print}' CHANGELOG.md)
+
+          if [ -z "$BODY" ]; then
+            echo "CHANGELOG.md 未找到 [${VERSION}] 段落，请发版前补齐" >&2
+            exit 1
+          fi
+
+          # 替换模板占位：先长后短，避免短占位误匹配长占位子串
+          sed -e "s|vVERSION|v${VERSION}|g" -e "s|VERSION|${VERSION}|g" .github/release-template.md > template.md
+
+          # 拼接：切片正文在前 + 下载模板在后
+          {
+            echo "$BODY"
+            echo ""
+            cat template.md
+          } > release_body.md
+
+          # 多行输出
+          echo "release_body<<EOF" >> $GITHUB_OUTPUT
+          cat release_body.md >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+          echo "--- Release body preview ---"
+          cat release_body.md
+          echo "----------------------------"
+
   build:
     name: Build (${{ matrix.platform }})
+    needs: [prepare-notes]
     strategy:
       fail-fast: false
       matrix:
@@ -121,7 +171,7 @@ jobs:
           # 仅在 tag 触发时创建 Release；手动触发只验证构建
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
           releaseName: 'ccMesh ${{ github.ref_name }}'
-          releaseBody: '查看下方 Assets 下载对应平台安装包。'
+          releaseBody: ${{ needs.prepare-notes.outputs.release_body }}
           releaseDraft: true
           prerelease: false
           # 生成并上传 latest.json（updater 更新源），需配合仓库 Secret TAURI_SIGNING_PRIVATE_KEY
