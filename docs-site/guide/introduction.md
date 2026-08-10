@@ -1,22 +1,29 @@
-# 项目简介
+---
+title: ccMesh 是做什么的
+description: 本机 AI 代理网关如何统一多上游、协议转换、轮换熔断与配置管理。
+meta:
+  contentType: Conceptual
+---
 
-**ccMesh** 是基于 **Tauri 2 + Rust + React 19** 的桌面端 AI 代理网关：在本机统一接入 Claude / OpenAI / Codex 等多类上游，提供协议转换、模型映射、端点轮换与熔断、请求统计与配置管理等能力。支持 Windows、macOS、Linux。
+# ccMesh 是做什么的
 
-## 它解决什么问题
+ccMesh 是基于 Tauri 2 + Rust + React 19 的桌面 AI 代理网关：在本机统一接入 Claude / OpenAI / Codex 等多类上游，并完成协议转换、模型映射、端点轮换与熔断、请求统计与配置管理。支持 Windows、macOS、Linux。
 
-当你在使用 Claude Code、Codex CLI 等 AI 编程工具时，常常会遇到：
+## 要解决的问题
 
-- **多个上游渠道**：手里有若干个不同供应商的 API Key / 中转站，需要在它们之间切换、轮换。
-- **协议不统一**：客户端只会说一种协议（如 Anthropic Messages），但上游可能是 OpenAI Chat Completions 或 Codex Responses 格式。
-- **模型名不一致**：客户端请求 `claude-sonnet-4`，而上游真实模型名是另一个标识。
-- **稳定性**：某个上游临时故障，希望自动切换到下一个，而不是请求直接失败。
-- **配置繁琐**：Claude Code 的 `settings.json`、Codex 的 `auth.json` + `config.toml` 需要手工编辑、来回切换。
+使用 Claude Code、Codex CLI 等工具时，常见情况包括：
 
-ccMesh 把这些能力收敛到一个本地桌面应用里：你只需把 AI 工具指向 ccMesh 在本机开放的端口，剩下的接入、转换、路由、统计交给它。
+- **多个上游渠道**：多个供应商 API Key 或中转站，需要切换与轮换
+- **协议不统一**：客户端说 Anthropic Messages，上游可能是 OpenAI Chat 或 Responses
+- **模型名不一致**：客户端模型名与上游真实标识不同
+- **稳定性**：某一上游故障时希望自动切到下一个
+- **配置切换成本高**：Claude Code 的 `settings.json`、Codex 的 `auth.json` + `config.toml` 需要反复手改
+
+把客户端指向 ccMesh 本机端口后，网关处理接入、转换、路由与统计。
 
 ## 整体工作方式
 
-```
+```text
 ┌─────────────┐      本地请求       ┌────────────────────────┐      转换 + 路由      ┌──────────────┐
 │ Claude Code │ ───────────────▶  │         ccMesh         │ ───────────────────▶ │  上游 A / B / C │
 │  Codex CLI  │  http://127.0.0.1 │  协议转换 · 模型映射     │   轮换 · 熔断 · 统计   │ (Claude/OpenAI)│
@@ -24,30 +31,31 @@ ccMesh 把这些能力收敛到一个本地桌面应用里：你只需把 AI 工
 └─────────────┘      流式响应       └────────────────────────┘                      └──────────────┘
 ```
 
-1. 客户端把请求发到 ccMesh 的本地代理端口。
-2. ccMesh 根据请求的模型名与端点配置，选择一个可用上游端点。
-3. 按端点的转换器类型把请求改写为上游协议，并应用模型映射。
-4. 转发到上游、流式回传响应，同时记录用量与日志。
-5. 若上游失败，按轮换策略切换到下一个端点，故障端点进入熔断。
+1. 客户端把请求发到本地代理端口。
+2. 按模型名与端点配置选出可用上游（含快速队列优先规则）。
+3. 按转换器改写协议并应用模型映射。
+4. 转发上游、流式回传，并记录用量。
+5. 失败时按轮换切换；故障端点进入熔断。
 
 ## 功能总览
 
 | 模块 | 能力 |
 |------|------|
-| **仪表盘** | 代理服务启停、端口状态、今日 Token 概览、实时请求监控 |
-| **端点管理** | 多端点 CRUD、拖拽排序、模型映射、连通性测试、按模型轮换/熔断 |
-| **配置文件** | 渠道化管理 Claude Code / Codex 配置，端点写入 / 自定义写入双模式 |
-| **统计** | 按应用 / 端点 / 模型维度查看历史用量 |
-| **同步** | 配置与数据本地备份、恢复、导出，WebDAV 远程同步 |
-| **设置** | 全局出站代理、CLI User-Agent、应用内自动更新 |
+| **仪表盘** | 代理启停、端点队列与快速队列、今日概览、实时请求监控 |
+| **端点管理** | CRUD、点亮模型、模型映射、连通性测试 |
+| **配置文件** | Claude Code / Codex / Claude Desktop 渠道，端点写入或自定义写入 |
+| **对话** | 无工具的连通性试探 |
+| **会话管理** | 本机 Claude / Codex 会话文件 |
+| **统计** | 端点统计与用量统计双标签 |
+| **同步** | cc-switch 迁移、本地与 WebDAV 备份 |
+| **日志** | 约 500 行环形运行日志 |
+| **设置** | 端口、主题、启动、UA、出站代理、宠物入口 |
+| **精灵宠物** | 导入与激活桌面宠物 |
+| **关于** | 版本、更新、本机工具环境检查 |
 
-## 技术栈
+## 主要技术组件
 
-- **后端**：Tauri 2、Rust、axum（本地 HTTP 服务）、reqwest（rustls TLS）、SQLite。
-- **前端**：React 19、TypeScript、Vite、TanStack Query、Zustand、Tailwind CSS v4、shadcn/ui、CodeMirror 6。
+- **后端**：Tauri 2、Rust、axum、reqwest（rustls）、SQLite
+- **前端**：React 19、TypeScript、Vite、TanStack Query、Zustand、Tailwind CSS v4、shadcn/ui、CodeMirror 6
 
-## 下一步
-
-- 还没安装？前往 [安装](./installation)。
-- 想尽快跑起来？看 [快速上手](./getting-started)。
-- 想先理解术语？看 [核心概念](./concepts)。
+安装见 [如何安装 ccMesh](/guide/installation)。术语见 [ccMesh 里这些词分别指什么](/guide/concepts)。接着看 [第一次把请求跑通](/guide/getting-started) 或 [用截图完成第一次接入](/guide/quickstart)。

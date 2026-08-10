@@ -1,12 +1,14 @@
-export const LATEST_JSON_URL =
-  'https://github.com/VkRainB/ccMesh/releases/latest/download/latest.json'
+export const LATEST_API_URL =
+  'https://api.github.com/repos/VkRainB/ccMesh/releases/latest'
 
-export async function fetchReleaseVersion(fallback = 'v0.1.7'): Promise<string> {
+export async function fetchReleaseVersion(fallback = 'v0.2.3'): Promise<string> {
   try {
-    const res = await fetch(LATEST_JSON_URL)
+    const res = await fetch(LATEST_API_URL, {
+      headers: { Accept: 'application/vnd.github+json' }
+    })
     if (!res.ok) throw new Error(String(res.status))
-    const data = (await res.json()) as { version?: string }
-    if (data.version) return `v${data.version}`
+    const data = (await res.json()) as { tag_name?: string }
+    if (data.tag_name) return data.tag_name
   } catch {
     // 构建或客户端拉取失败时使用 fallback
   }

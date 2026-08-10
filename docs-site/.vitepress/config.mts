@@ -7,12 +7,12 @@ const releaseVersion = await fetchReleaseVersion()
 export default defineConfig({
   lang: 'zh-CN',
   title: 'ccMesh',
-  description: '轻量级跨平台 AI 代理网关桌面应用 · 功能文档',
+  description: '跨平台 AI 代理网关桌面应用 · 功能文档',
   base: '/ccMesh/',
   cleanUrls: true,
   lastUpdated: true,
-  // 本主题为亮色印刷版式（light-first），关闭暗色切换
-  appearance: false,
+  // 启用暗色/亮色模式切换：导航栏右侧按钮，配合 custom.css 中的 .dark 变量
+  appearance: true,
   markdown: {
     // 代码块按 DESIGN.md 走深色锚点（墨蓝灰底），高亮配深色语法主题
     theme: 'github-dark'
@@ -23,12 +23,12 @@ export default defineConfig({
     ['meta', { name: 'author', content: 'VkRainB' }],
     ['meta', { name: 'robots', content: 'index, follow' }],
     ['meta', { property: 'og:site_name', content: 'ccMesh' }],
-    ['meta', { property: 'og:title', content: 'ccMesh - 跨平台 AI 代理网关' }],
+    ['meta', { property: 'og:title', content: 'ccMesh：跨平台 AI 代理网关' }],
     ['meta', { property: 'og:type', content: 'website' }],
     ['meta', { property: 'og:url', content: 'https://vkrainb.github.io/ccMesh/' }],
     ['meta', { property: 'og:image', content: 'https://vkrainb.github.io/ccMesh/screenshots/logo.png' }],
     ['meta', { name: 'twitter:card', content: 'summary' }],
-    ['meta', { name: 'twitter:title', content: 'ccMesh - 跨平台 AI 代理网关' }]
+    ['meta', { name: 'twitter:title', content: 'ccMesh：跨平台 AI 代理网关' }]
   ],
   themeConfig: {
     // https://vitepress.dev/zh/reference/default-theme-config
@@ -48,26 +48,31 @@ export default defineConfig({
     sidebar: {
       '/guide/': [
         {
-          text: '开始使用',
+          text: '指南',
           items: [
             { text: '项目简介', link: '/guide/introduction' },
             { text: '安装', link: '/guide/installation' },
-            { text: '快速使用指南（图文）', link: '/guide/quickstart' },
-            { text: '快速上手', link: '/guide/getting-started' },
+            { text: '快速入门', link: '/guide/quickstart' },
+            { text: '第一次跑通', link: '/guide/getting-started' },
             { text: '核心概念', link: '/guide/concepts' }
           ]
         }
       ],
       '/features/': [
         {
-          text: '功能详解',
+          text: '功能',
           items: [
             { text: '仪表盘', link: '/features/dashboard' },
             { text: '端点管理', link: '/features/endpoints' },
             { text: '配置文件', link: '/features/config-profiles' },
+            { text: '对话', link: '/features/chat' },
+            { text: '会话管理', link: '/features/tool-sessions' },
             { text: '统计', link: '/features/statistics' },
             { text: '同步', link: '/features/sync' },
-            { text: '设置', link: '/features/settings' }
+            { text: '日志', link: '/features/logs' },
+            { text: '设置', link: '/features/settings' },
+            { text: '精灵宠物', link: '/features/pet' },
+            { text: '关于', link: '/features/about' }
           ]
         }
       ],

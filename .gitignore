@@ -5,6 +5,8 @@ node_modules/
 dist/
 dist-ssr/
 *.local
+docs-site/.vitepress/cache/
+docs-site/.vitepress/dist/
 
 # Rust / Cargo
 **/target/

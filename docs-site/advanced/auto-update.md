@@ -1,35 +1,45 @@
-# 自动更新
+---
+title: 自动更新如何工作
+description: 基于 GitHub Releases 的应用内更新、签名校验，以及构建时注入签名环境变量。
+meta:
+  contentType: Conceptual
+---
 
-ccMesh 内置基于 **GitHub Releases** 的应用内更新器，可检测、下载并应用新版本。
+# 自动更新如何工作
+
+ccMesh 内置基于 **GitHub Releases** 的更新器，可检测、下载并应用新版本。
 
 ## 用户侧
 
-在 [设置](../features/settings) 中可检查更新。当有新版本时，应用会提示并支持下载、应用更新。版本信息也会在界面中展示。
+在 [关于页](/features/about) 点 **检查更新**；设置里也可配合代理更新开关。有新版本时提示下载与应用，并可跳过指定版本。
 
 安装包发布在 [GitHub Releases](https://github.com/VkRainB/ccMesh/releases/latest)。
 
 ## 更新机制概述
 
-Tauri 的更新器依赖 **签名机制** 来保证更新包的完整性与来源可信：
+Tauri 更新器依赖签名保证完整性与来源可信：
 
-- 发布产物时使用私钥对更新包签名；
-- 应用内置对应公钥校验签名，校验通过才会应用更新。
+- 发布产物时用私钥对更新包签名
+- 应用内置公钥校验，通过后才应用更新
+
+出站下载是否走代理由设置中的 **代理更新**（`proxyForUpdate`）与代理 URL 决定，见 [如何调整设置](/features/settings)。
 
 ## 构建带签名的产物
 
-本地或 CI 构建带 updater 签名的产物时，需要配置签名相关环境变量（例如 `TAURI_SIGNING_PRIVATE_KEY` 及其密码）。请妥善保管私钥，切勿提交到仓库。
+本地或 CI 构建带 updater 签名的产物时，配置签名环境变量（例如 `TAURI_SIGNING_PRIVATE_KEY` 及其密码）。妥善保管私钥，勿提交到仓库。
 
 ```bash
-# 示例：构建前注入签名环境变量（请使用你自己的密钥）
+# 示例：构建前注入签名环境变量（使用你自己的密钥）
 # Windows PowerShell
-$env:TAURI_SIGNING_PRIVATE_KEY = "..."
-$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = "..."
+$env:TAURI_SIGNING_PRIVATE_KEY = "your_private_key_here"
+$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = "your_password_here"
 pnpm tauri build
 ```
 
-> 具体的发布流程、CI 工作流与密钥管理细节，以项目仓库内 `docs/build-release/` 下的发布文档为准。
+发布流程、CI 工作流与密钥管理以仓库内文档为准：
 
-## 相关
+- [`docs/KB_dev/guides/auto-update-and-release.md`](https://github.com/VkRainB/ccMesh/blob/master/docs/KB_dev/guides/auto-update-and-release.md)
+- [`docs/KB_dev/build-release/tauri-updater-signing.md`](https://github.com/VkRainB/ccMesh/blob/master/docs/KB_dev/build-release/tauri-updater-signing.md)
+- [`docs/KB_dev/build-release/tauri-ci-release-workflow.md`](https://github.com/VkRainB/ccMesh/blob/master/docs/KB_dev/build-release/tauri-ci-release-workflow.md)
 
-- 从源码构建见 [从源码构建](./build-from-source)。
-- 应用内更新入口见 [设置](../features/settings)。
+从源码构建见 [如何从源码构建](/advanced/build-from-source)。

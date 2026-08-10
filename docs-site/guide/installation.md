@@ -1,21 +1,28 @@
-# 安装
+---
+title: 如何安装 ccMesh
+description: 从 GitHub Releases 安装 Windows / macOS / Linux 包，以及系统要求与源码构建入口。
+meta:
+  contentType: How-to
+---
 
-最新安装包见 [Releases](https://github.com/VkRainB/ccMesh/releases/latest)。应用支持通过内置更新器拉取新版本（详见 [自动更新](../advanced/auto-update)）。
+# 如何安装 ccMesh
+
+最新安装包见 [Releases](https://github.com/VkRainB/ccMesh/releases/latest)。应用支持通过内置更新器拉取新版本，见 [自动更新如何工作](/advanced/auto-update)。
 
 ## Windows
 
-下载 `*-setup.exe`（NSIS）或 `*.msi`，双击安装即可。
+下载 `*-setup.exe`（NSIS）或 `*.msi`，双击安装。
 
-> 首次运行需要系统已安装 **WebView2 运行时**。Windows 10/11 通常已内置；若缺失，安装程序会引导安装。
+首次运行需要 **WebView2 运行时**。多数 Windows 10/11 已预装；若缺失，安装程序会引导安装。
 
 ## macOS（当前为未签名版本）
 
-由于暂未配置 Apple 开发者签名与公证，首次打开可能被 Gatekeeper 拦截。推荐：
+暂未配置 Apple 开发者签名与公证。Gatekeeper 可能拦截首次打开。推荐步骤：
 
 1. 将 `ccMesh.app` 拖入「应用程序」。
 2. **右键** ccMesh →「打开」→ 再次确认「打开」。
 
-若提示「已损坏」，可在终端执行：
+若提示「已损坏」，在终端执行：
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/ccMesh.app
@@ -48,12 +55,10 @@ sudo dnf install ./ccMesh-*.x86_64.rpm
 |------|------|
 | Windows | Windows 10/11，WebView2 运行时 |
 | macOS | macOS 通用二进制（Apple Silicon / Intel） |
-| Linux | 提供 AppImage / deb / rpm，依赖 WebKitGTK |
+| Linux | AppImage / deb / rpm，依赖 WebKitGTK |
 
 ## 从源码构建
 
-如果你想自行编译，请参阅 [从源码构建](../advanced/build-from-source)。
+自行编译见 [如何从源码构建](/advanced/build-from-source)。
 
-## 下一步
-
-安装完成后，前往 [快速上手](./getting-started) 完成首个端点接入。
+安装完成后，走 [第一次把请求跑通](/guide/getting-started) 或 [用截图完成第一次接入](/guide/quickstart)。
