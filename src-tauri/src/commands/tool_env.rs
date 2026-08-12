@@ -989,10 +989,20 @@ fn is_valid_shell_flag(flag: &str) -> bool {
 }
 
 /// Return the default invocation flag for the given shell.
+///
+/// macOS 上 bash/zsh 用 `-lc`（登录非交互）而非 `-lic`：交互式 shell 会 source
+/// .zshrc/.bashrc 里的插件（zoxide/fzf/autojump 等），它们校验目录数据库时对
+/// ~/Downloads 等 TCC 保护目录的 stat 会被系统归因到 ccMesh 本体，触发
+/// "想访问下载文件夹"权限弹窗；且无签名公证时授权无法持久化（ad-hoc 签名 +
+/// App Translocation），每次启动都重弹。登录 shell 仍 source /etc/zprofile
+/// (path_helper) 与 ~/.zprofile，Homebrew 等常规 PATH 不受影响；只在 .zshrc 里
+/// 改 PATH 的安装（如 nvm）探测 exit 127 后由 `scan_cli_version` 的目录扫描兜底。
+/// Linux 与 WSL 无 TCC，保留 `-lic` 以获得最大 PATH 覆盖。
 fn default_flag_for_shell(shell: &str) -> &'static str {
     match shell.rsplit('/').next().unwrap_or(shell) {
         "dash" | "sh" => "-c",
         "fish" => "-lc",
+        _ if cfg!(target_os = "macos") => "-lc",
         _ => "-lic",
     }
 }
@@ -2043,8 +2053,8 @@ fn package_manager_anchored_command_from_paths(
 /// 这条命令最终在 `run_tool_lifecycle_silently` 的非登录 `bash -c` 里执行——
 /// GUI App 启动的进程 PATH 由 launchd / Windows Service / systemd 给,通常**不含**
 /// `~/.local/bin` / `/opt/homebrew/bin` / `~/.volta/bin` 等用户级 bin 目录;而探测
-/// 阶段 `try_get_version` 用的是 `$SHELL -lic`(登录+交互式,会读 .zshrc/.zprofile),
-/// 两者 PATH 不对称。裸 `claude update` / `brew upgrade ...` 在 GUI 进程里大概率
+/// 阶段 `try_get_version` 用的是 `$SHELL` 登录 shell(macOS `-lc` 读 .zprofile、
+/// Linux `-lic` 还读 .zshrc,见 `default_flag_for_shell`),两者 PATH 不对称。裸 `claude update` / `brew upgrade ...` 在 GUI 进程里大概率
 /// `command not found`(exit 127)→ `set -e` 中止 → 用户看到失败 toast,锚定决策却
 /// 已展示给用户"将写回原生那处"——欺骗性故障。
 ///
