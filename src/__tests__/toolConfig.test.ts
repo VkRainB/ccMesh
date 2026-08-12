@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  applyClaudeCompact,
   applyClaudeToggles,
   claudeOperationFragment,
   DEFAULT_CLAUDE_TOGGLES,
   gatewayBaseUrl,
   mergeClaudeSettings,
+  parseClaudeCompact,
   parseClaudeToggles,
   splitOneM,
   withOneM,
@@ -116,5 +118,48 @@ describe("claude toggles", () => {
     expect(t.disableAutoUpdate).toBe(true);
     expect(t.teammates).toBe(false);
     expect(t.effortMax).toBe(false);
+  });
+});
+
+describe("claude compact", () => {
+  it("parse：env 键优先，根字段 autoCompactWindow 兜底，number 容错为字符串", () => {
+    expect(
+      parseClaudeCompact({
+        autoCompactWindow: 500000,
+        env: { CLAUDE_CODE_MAX_CONTEXT_TOKENS: 1000000 },
+      }),
+    ).toEqual({ maxContextTokens: "1000000", autoCompactWindow: "500000" });
+    expect(
+      parseClaudeCompact({
+        autoCompactWindow: 500000,
+        env: { CLAUDE_CODE_AUTO_COMPACT_WINDOW: "800000" },
+      }).autoCompactWindow,
+    ).toBe("800000");
+    expect(parseClaudeCompact({})).toEqual({ maxContextTokens: "", autoCompactWindow: "" });
+  });
+
+  it("apply：写 env 字符串并清根字段；空值清除对应键，不动其它字段", () => {
+    const out = applyClaudeCompact(
+      {
+        autoCompactWindow: 500000,
+        env: { MY_VAR: "keep", CLAUDE_CODE_AUTO_COMPACT_WINDOW: "1" },
+      },
+      { maxContextTokens: "1000000", autoCompactWindow: "" },
+    ) as { autoCompactWindow?: unknown; env: Record<string, string> };
+    expect(out.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS).toBe("1000000");
+    // 空值 → 清除 env 键；根字段统一移除避免两处分叉
+    expect(out.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW).toBeUndefined();
+    expect(out.autoCompactWindow).toBeUndefined();
+    expect(out.env.MY_VAR).toBe("keep");
+  });
+
+  it("parse→apply 回环：根字段形式被归一为 env 形式且值不丢", () => {
+    const base = { autoCompactWindow: 300000, env: {} };
+    const out = applyClaudeCompact(base, parseClaudeCompact(base)) as {
+      autoCompactWindow?: unknown;
+      env: Record<string, string>;
+    };
+    expect(out.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW).toBe("300000");
+    expect(out.autoCompactWindow).toBeUndefined();
   });
 });

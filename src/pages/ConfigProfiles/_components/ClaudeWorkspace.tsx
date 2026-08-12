@@ -20,16 +20,20 @@ import { cn } from "@/lib/utils";
 import { useEndpoints } from "@/hooks/useEndpoints";
 import { useToolConfigChannels } from "@/hooks/useToolConfigChannels";
 import {
+  applyClaudeCompact,
   applyClaudeToggles,
   CLAUDE_TOGGLE_DEFS,
   claudeOperationFragment,
+  DEFAULT_CLAUDE_COMPACT,
   DEFAULT_CLAUDE_TOGGLES,
   gatewayBaseUrl,
   mergeClaudeSettings,
+  parseClaudeCompact,
   parseClaudeFields,
   parseClaudeToggles,
   splitOneM,
   withOneM,
+  type ClaudeCompact,
   type ClaudeToggles,
 } from "@/lib/toolConfig";
 import { advertisedModels, endpointApi } from "@/services/modules/endpoint";
@@ -55,6 +59,9 @@ const EMPTY: ClaudeOperationFields = {
 };
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+/** token 数量输入只留数字。 */
+const digits = (s: string) => s.replace(/\D/g, "");
 
 const MODEL_ROWS: Array<{ key: "sonnetModel" | "opusModel" | "haikuModel"; role: string }> = [
   { key: "sonnetModel", role: "Sonnet" },
@@ -96,6 +103,7 @@ export function ClaudeWorkspace() {
   const [base, setBase] = useState<unknown>({});
   const [fields, setFields] = useState<ClaudeOperationFields>(EMPTY);
   const [toggles, setToggles] = useState<ClaudeToggles>(DEFAULT_CLAUDE_TOGGLES);
+  const [compact, setCompact] = useState<ClaudeCompact>(DEFAULT_CLAUDE_COMPACT);
   const [fetchedModels, setFetchedModels] = useState<string[]>([]);
   const [rightText, setRightText] = useState("");
   const [rightEditable, setRightEditable] = useState(false);
@@ -127,9 +135,12 @@ export function ClaudeWorkspace() {
 
   useEffect(() => {
     if (!loaded || rightEditable) return;
-    const merged = applyClaudeToggles(mergeClaudeSettings(base, fields), toggles);
+    const merged = applyClaudeCompact(
+      applyClaudeToggles(mergeClaudeSettings(base, fields), toggles),
+      compact,
+    );
     setRightText(JSON.stringify(merged, null, 2));
-  }, [fields, base, toggles, loaded, rightEditable]);
+  }, [fields, base, toggles, compact, loaded, rightEditable]);
 
   const resetEditor = () => {
     setLoaded(false);
@@ -137,6 +148,7 @@ export function ClaudeWorkspace() {
     setName("");
     setFields(EMPTY);
     setToggles(DEFAULT_CLAUDE_TOGGLES);
+    setCompact(DEFAULT_CLAUDE_COMPACT);
     setFetchedModels([]);
     setOpText("");
     setRightText("");
@@ -154,6 +166,7 @@ export function ClaudeWorkspace() {
       setFields(f);
       syncOp(f);
       setToggles(parseClaudeToggles(snapshot));
+      setCompact(parseClaudeCompact(snapshot));
       setFetchedModels([]);
       setRightEditable(false);
       setLoaded(true);
@@ -173,6 +186,7 @@ export function ClaudeWorkspace() {
       setFields(f);
       syncOp(f);
       setToggles(parseClaudeToggles(ch.snapshot));
+      setCompact(parseClaudeCompact(ch.snapshot));
       setFetchedModels([]);
       setRightEditable(false);
       setLoaded(true);
@@ -184,7 +198,10 @@ export function ClaudeWorkspace() {
   const buildSnapshot = () =>
     rightEditable
       ? JSON.parse(rightText)
-      : applyClaudeToggles(mergeClaudeSettings(base, fields), toggles);
+      : applyClaudeCompact(
+          applyClaudeToggles(mergeClaudeSettings(base, fields), toggles),
+          compact,
+        );
 
   const saveCh = useMutation({
     mutationFn: async () =>
@@ -245,8 +262,8 @@ export function ClaudeWorkspace() {
   const setModel = (key: "sonnetModel" | "opusModel" | "haikuModel", b: string, is1m: boolean) =>
     updateFields({ [key]: withOneM(b, is1m) } as Partial<ClaudeOperationFields>);
 
-  // 开关开启时高亮右侧整合编辑器中对应的配置行
-  const togglePatterns = useMemo(() => {
+  // 开关开启 / 压缩字段非空时高亮右侧整合编辑器中对应的配置行
+  const highlightPatterns = useMemo(() => {
     const keyOf: Record<keyof ClaudeToggles, string> = {
       hideAttribution: "attribution",
       teammates: "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS",
@@ -254,10 +271,13 @@ export function ClaudeWorkspace() {
       effortMax: "CLAUDE_CODE_EFFORT_LEVEL",
       disableAutoUpdate: "DISABLE_AUTOUPDATER",
     };
-    return (Object.keys(keyOf) as (keyof ClaudeToggles)[])
+    const out = (Object.keys(keyOf) as (keyof ClaudeToggles)[])
       .filter((k) => toggles[k])
       .map((k) => keyOf[k]);
-  }, [toggles]);
+    if (compact.maxContextTokens) out.push("CLAUDE_CODE_MAX_CONTEXT_TOKENS");
+    if (compact.autoCompactWindow) out.push("CLAUDE_CODE_AUTO_COMPACT_WINDOW");
+    return out;
+  }, [toggles, compact]);
 
   const canSubmit = loaded && name.trim().length > 0;
 
@@ -384,6 +404,54 @@ export function ClaudeWorkspace() {
                 })}
               </div>
 
+              <div className="flex flex-col gap-2">
+                <div className="flex gap-2">
+                  <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                    <FormFieldLabel
+                      htmlFor="cl-ctx-window"
+                      label="上下文窗口 tokens"
+                      hint="CLAUDE_CODE_MAX_CONTEXT_TOKENS：未知模型的真实上下文窗口，避免默认按 200k 提前压缩；留空不配置"
+                    />
+                    <Input
+                      id="cl-ctx-window"
+                      inputMode="numeric"
+                      value={compact.maxContextTokens}
+                      onChange={(e) =>
+                        setCompact((c) => ({ ...c, maxContextTokens: digits(e.target.value) }))
+                      }
+                      placeholder="例如 1000000"
+                    />
+                  </div>
+                  <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                    <div className="flex items-center gap-2">
+                      <FormFieldLabel
+                        htmlFor="cl-compact-window"
+                        label="自动压缩触发窗口"
+                        hint="CLAUDE_CODE_AUTO_COMPACT_WINDOW：仅需与上下文窗口分开控制压缩阈值时配置，通常留空"
+                      />
+                      <button
+                        type="button"
+                        className="text-xs text-ink-mute transition-colors hover:text-ink-secondary"
+                        onClick={() =>
+                          setCompact((c) => ({ ...c, autoCompactWindow: "262000" }))
+                        }
+                      >
+                        gpt 推荐值 262000
+                      </button>
+                    </div>
+                    <Input
+                      id="cl-compact-window"
+                      inputMode="numeric"
+                      value={compact.autoCompactWindow}
+                      onChange={(e) =>
+                        setCompact((c) => ({ ...c, autoCompactWindow: digits(e.target.value) }))
+                      }
+                      placeholder="通常留空"
+                    />
+                  </div>
+                </div>
+              </div>
+
               <div className="flex flex-col gap-1.5">
                 <FormFieldLabel
                   htmlFor="cl-default"
@@ -471,7 +539,7 @@ export function ClaudeWorkspace() {
                 theme={theme}
                 readOnly={!rightEditable}
                 fill
-                highlightPatterns={togglePatterns}
+                highlightPatterns={highlightPatterns}
                 onChange={setRightText}
               />
             </Suspense>

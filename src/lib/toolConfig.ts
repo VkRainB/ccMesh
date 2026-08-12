@@ -137,6 +137,58 @@ export function parseClaudeToggles(snapshot: unknown): ClaudeToggles {
   };
 }
 
+/** Claude 上下文窗口 / 自动压缩配置（表单态，空串 = 不配置）。 */
+export interface ClaudeCompact {
+  /** env.CLAUDE_CODE_MAX_CONTEXT_TOKENS：模型真实上下文窗口（tokens） */
+  maxContextTokens: string;
+  /** env.CLAUDE_CODE_AUTO_COMPACT_WINDOW：auto-compact 触发窗口（tokens），通常留空 */
+  autoCompactWindow: string;
+}
+
+export const DEFAULT_CLAUDE_COMPACT: ClaudeCompact = {
+  maxContextTokens: "",
+  autoCompactWindow: "",
+};
+
+const K_MAX_CONTEXT = "CLAUDE_CODE_MAX_CONTEXT_TOKENS";
+const K_COMPACT_WINDOW = "CLAUDE_CODE_AUTO_COMPACT_WINDOW";
+
+/** 数字字段容错读取：string / 有限 number 之外视为未配置。 */
+function numText(v: unknown): string {
+  if (typeof v === "string") return v.trim();
+  if (typeof v === "number" && Number.isFinite(v)) return String(v);
+  return "";
+}
+
+/** 从快照读取压缩配置（env 键优先，根字段 autoCompactWindow 兜底）。 */
+export function parseClaudeCompact(snapshot: unknown): ClaudeCompact {
+  const root = asObject(snapshot);
+  const env = asObject(root.env);
+  return {
+    maxContextTokens: numText(env[K_MAX_CONTEXT]),
+    autoCompactWindow: numText(env[K_COMPACT_WINDOW]) || numText(root.autoCompactWindow),
+  };
+}
+
+/**
+ * 把压缩配置写进完整 settings.json（在 applyClaudeToggles 之后调用）。
+ * ponytail: 统一写 env 字符串形式并删除根字段 autoCompactWindow（其值已在
+ * parse 时兜底进表单），避免 env 与根字段两处配置分叉、行为不可预期。
+ */
+export function applyClaudeCompact(settings: unknown, c: ClaudeCompact): JsonObject {
+  const root = asObject(settings);
+  const env = asObject(root.env);
+  const set = (k: string, v: string) => {
+    if (v) env[k] = v;
+    else delete env[k];
+  };
+  set(K_MAX_CONTEXT, c.maxContextTokens.trim());
+  set(K_COMPACT_WINDOW, c.autoCompactWindow.trim());
+  delete root.autoCompactWindow;
+  root.env = env;
+  return root;
+}
+
 /** 把开关状态写进完整 settings.json（在 mergeClaudeSettings 之后调用）。 */
 export function applyClaudeToggles(settings: unknown, t: ClaudeToggles): JsonObject {
   const root = asObject(settings);
