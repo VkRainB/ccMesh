@@ -46,7 +46,7 @@ export function rangeMs(
 }
 
 /** 本地日期 `YYYY-MM-DD`。 */
-function ymd(ms: number): string {
+export function ymd(ms: number): string {
   const d = new Date(ms);
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
@@ -73,4 +73,53 @@ export function rangeDates(
     case "all":
       return {};
   }
+}
+
+/**
+ * 时间段选择值：预设周期 或 自定义起止时间（毫秒闭区间，支持时分粒度）。
+ * 供 DateRangePicker 与各统计面板共用。
+ */
+export type RangeValue =
+  | { kind: "preset"; key: RangeKey }
+  | { kind: "custom"; startMs: number; endMs: number };
+
+/** 统一取毫秒区间（`request_logs` 的 ts 过滤）。 */
+export function rangeValueMs(
+  v: RangeValue,
+  todayStartMs: number,
+): { startMs?: number; endMs?: number } {
+  if (v.kind === "preset") return rangeMs(v.key, todayStartMs);
+  return { startMs: v.startMs, endMs: v.endMs };
+}
+
+/** 用量查询参数：预设走 date 闭区间，自定义走 ts 毫秒闭区间。 */
+export function rangeValueUsageFilter(
+  v: RangeValue,
+  todayStartMs: number,
+): { start?: string; end?: string; startTs?: number; endTs?: number } {
+  if (v.kind === "preset") return rangeDates(v.key, todayStartMs);
+  return { startTs: v.startMs, endTs: v.endMs };
+}
+
+/** 本地 `MM-DD HH:mm`（触发按钮上的自定义范围文案）。 */
+export function fmtShortDateTime(ms: number): string {
+  const d = new Date(ms);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/** 两个选择值是否等价（preset 比 key，custom 比毫秒区间）。 */
+export function rangeValueEquals(a: RangeValue, b: RangeValue): boolean {
+  if (a.kind === "preset" && b.kind === "preset") return a.key === b.key;
+  if (a.kind === "custom" && b.kind === "custom")
+    return a.startMs === b.startMs && a.endMs === b.endMs;
+  return false;
+}
+
+/** 时间段选择值的展示文案。 */
+export function rangeValueLabel(v: RangeValue): string {
+  if (v.kind === "preset") {
+    return RANGE_OPTIONS.find((o) => o.key === v.key)?.label ?? v.key;
+  }
+  return `${fmtShortDateTime(v.startMs)} ~ ${fmtShortDateTime(v.endMs)}`;
 }
