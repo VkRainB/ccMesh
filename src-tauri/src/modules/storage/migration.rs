@@ -160,6 +160,11 @@ const MIGRATIONS: &[&str] = &[
      ALTER TABLE chat_messages ADD COLUMN parent_id TEXT;
      ALTER TABLE chat_messages ADD COLUMN compaction_summary TEXT;
      CREATE INDEX IF NOT EXISTS idx_chat_messages_parent ON chat_messages(topic_id, parent_id);",
+    // v17：usage_records 增加精确时间戳 ts（Unix 毫秒），支持时分粒度筛选。
+    // 清空 usage_sync_state 触发下次同步全量重扫，借 insert 的 upsert 回填旧行 ts（不动聚合值）。
+    "ALTER TABLE usage_records ADD COLUMN ts INTEGER;
+     CREATE INDEX IF NOT EXISTS idx_usage_records_ts ON usage_records(ts);
+     DELETE FROM usage_sync_state;",
 ];
 
 /// 幂等执行迁移：读取 `schema_version` 当前版本，仅应用尚未执行的脚本。

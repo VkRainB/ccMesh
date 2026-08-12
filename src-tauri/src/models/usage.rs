@@ -7,6 +7,7 @@ pub struct UsageRecord {
     pub app_type: String,   // "claude" | "codex"
     pub record_key: String, // 去重键（claude: message.id；codex: codex_session:<id>:<idx>）
     pub date: String,       // YYYY-MM-DD（本地时区）
+    pub ts: Option<i64>,    // 精确时间戳（Unix 毫秒）；源日志缺时间戳时为 None
     pub model: String,
     pub requests: i64,
     pub input_tokens: i64,

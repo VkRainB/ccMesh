@@ -7,7 +7,7 @@ use serde_json::Value;
 
 use crate::models::usage::UsageRecord;
 
-use super::local_date;
+use super::{local_date, ts_millis};
 
 /// 解析单个 Claude Code 会话 JSONL（同一 message.id 取 token 总量最大的一条去重）。
 pub fn parse_file(path: &Path) -> Vec<UsageRecord> {
@@ -49,9 +49,9 @@ pub fn parse_lines(lines: impl Iterator<Item = String>) -> Vec<UsageRecord> {
         if input == 0 && output == 0 && cache_creation == 0 && cache_read == 0 {
             continue;
         }
-        let date = v
-            .get("timestamp")
-            .and_then(|t| t.as_str())
+        let ts_str = v.get("timestamp").and_then(|t| t.as_str());
+        let ts = ts_str.and_then(ts_millis);
+        let date = ts_str
             .map(local_date)
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "unknown".to_string());
@@ -64,6 +64,7 @@ pub fn parse_lines(lines: impl Iterator<Item = String>) -> Vec<UsageRecord> {
             app_type: "claude".to_string(),
             record_key: id.to_string(),
             date,
+            ts,
             model,
             requests: 1,
             input_tokens: input,
@@ -105,6 +106,8 @@ mod tests {
         assert_eq!(r.cache_creation_tokens, 20);
         assert_eq!(r.cache_read_tokens, 30);
         assert_eq!(r.requests, 1);
+        // ts 为该 RFC3339 时间戳的 Unix 毫秒
+        assert_eq!(r.ts, Some(1_780_826_400_000)); // 2026-06-07T10:00:00Z
     }
 
     #[test]

@@ -39,6 +39,13 @@ pub(crate) fn collect_jsonl(dir: &Path, max_depth: usize, out: &mut Vec<PathBuf>
     }
 }
 
+/// RFC3339 时间戳 → Unix 毫秒；解析失败返回 None。
+pub(crate) fn ts_millis(ts: &str) -> Option<i64> {
+    chrono::DateTime::parse_from_rfc3339(ts)
+        .ok()
+        .map(|dt| dt.timestamp_millis())
+}
+
 /// RFC3339 时间戳 → 本地日期 "YYYY-MM-DD"；解析失败取前 10 字符。
 pub(crate) fn local_date(ts: &str) -> String {
     chrono::DateTime::parse_from_rfc3339(ts)

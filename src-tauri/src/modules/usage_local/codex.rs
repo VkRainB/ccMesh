@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use crate::models::usage::UsageRecord;
 
-use super::local_date;
+use super::{local_date, ts_millis};
 
 /// 解析单个 Codex 会话 JSONL：token_count 事件携带累计用量，按相邻差求每次增量。
 pub fn parse_file(path: &Path) -> Vec<UsageRecord> {
@@ -112,9 +112,9 @@ pub fn parse_lines(lines: impl Iterator<Item = String>, fallback_date: &str) -> 
                     continue; // 跳过零 delta（任务边界）
                 }
                 event_index += 1;
-                let date = v
-                    .get("timestamp")
-                    .and_then(|x| x.as_str())
+                let ts_str = v.get("timestamp").and_then(|x| x.as_str());
+                let ts = ts_str.and_then(ts_millis);
+                let date = ts_str
                     .map(local_date)
                     .filter(|s| !s.is_empty())
                     .unwrap_or_else(|| fallback_date.to_string());
@@ -123,6 +123,7 @@ pub fn parse_lines(lines: impl Iterator<Item = String>, fallback_date: &str) -> 
                     app_type: "codex".to_string(),
                     record_key: format!("codex_session:{sid}:{event_index}"),
                     date,
+                    ts,
                     model: model.clone(),
                     requests: 1,
                     input_tokens: d_in,
