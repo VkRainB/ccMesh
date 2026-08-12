@@ -20,7 +20,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = ["protocol-asset", "image-png", "tray-icon"] }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
 toml = "0.8"
 toml_edit = "0.22"
 thiserror = "2.0.18"
@@ -51,6 +51,7 @@ regex = "1.10"
 dirs = "5.0"
 base64 = "0.22"
 zip = { version = "4", features = ["deflate"] }
+serde_yaml = "0.9.34"
 
 [target.'cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))'.dependencies]
 tauri-plugin-single-instance = "2"

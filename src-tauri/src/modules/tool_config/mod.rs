@@ -9,6 +9,9 @@
 pub mod claude;
 pub mod claude_desktop;
 pub mod codex;
+pub mod omp;
+pub mod pi;
+pub mod pi_omp_common;
 
 use std::fs;
 use std::path::{Path, PathBuf};

@@ -10,6 +10,14 @@ use crate::models::claude_desktop_config::{
     ClaudeDesktopProfileDataDto, ClaudeDesktopProfileMetaDto, SaveClaudeDesktopProfileRequest,
     SetClaudeDesktop3pEnabledRequest,
 };
+use crate::models::omp_config::{
+    ApplyOmpConfigRequest, ApplyOmpConfigResult, OmpConfigPaths, OmpProviderData, OmpProviderMeta,
+    OmpWorkspaceState, SaveOmpProviderRequest,
+};
+use crate::models::pi_config::{
+    ApplyPiConfigRequest, ApplyPiConfigResult, PiConfigPaths, PiProviderData, PiProviderMeta,
+    PiWorkspaceState, SavePiProviderRequest,
+};
 use crate::models::tool_config::{
     ChannelData, ChannelMeta, ClaudeOperationFields, CodexOperationFields, ExtractResult,
     SaveChannelRequest,
@@ -129,4 +137,86 @@ pub fn set_claude_desktop_3p_enabled(
     req: SetClaudeDesktop3pEnabledRequest,
 ) -> AppResult<ApplyClaudeDesktop3pResult> {
     tc::claude_desktop::set_3p_enabled(&app, req)
+}
+
+// ─── Pi（providers 拆分与真实文件应用）──────────────────────────
+
+#[tauri::command]
+pub fn resolve_pi_config_paths(app: AppHandle) -> AppResult<PiConfigPaths> {
+    tc::pi::resolve_config_paths(&app)
+}
+
+#[tauri::command]
+pub fn sync_pi_providers(app: AppHandle) -> AppResult<PiWorkspaceState> {
+    tc::pi::sync_and_list(&app)
+}
+
+#[tauri::command]
+pub fn get_pi_provider(app: AppHandle, id: String) -> AppResult<PiProviderData> {
+    tc::pi::get_provider(&app, &id)
+}
+
+#[tauri::command]
+pub fn save_pi_provider(app: AppHandle, req: SavePiProviderRequest) -> AppResult<PiProviderMeta> {
+    tc::pi::save_provider(&app, req)
+}
+
+#[tauri::command]
+pub fn delete_pi_provider(app: AppHandle, id: String) -> AppResult<PiWorkspaceState> {
+    tc::pi::delete_provider(&app, &id)
+}
+
+#[tauri::command]
+pub fn rename_pi_provider(
+    app: AppHandle,
+    old_id: String,
+    new_id: String,
+) -> AppResult<PiWorkspaceState> {
+    tc::pi::rename_provider(&app, &old_id, &new_id)
+}
+
+#[tauri::command]
+pub fn apply_pi_config(app: AppHandle, req: ApplyPiConfigRequest) -> AppResult<ApplyPiConfigResult> {
+    tc::pi::apply_config(&app, req)
+}
+
+// ─── OMP（providers 拆分与真实文件应用）──────────────────────────
+
+#[tauri::command]
+pub fn resolve_omp_config_paths(app: AppHandle) -> AppResult<OmpConfigPaths> {
+    tc::omp::resolve_config_paths(&app)
+}
+
+#[tauri::command]
+pub fn sync_omp_providers(app: AppHandle) -> AppResult<OmpWorkspaceState> {
+    tc::omp::sync_and_list(&app)
+}
+
+#[tauri::command]
+pub fn get_omp_provider(app: AppHandle, id: String) -> AppResult<OmpProviderData> {
+    tc::omp::get_provider(&app, &id)
+}
+
+#[tauri::command]
+pub fn save_omp_provider(app: AppHandle, req: SaveOmpProviderRequest) -> AppResult<OmpProviderMeta> {
+    tc::omp::save_provider(&app, req)
+}
+
+#[tauri::command]
+pub fn delete_omp_provider(app: AppHandle, id: String) -> AppResult<OmpWorkspaceState> {
+    tc::omp::delete_provider(&app, &id)
+}
+
+#[tauri::command]
+pub fn rename_omp_provider(
+    app: AppHandle,
+    old_id: String,
+    new_id: String,
+) -> AppResult<OmpWorkspaceState> {
+    tc::omp::rename_provider(&app, &old_id, &new_id)
+}
+
+#[tauri::command]
+pub fn apply_omp_config(app: AppHandle, req: ApplyOmpConfigRequest) -> AppResult<ApplyOmpConfigResult> {
+    tc::omp::apply_config(&app, req)
 }

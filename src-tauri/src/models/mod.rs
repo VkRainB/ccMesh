@@ -6,6 +6,8 @@ pub mod claude_desktop_config;
 pub mod config;
 pub mod endpoint;
 pub mod pet;
+pub mod omp_config;
+pub mod pi_config;
 pub mod proxy;
 pub mod stats;
 pub mod tool_config;
