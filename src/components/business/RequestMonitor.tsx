@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { InfoIcon, ArrowDownRightIcon, TriangleAlertIcon, Trash2Icon } from "lucide-react";
 import { Anthropic, Codex, OpenAI } from "@lobehub/icons";
@@ -11,17 +11,11 @@ import {
   HoverCardTrigger,
 } from "@/components/ui/hover-card";
 import { Pagination } from "@/components/ui/Pagination";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { useRequestLogs } from "@/hooks/useRequestLogs";
+import { DateRangePicker } from "@/components/business/DateRangePicker";
 import { RequestLogsCleanupDialog } from "@/components/business/RequestLogsCleanupDialog";
-import { RANGE_OPTIONS, rangeMs, startOfTodayMs, type RangeKey } from "@/lib/range";
+import { rangeValueMs, startOfTodayMs, type RangeValue } from "@/lib/range";
 import { formatDuration, formatTokenK } from "@/lib/format";
 import { statsApi, type RequestLog } from "@/services/modules/stats";
 
@@ -30,6 +24,10 @@ type Mode = "live" | "ranged";
 interface Props {
   /** live：事件驱动实时刷新；ranged：时间段 + 分页查询。 */
   mode: Mode;
+  /** 受控时间范围：传入后隐藏内置日期选择器，跟随外部（如面板顶部统一筛选）。 */
+  range?: RangeValue;
+  /** 当前范围无记录时整块隐藏（含标题/清理入口）。 */
+  hideWhenEmpty?: boolean;
   /** 可选端点过滤。 */
   endpointFilter?: string;
   pageSize?: number;
@@ -41,16 +39,29 @@ interface Props {
  * 端点请求实时监控（统计页 ranged / 仪表盘 live 复用）。
  * 数据统一走 `get_request_logs` 分页查询；live 模式在第 1 页时由 `request-logged` 事件触发刷新。
  */
-export function RequestMonitor({ mode, endpointFilter, pageSize = 20, title }: Props) {
+export function RequestMonitor({
+  mode,
+  range: controlledRange,
+  hideWhenEmpty = false,
+  endpointFilter,
+  pageSize = 20,
+  title,
+}: Props) {
   const [page, setPage] = useState(1);
-  const [rangeKey, setRangeKey] = useState<RangeKey>("today");
+  const [ownRange, setOwnRange] = useState<RangeValue>({
+    kind: "preset",
+    key: "today",
+  });
+  const rangeValue = controlledRange ?? ownRange;
   const [cleanupOpen, setCleanupOpen] = useState(false);
   // 按天对齐的稳定锚点：同一天内多次渲染得到相同区间，避免 queryKey 逐帧漂移导致无限重取。
   const todayStart = startOfTodayMs();
   const range = useMemo(
-    () => (mode === "ranged" ? rangeMs(rangeKey, todayStart) : {}),
-    [mode, rangeKey, todayStart],
+    () => (mode === "ranged" ? rangeValueMs(rangeValue, todayStart) : {}),
+    [mode, rangeValue, todayStart],
   );
+  // 范围变化（含外部受控变化）时回到第 1 页
+  useEffect(() => setPage(1), [rangeValue]);
 
   const { data, isLoading } = useRequestLogs({
     mode,
@@ -68,6 +79,8 @@ export function RequestMonitor({ mode, endpointFilter, pageSize = 20, title }: P
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
 
+  if (hideWhenEmpty && !isLoading && total === 0) return null;
+
   return (
     <section className="flex flex-col gap-3">
       <div className="flex items-start justify-between gap-3">
@@ -75,25 +88,8 @@ export function RequestMonitor({ mode, endpointFilter, pageSize = 20, title }: P
           {title ?? (mode === "live" ? "实时请求监控" : "端点请求记录")}
         </h2>
         <div className="flex shrink-0 items-center gap-2">
-          {mode === "ranged" && (
-            <Select
-              value={rangeKey}
-              onValueChange={(v) => {
-                setRangeKey(v as RangeKey);
-                setPage(1);
-              }}
-            >
-              <SelectTrigger className="w-32">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {RANGE_OPTIONS.map((r) => (
-                  <SelectItem key={r.key} value={r.key}>
-                    {r.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          {mode === "ranged" && !controlledRange && (
+            <DateRangePicker value={rangeValue} onChange={setOwnRange} />
           )}
           <Button
             size="sm"

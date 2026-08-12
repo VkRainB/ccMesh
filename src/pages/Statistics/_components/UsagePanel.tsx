@@ -3,19 +3,16 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RefreshCwIcon } from "lucide-react";
 import { toast } from "sonner";
 
-import { StatCard, TokenHint } from "@/components/business";
+import { DateRangePicker, StatCard, TokenHint } from "@/components/business";
 import { TabularText } from "@/components/ui";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { RANGE_OPTIONS, rangeDates, startOfTodayMs, type RangeKey } from "@/lib/range";
+import { rangeValueUsageFilter, startOfTodayMs, type RangeValue } from "@/lib/range";
 import { usageApi, type DayModelUsage, type UsageAppFilter } from "@/services/modules/usage";
+
+import { UsageHeatmap } from "./UsageHeatmap";
+import { UsageTrendChart } from "./UsageTrendChart";
+import { mergeByDate, sliceTrend } from "./usageChart";
 
 const APP_TABS: { key: UsageAppFilter; label: string }[] = [
   { key: "all", label: "全部" },
@@ -36,11 +33,11 @@ export function UsagePanel() {
   const qc = useQueryClient();
   const [app, setApp] = useState<UsageAppFilter>("all");
   const appType = app === "all" ? undefined : app;
-  const [range, setRange] = useState<RangeKey>("today");
-  // 按天对齐锚点，使 start/end 在同一筛选条件下稳定（不把 Date.now() 放进 queryKey）。
+  const [range, setRange] = useState<RangeValue>({ kind: "preset", key: "today" });
+  // 按天对齐锚点，使筛选参数在同一条件下稳定（不把 Date.now() 放进 queryKey）。
   const todayStart = startOfTodayMs();
-  const { start, end } = useMemo(
-    () => rangeDates(range, todayStart),
+  const filter = useMemo(
+    () => rangeValueUsageFilter(range, todayStart),
     [range, todayStart],
   );
 
@@ -60,14 +57,30 @@ export function UsagePanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const filterKey = [
+    filter.start ?? null,
+    filter.end ?? null,
+    filter.startTs ?? null,
+    filter.endTs ?? null,
+  ];
   const summary = useQuery({
-    queryKey: ["usage", "summary", app, start ?? null, end ?? null],
-    queryFn: () => usageApi.getSummary({ appType, start, end }),
+    queryKey: ["usage", "summary", app, ...filterKey],
+    queryFn: () => usageApi.getSummary({ appType, ...filter }),
   });
   const byDayModel = useQuery({
-    queryKey: ["usage", "day-model", app, start ?? null, end ?? null],
-    queryFn: () => usageApi.getByDayModel({ appType, start, end }),
+    queryKey: ["usage", "day-model", app, ...filterKey],
+    queryFn: () => usageApi.getByDayModel({ appType, ...filter }),
   });
+  // 全量按天数据：热力图取近一年，趋势图按 range 前端切片（一条查询喂两张图）
+  const byDay = useQuery({
+    queryKey: ["usage", "by-day", app],
+    queryFn: () => usageApi.getByDay({ appType }),
+  });
+  const dayTotals = useMemo(() => mergeByDate(byDay.data ?? []), [byDay.data]);
+  const trendData = useMemo(
+    () => sliceTrend(dayTotals, range, todayStart),
+    [dayTotals, range, todayStart],
+  );
 
   const s = summary.data;
 
@@ -84,18 +97,7 @@ export function UsagePanel() {
           </TabsList>
         </Tabs>
         <div className="flex items-center gap-2">
-          <Select value={range} onValueChange={(v) => setRange(v as RangeKey)}>
-            <SelectTrigger className="w-32">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {RANGE_OPTIONS.map((r) => (
-                <SelectItem key={r.key} value={r.key}>
-                  {r.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <DateRangePicker value={range} onChange={setRange} />
           <Button
             variant="outline"
             size="sm"
@@ -139,6 +141,17 @@ export function UsagePanel() {
         />
       </div>
 
+      <section className="flex flex-col gap-2">
+        <h2 className="text-sm font-medium text-ink-secondary">调用热力图</h2>
+        <div className="rounded-lg border border-edge p-4">
+          <UsageHeatmap totals={dayTotals} />
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-edge p-4">
+        <UsageTrendChart data={trendData} />
+      </section>
+
       <DayModelTable rows={byDayModel.data ?? []} />
     </div>
   );
@@ -160,16 +173,14 @@ export function groupByDate(rows: DayModelUsage[]): DateGroup[] {
   return groups;
 }
 
-/** 多维合并表：日期(rowspan 合并) × 来源 × 模型 × 指标。 */
+/** 多维合并表：日期(rowspan 合并) × 来源 × 模型 × 指标。无数据时整块隐藏。 */
 function DayModelTable({ rows }: { rows: DayModelUsage[] }) {
   const groups = groupByDate(rows);
+  if (rows.length === 0) return null;
   return (
     <section className="flex flex-col gap-2">
       <h2 className="text-sm font-medium text-ink-secondary">按日期 · 模型</h2>
-      {rows.length === 0 ? (
-        <p className="text-sm text-ink-mute">暂无用量数据</p>
-      ) : (
-        <div className="overflow-hidden rounded-lg border border-edge">
+      <div className="overflow-hidden rounded-lg border border-edge">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-edge text-xs text-ink-secondary">
@@ -224,8 +235,7 @@ function DayModelTable({ rows }: { rows: DayModelUsage[] }) {
               )}
             </tbody>
           </table>
-        </div>
-      )}
+      </div>
     </section>
   );
 }
