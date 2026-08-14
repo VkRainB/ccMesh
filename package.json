@@ -12,6 +12,7 @@
     "check:rust": "cargo check --manifest-path src-tauri/Cargo.toml --message-format=short",
     "check": "pnpm check:front && pnpm check:rust",
     "tauri": "tauri",
+    "tauri:dev:cdp": "node scripts/tauri-dev-cdp.mjs",
     "tauri:build": "dotenv -e .env.local -- tauri build",
     "cargo:build": "pnpm install && cargo build --manifest-path src-tauri/Cargo.toml",
     "version:set": "node scripts/update-version.mjs"
