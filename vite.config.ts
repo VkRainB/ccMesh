@@ -24,9 +24,11 @@ export default defineConfig(async () => ({
             return "editor-vendor";
           if (id.includes("@dnd-kit")) return "dnd-vendor";
           if (id.includes("@tanstack/react-query")) return "query-vendor";
-          if (id.includes("radix-ui") || id.includes("lucide-react"))
-            return "ui-vendor";
+          // ponytail: react 必须和 radix/lucide 同 chunk。拆成 ui-vendor↔react-vendor
+          // 会循环初始化，生产包 forwardRef 为 undefined，整窗白屏；dev 不走 manualChunks。
           if (
+            id.includes("radix-ui") ||
+            id.includes("lucide-react") ||
             id.includes("/react-dom/") ||
             id.includes("/react/") ||
             id.includes("/scheduler/")
