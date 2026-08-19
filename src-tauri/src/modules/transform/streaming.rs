@@ -68,6 +68,8 @@ impl StreamConverter {
         if self.ctx.thinking_block_started {
             return;
         }
+        // text 与 thinking 不能共用 index：先 stop 再 start，否则 Claude Code 报 Content block not found
+        self.close_text(events);
         self.ctx.thinking_block_started = true;
         events.push(build_claude_event(
             "content_block_start",
@@ -83,6 +85,7 @@ impl StreamConverter {
         if self.ctx.text_block_started {
             return;
         }
+        self.close_thinking(events);
         self.ctx.text_block_started = true;
         events.push(build_claude_event(
             "content_block_start",
@@ -247,21 +250,16 @@ impl StreamConverter {
         if let Some(ch) = choice {
             let delta = ch.get("delta");
 
-            if let Some(reason) = delta
-                .and_then(|d| d.get("reasoning_content"))
-                .and_then(|v| v.as_str())
-            {
-                if !reason.is_empty() {
-                    self.ensure_thinking_block(&mut events);
-                    events.push(build_claude_event(
-                        "content_block_delta",
-                        &json!({
-                            "type": "content_block_delta",
-                            "index": self.ctx.block_index,
-                            "delta": { "type": "thinking_delta", "thinking": reason }
-                        }),
-                    ));
-                }
+            if let Some(reason) = delta.and_then(delta_reasoning_text) {
+                self.ensure_thinking_block(&mut events);
+                events.push(build_claude_event(
+                    "content_block_delta",
+                    &json!({
+                        "type": "content_block_delta",
+                        "index": self.ctx.block_index,
+                        "delta": { "type": "thinking_delta", "thinking": reason }
+                    }),
+                ));
             }
 
             if let Some(text) = delta
@@ -269,7 +267,6 @@ impl StreamConverter {
                 .and_then(|v| v.as_str())
             {
                 if !text.is_empty() {
-                    self.close_thinking(&mut events);
                     self.ensure_text_block(&mut events);
                     events.push(build_claude_event(
                         "content_block_delta",
@@ -333,6 +330,30 @@ impl StreamConverter {
         let _ = self.saw_finish;
         events
     }
+}
+
+/// Chat 上游思考字段：`reasoning_content`（DeepSeek）或 `reasoning`（OpenRouter/Kimi/部分 GPT 网关）。
+fn delta_reasoning_text(delta: &Value) -> Option<&str> {
+    for key in ["reasoning_content", "reasoning"] {
+        if let Some(text) = delta
+            .get(key)
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+        {
+            return Some(text);
+        }
+    }
+    let reasoning = delta.get("reasoning")?;
+    for key in ["content", "text"] {
+        if let Some(text) = reasoning
+            .get(key)
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+        {
+            return Some(text);
+        }
+    }
+    None
 }
 
 fn cache_read_tokens(usage: &Value) -> Option<i64> {
@@ -473,5 +494,67 @@ mod tests {
         assert!(done.contains("\"input_tokens\":70"));
         assert!(done.contains("\"output_tokens\":50"));
         assert!(done.contains("\"cache_read_input_tokens\":30"));
+    }
+
+    #[test]
+    fn reasoning_before_text_uses_distinct_block_indexes() {
+        let mut c = StreamConverter::new("gpt-5.5".into(), 0);
+        let e0 = join(c.process_chunk(&json!({
+            "id": "x",
+            "choices": [{ "delta": { "reasoning_content": "hmm" }, "finish_reason": Value::Null }]
+        })));
+        assert!(e0.contains("\"type\":\"thinking\""));
+        assert!(e0.contains("\"thinking_delta\""));
+        assert!(e0.contains("\"index\":0"));
+
+        let e1 = join(c.process_chunk(&json!({
+            "choices": [{ "delta": { "content": "hi" }, "finish_reason": Value::Null }]
+        })));
+        assert!(e1.contains("event: content_block_stop"));
+        assert!(e1.contains("\"type\":\"text\""));
+        assert!(e1.contains("\"index\":1"));
+    }
+
+    #[test]
+    fn text_before_reasoning_closes_text_before_thinking() {
+        let mut c = StreamConverter::new("gpt-5.5".into(), 0);
+        let e0 = join(c.process_chunk(&json!({
+            "id": "x",
+            "choices": [{ "delta": { "content": "---" } }]
+        })));
+        assert!(e0.contains("\"type\":\"text\""));
+        assert!(e0.contains("\"index\":0"));
+
+        let e1 = join(c.process_chunk(&json!({
+            "choices": [{ "delta": { "reasoning_content": "think" } }]
+        })));
+        let stop_pos = e1
+            .find("event: content_block_stop")
+            .expect("must stop text first");
+        let think_pos = e1
+            .find("\"type\":\"thinking\"")
+            .expect("must start thinking");
+        assert!(stop_pos < think_pos);
+        assert!(e1.contains("\"thinking_delta\""));
+        assert!(e1.contains("\"index\":1"));
+    }
+
+    #[test]
+    fn reasoning_field_alias_and_nested_content_emit_thinking() {
+        let mut c = StreamConverter::new("m".into(), 0);
+        let e = join(c.process_chunk(&json!({
+            "id": "x",
+            "choices": [{ "delta": { "reasoning": "plan" } }]
+        })));
+        assert!(e.contains("thinking_delta"));
+        assert!(e.contains("plan"));
+
+        let mut c2 = StreamConverter::new("m".into(), 0);
+        let e2 = join(c2.process_chunk(&json!({
+            "id": "y",
+            "choices": [{ "delta": { "reasoning": { "content": "nested" } } }]
+        })));
+        assert!(e2.contains("thinking_delta"));
+        assert!(e2.contains("nested"));
     }
 }
