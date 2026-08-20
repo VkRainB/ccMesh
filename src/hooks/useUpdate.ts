@@ -38,6 +38,9 @@ export function useUpdate() {
   }, [setProgress]);
 }
 
+/** 与后端 `UPDATE_IN_PROGRESS` 对齐；二次 invoke 被拒时不能清掉第一次的进度卡。 */
+const ALREADY_UPDATING = "更新正在进行中";
+
 /**
  * 触发「下载 → 安装 → 重启」。成功时后端会重启进程，调用不会返回；
  * 失败时清掉进度并提示，否则右下角进度卡会永远停在中途。
@@ -46,13 +49,16 @@ export function useStartUpdate() {
   const setProgress = useUpdateStore((s) => s.setProgress);
 
   return useCallback(async () => {
+    if (useUpdateStore.getState().progress) return;
     // 先占位，让进度卡立刻出现，不必等第一个 chunk 回调
     setProgress({ downloaded: 0, total: null });
     try {
       await updateApi.installUpdateAndRestart();
     } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes(ALREADY_UPDATING)) return;
       setProgress(null);
-      toast.error(`更新失败：${e instanceof Error ? e.message : String(e)}`);
+      toast.error(`更新失败：${msg}`);
     }
   }, [setProgress]);
 }

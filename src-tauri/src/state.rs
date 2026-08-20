@@ -1,3 +1,4 @@
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use tauri::AppHandle;
@@ -21,6 +22,8 @@ pub struct AppState {
     pub device_id: String,
     pub stats: Arc<StatsAggregator>,
     pub app_handle: OnceLock<AppHandle>,
+    /// 防止 `install_update_and_restart` 重入：连点会并行下载同一份更新包。
+    pub update_busy: AtomicBool,
 }
 
 impl AppState {
@@ -32,6 +35,7 @@ impl AppState {
             device_id,
             stats,
             app_handle: OnceLock::new(),
+            update_busy: AtomicBool::new(false),
         }
     }
 }

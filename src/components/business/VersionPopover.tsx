@@ -35,6 +35,7 @@ export function VersionPopover({ compact = false }: { compact?: boolean }) {
 
   const updateAvailable = useUpdateStore((s) => s.available);
   const updateVersion = useUpdateStore((s) => s.version);
+  const downloading = useUpdateStore((s) => s.progress) !== null;
   const setUpdateFromInfo = useUpdateStore((s) => s.setFromInfo);
   const startUpdate = useStartUpdate();
   const available = info?.available ?? updateAvailable;
@@ -84,13 +85,17 @@ export function VersionPopover({ compact = false }: { compact?: boolean }) {
           {available && (
             <DownloadIcon
               className={cn(
-                "size-3.5 cursor-pointer text-primary animate-pulse",
+                "size-3.5 text-primary",
+                downloading
+                  ? "pointer-events-none opacity-60"
+                  : "cursor-pointer animate-pulse",
                 compact &&
                   "absolute -right-0.5 -top-0.5 rounded-full bg-surface p-0.5 ring-1 ring-edge"
               )}
               aria-label={
                 availableVersion ? `下载更新 v${availableVersion}` : "下载更新"
               }
+              aria-disabled={downloading}
               onClick={handleDownload}
             />
           )}
@@ -147,10 +152,11 @@ export function VersionPopover({ compact = false }: { compact?: boolean }) {
           <Button
             size="sm"
             className="mb-3 w-full"
+            disabled={downloading}
             onClick={handleDownload}
           >
             <DownloadIcon />
-            下载并安装
+            {downloading ? "正在下载…" : "下载并安装"}
           </Button>
         )}
 

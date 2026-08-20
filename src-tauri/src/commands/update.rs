@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use serde::Serialize;
@@ -27,6 +28,22 @@ pub struct UpdateSettings {
     pub auto_check: bool,
     pub check_interval: i64,
     pub skipped_version: String,
+}
+
+const UPDATE_IN_PROGRESS: &str = "更新正在进行中";
+
+struct UpdateGuard<'a>(&'a AtomicBool);
+
+impl Drop for UpdateGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
+
+fn begin_update(busy: &AtomicBool) -> AppResult<UpdateGuard<'_>> {
+    busy.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .map(|_| UpdateGuard(busy))
+        .map_err(|_| AppError::InvalidArgument(UPDATE_IN_PROGRESS.into()))
 }
 
 /// 构建 updater：`proxyForUpdate` 且地址非空时经代理出网（无 scheme 按 http 处理；无效则告警直连）。
@@ -95,6 +112,7 @@ pub async fn install_update_and_restart(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> AppResult<()> {
+    let _guard = begin_update(&state.update_busy)?;
     let updater = build_updater(&app, &state)?;
     let update = updater
         .check()
@@ -180,4 +198,22 @@ pub fn skip_version(state: State<AppState>, version: String) -> AppResult<()> {
     let conn = state.db_pool.get()?;
     config_repo::set_value(&conn, "update_skippedVersion", &version)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn begin_update_rejects_reentry_and_releases_on_drop() {
+        let busy = AtomicBool::new(false);
+        {
+            let _g = begin_update(&busy).expect("first acquire");
+            match begin_update(&busy) {
+                Err(e) => assert!(e.to_string().contains(UPDATE_IN_PROGRESS)),
+                Ok(_) => panic!("reentry should fail"),
+            }
+        }
+        begin_update(&busy).expect("acquire after drop");
+    }
 }

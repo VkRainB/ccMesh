@@ -25,6 +25,7 @@ export function AppInfoSection() {
   const [checking, setChecking] = useState(false);
   const setUpdate = useUpdateStore((s) => s.set);
   const setUpdateFromInfo = useUpdateStore((s) => s.setFromInfo);
+  const downloading = useUpdateStore((s) => s.progress) !== null;
   const startUpdate = useStartUpdate();
 
   useEffect(() => {
@@ -103,8 +104,12 @@ export function AppInfoSection() {
             </p>
           ) : null}
           <div className="mt-3 flex gap-2">
-            <Button size="sm" onClick={() => void startUpdate()}>
-              下载并安装
+            <Button
+              size="sm"
+              disabled={downloading}
+              onClick={() => void startUpdate()}
+            >
+              {downloading ? "正在下载…" : "下载并安装"}
             </Button>
             <Button size="sm" variant="ghost" onClick={skip}>
               跳过此版本

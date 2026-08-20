@@ -12,6 +12,7 @@ const createStoreState = (
   overrides: Partial<{
     available: boolean;
     version: string;
+    progress: { downloaded: number; total: number | null } | null;
     set: ReturnType<typeof vi.fn>;
     setFromInfo: ReturnType<typeof vi.fn>;
     setProgress: ReturnType<typeof vi.fn>;
@@ -19,10 +20,12 @@ const createStoreState = (
 ) => ({
   available: false,
   version: "",
-  progress: null,
+  progress: null as { downloaded: number; total: number | null } | null,
   set: vi.fn(),
   setFromInfo: vi.fn(),
-  setProgress: vi.fn(),
+  setProgress: vi.fn((progress: { downloaded: number; total: number | null } | null) => {
+    storeState.progress = progress;
+  }),
   ...overrides,
 });
 
@@ -47,7 +50,10 @@ vi.mock("@/services/modules/update", () => ({
 
 let storeState = createStoreState();
 vi.mock("@/stores/modules/update", () => ({
-  useUpdateStore: (sel: (s: typeof storeState) => unknown) => sel(storeState),
+  useUpdateStore: Object.assign(
+    (sel: (s: typeof storeState) => unknown) => sel(storeState),
+    { getState: () => storeState },
+  ),
 }));
 
 import { VersionPopover } from "@/components/business/VersionPopover";
@@ -83,7 +89,36 @@ describe("VersionPopover", () => {
     const icon = screen.getByLabelText(/下载更新/);
     expect(icon).toBeInTheDocument();
     fireEvent.click(icon);
-    expect(mockInstallUpdateAndRestart).toHaveBeenCalled();
+    expect(mockInstallUpdateAndRestart).toHaveBeenCalledTimes(1);
+  });
+
+  it("连点下载图标只触发一次 installUpdateAndRestart", async () => {
+    storeState = createStoreState({ available: true, version: "0.2.0" });
+    render(<VersionPopover />);
+    await waitFor(() => {
+      expect(screen.getByText("v0.1.2")).toBeInTheDocument();
+    });
+    const icon = screen.getByLabelText(/下载更新/);
+    fireEvent.click(icon);
+    fireEvent.click(icon);
+    expect(mockInstallUpdateAndRestart).toHaveBeenCalledTimes(1);
+  });
+
+  it("下载进行中禁用「下载并安装」且再点图标不再 install", async () => {
+    storeState = createStoreState({
+      available: true,
+      version: "0.2.0",
+      progress: { downloaded: 10, total: 100 },
+    });
+    render(<VersionPopover />);
+    await waitFor(() => {
+      expect(screen.getByText("v0.1.2")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByText("v0.1.2"));
+    const btn = await screen.findByRole("button", { name: "正在下载…" });
+    expect(btn).toBeDisabled();
+    fireEvent.click(screen.getByLabelText(/下载更新/));
+    expect(mockInstallUpdateAndRestart).not.toHaveBeenCalled();
   });
 
   it("手动检查发现新版本时回写全局更新状态", async () => {
