@@ -184,6 +184,13 @@ Tauri 2、Rust、axum、reqwest（rustls）、SQLite、React 19、TypeScript、V
 
 学 AI，上 L 站：[LinuxDO](https://linux.do/)
 
+## 联系方式
+
+ccMesh QQ 群进行交流、反馈和讨论： **1105537401**
+
+Wechat:  **ccmesh**
+
+
 ## 许可证
 
 ccMesh 采用 [Apache License 2.0](LICENSE) 开源协议。
