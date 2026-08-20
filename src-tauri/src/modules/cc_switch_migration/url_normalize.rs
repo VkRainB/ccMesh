@@ -1,9 +1,8 @@
 //! cc-switch 上游地址规整为 ccMesh 入库根地址。
 //!
-//! ccMesh 约定 `endpoints.api_url` 存上游**根地址**，网关转发时再拼 `/v1/messages` 等
-//! （见 `proxy/forward.rs`）。库内不应以 `/v1` 结尾，否则出现 `/v1/v1/...`。
-//! `probe_models` 内部对 `/v1` 结尾已有探测兼容（`models_probe::models_url_from_base`），
-//! 但**入库仍用规整后的 base**，与手动新建端点一致。
+//! 约定 `endpoints.api_url` 存上游根地址，出站再拼协议路径（见 `utils/upstream_url`）。
+//! 导入时仍剥 `/v1` 与已知完整 API 路径，与手动新建的「填根地址」习惯一致。
+//! 末尾 `#` 是跳过自动 `/v1` 的哨兵，必须原样保留。
 
 use crate::error::{AppError, AppResult};
 
@@ -28,12 +27,25 @@ fn strip_known_api_suffix(base: &str) -> &str {
 ///
 /// 步骤：
 /// 1. trim 空白；
-/// 2. 去末尾 `/`（循环到稳定）；
-/// 3. 若以 `/v1` 结尾（大小写不敏感）→ 去后缀再 trim `/`；
+/// 2. 若以 `#` 结尾 → 去 `#` 前的尾斜杠后把 `#` 拼回（不剥 `/v1` / 已知路径）；
+/// 3. 去末尾 `/`（循环到稳定）；
 /// 4. 若以完整 API 路径结尾 → 剥到根（仅一层），再 trim `/`；
-/// 5. 结果为空或非 `http(s)://` → `Err`（调用方据此标记 skipped `invalid_api_url`）。
+/// 5. 若以 `/v1` 结尾（大小写不敏感）→ 去后缀再 trim `/`；
+/// 6. 结果为空或非 `http(s)://` → `Err`。
 pub fn normalize_api_url_for_ccmesh(raw: &str) -> AppResult<String> {
     let mut s = raw.trim();
+
+    if let Some(body) = s.strip_suffix('#') {
+        let body = body.trim_end_matches('/');
+        if body.is_empty() {
+            return Err(AppError::InvalidArgument(format!("无效的上游地址: {raw}")));
+        }
+        let lower = body.to_ascii_lowercase();
+        if !(lower.starts_with("http://") || lower.starts_with("https://")) {
+            return Err(AppError::InvalidArgument(format!("无效的上游地址: {raw}")));
+        }
+        return Ok(format!("{body}#"));
+    }
 
     // 去尾斜杠（循环到稳定）
     while s.ends_with('/') {
@@ -114,6 +126,24 @@ mod tests {
             normalize_api_url_for_ccmesh("https://open.bigmodel.cn/api/coding/paas/v4").unwrap(),
             "https://open.bigmodel.cn/api/coding/paas/v4"
         );
+    }
+
+    #[test]
+    fn keeps_trailing_hash() {
+        assert_eq!(
+            normalize_api_url_for_ccmesh("https://host/openai#").unwrap(),
+            "https://host/openai#"
+        );
+        assert_eq!(
+            normalize_api_url_for_ccmesh("https://host/openai/#").unwrap(),
+            "https://host/openai#"
+        );
+        assert_eq!(
+            normalize_api_url_for_ccmesh("  https://host/v1#  ").unwrap(),
+            "https://host/v1#"
+        );
+        assert!(normalize_api_url_for_ccmesh("#").is_err());
+        assert!(normalize_api_url_for_ccmesh("https://#").is_err());
     }
 
     #[test]
