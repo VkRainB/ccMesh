@@ -24,7 +24,7 @@ meta:
 | 字段 | 说明 |
 |------|------|
 | **名称** | 端点别名，日志与队列中显示 |
-| **API URL** | 上游基础地址；不要以 `/v1` 结尾，否则会与后缀叠成 `/v1/v1` |
+| **API URL** | 上游根地址。默认会附加 `/v1/...`；路径已含 `/v1`、`/v4` 等版本号时自动跳过；末尾加 `#` 只禁止自动附加版本（仍拼 `/chat/completions` 等协议路径），例如 `https://host/openai#` |
 | **API Key** | 上游密钥，界面可切换显示 |
 | **锁定模型（可选）** | 非空则强制覆盖请求里的 `model` |
 | **备注（可选）** | 自由说明 |
@@ -53,13 +53,15 @@ meta:
 
 选错会导致上游返回协议错误。互转管线与兼容矩阵见 [请求如何在协议间转换](/advanced/protocol-transform)。
 
-完整请求路径预览（基础地址去尾斜杠后拼接）：
+完整请求路径（根地址 + 转换器后缀；已含 `/vN` 或末尾 `#` 时去掉后缀里的 `/v1`）：
 
-| 转换器 | 后缀 |
-|--------|------|
-| claude | `/v1/messages` |
-| openai | `/v1/chat/completions` |
-| codex | `/v1/responses` |
+| 转换器 | 默认后缀 | 跳过 `/v1` 后 |
+|--------|----------|----------------|
+| claude | `/v1/messages` | `/messages` |
+| openai | `/v1/chat/completions` | `/chat/completions` |
+| codex | `/v1/responses` | `/responses` |
+
+示例：智谱 `https://open.bigmodel.cn/api/coding/paas/v4` + openai → `.../v4/chat/completions`（不必写 `#`）。`#` 不是「整段 URL 原样发出」。
 
 ## 配置模型映射
 
