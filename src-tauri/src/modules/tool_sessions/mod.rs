@@ -1,5 +1,6 @@
 mod claude;
 mod codex;
+mod opencode;
 mod utils;
 
 use serde::{Deserialize, Serialize};
@@ -55,15 +56,21 @@ pub struct DeleteSessionOutcome {
 }
 
 pub fn scan_sessions() -> Vec<SessionMeta> {
-    let (r1, r2) = std::thread::scope(|s| {
+    let (r1, r2, r3) = std::thread::scope(|s| {
         let h1 = s.spawn(codex::scan_sessions);
         let h2 = s.spawn(claude::scan_sessions);
-        (h1.join().unwrap_or_default(), h2.join().unwrap_or_default())
+        let h3 = s.spawn(opencode::scan_sessions);
+        (
+            h1.join().unwrap_or_default(),
+            h2.join().unwrap_or_default(),
+            h3.join().unwrap_or_default(),
+        )
     });
 
     let mut sessions = Vec::new();
     sessions.extend(r1);
     sessions.extend(r2);
+    sessions.extend(r3);
 
     sessions.sort_by(|a, b| {
         let a_ts = a.last_active_at.or(a.created_at).unwrap_or(0);
@@ -75,10 +82,14 @@ pub fn scan_sessions() -> Vec<SessionMeta> {
 }
 
 pub fn load_messages(provider_id: &str, source_path: &str) -> Result<Vec<SessionMessage>, String> {
+    if provider_id == "opencode" && source_path.starts_with("sqlite:") {
+        return opencode::load_messages_sqlite(source_path);
+    }
     let path = Path::new(source_path);
     match provider_id {
         "codex" => codex::load_messages(path),
         "claude" => claude::load_messages(path),
+        "opencode" => opencode::load_messages(path),
         _ => Err(format!("Unsupported provider: {provider_id}")),
     }
 }
@@ -88,6 +99,9 @@ pub fn delete_session(
     session_id: &str,
     source_path: &str,
 ) -> Result<bool, String> {
+    if provider_id == "opencode" && source_path.starts_with("sqlite:") {
+        return opencode::delete_session_sqlite(session_id, source_path);
+    }
     let roots = provider_roots(provider_id)?;
     delete_session_with_roots(provider_id, session_id, Path::new(source_path), &roots)
 }
@@ -122,6 +136,9 @@ fn delete_session_with_roots(
             return match provider_id {
                 "codex" => codex::delete_session(&validated_root, &validated_source, session_id),
                 "claude" => claude::delete_session(&validated_root, &validated_source, session_id),
+                "opencode" => {
+                    opencode::delete_session(&validated_root, &validated_source, session_id)
+                }
                 _ => Err(format!("Unsupported provider: {provider_id}")),
             };
         }
@@ -149,6 +166,7 @@ fn provider_roots(provider_id: &str) -> Result<Vec<PathBuf>, String> {
         "claude" => claude::session_root()
             .map(|root| vec![root])
             .unwrap_or_default(),
+        "opencode" => vec![opencode::get_opencode_data_dir()],
         _ => return Err(format!("Unsupported provider: {provider_id}")),
     };
 
@@ -261,6 +279,22 @@ mod tests {
                 .expect_err("expected missing source path to fail");
 
         assert!(err.contains("session source not found"));
+    }
+
+    #[test]
+    fn sqlite_source_bypasses_filesystem_canonicalize() {
+        let err = delete_session(
+            "opencode",
+            "ses_1",
+            "sqlite:/definitely/missing/opencode.db:ses_1",
+        )
+        .expect_err("sqlite source should not be treated as a file path");
+
+        assert!(
+            !err.to_ascii_lowercase()
+                .contains("session source not found"),
+            "sqlite: source was canonicalized as a filesystem path: {err}"
+        );
     }
 
     #[test]
