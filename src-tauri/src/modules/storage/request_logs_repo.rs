@@ -1,7 +1,7 @@
 use rusqlite::{params, params_from_iter, types::Value as SqlValue, Connection};
 
 use crate::error::AppResult;
-use crate::models::stats::RequestLog;
+use crate::models::stats::{HourlyStat, RequestLog};
 
 /// 批量插入请求明细（同一设备）。空切片为空操作。
 pub fn insert_batch(conn: &mut Connection, logs: &[RequestLog], device_id: &str) -> AppResult<()> {
@@ -118,6 +118,51 @@ pub fn query_page(
         items.push(r?);
     }
     Ok((items, total))
+}
+
+/// 按本地小时跨端点聚合。空小时不返回。`date` 为 `YYYY-MM-DD HH:00`。
+pub fn by_hour(
+    conn: &Connection,
+    start_ms: Option<i64>,
+    end_ms: Option<i64>,
+) -> AppResult<Vec<HourlyStat>> {
+    let mut where_sql = String::from(" WHERE 1=1");
+    let mut args: Vec<SqlValue> = Vec::new();
+    if let Some(s) = start_ms {
+        where_sql.push_str(" AND ts >= ?");
+        args.push(SqlValue::Integer(s));
+    }
+    if let Some(e) = end_ms {
+        where_sql.push_str(" AND ts <= ?");
+        args.push(SqlValue::Integer(e));
+    }
+    let sql = format!(
+        "SELECT strftime('%Y-%m-%d %H:00', ts/1000, 'unixepoch', 'localtime'),
+                COUNT(*),
+                COALESCE(SUM(input_tokens),0),
+                COALESCE(SUM(output_tokens),0),
+                COALESCE(SUM(cache_creation_tokens),0),
+                COALESCE(SUM(cache_read_tokens),0)
+         FROM request_logs{where_sql}
+         GROUP BY 1
+         ORDER BY 1"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params_from_iter(args.iter()), |r| {
+        Ok(HourlyStat {
+            date: r.get(0)?,
+            requests: r.get(1)?,
+            input_tokens: r.get(2)?,
+            output_tokens: r.get(3)?,
+            cache_creation_tokens: r.get(4)?,
+            cache_read_tokens: r.get(5)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
 }
 
 /// 删除 `cutoff_ms` 之前的明细行，返回删除行数。
@@ -293,5 +338,37 @@ mod tests {
         // ts 倒序：b(200) 在前 transformer None；a(100) Some("codex")
         assert_eq!(items[0].transformer, None);
         assert_eq!(items[1].transformer.as_deref(), Some("codex"));
+    }
+
+    #[test]
+    fn by_hour_aggregates_in_window_and_skips_empty() {
+        let mut c = db();
+        let day = chrono::NaiveDate::from_ymd_opt(2026, 6, 2).unwrap();
+        let local_ms = |h: u32| {
+            day.and_hms_opt(h, 15, 0)
+                .unwrap()
+                .and_local_timezone(chrono::Local)
+                .unwrap()
+                .timestamp_millis()
+        };
+        insert_batch(
+            &mut c,
+            &[
+                log(local_ms(10), "a", false),
+                log(local_ms(10), "b", false),
+                log(local_ms(12), "a", false),
+                log(local_ms(18), "a", false),
+            ],
+            "dev",
+        )
+        .unwrap();
+        let rows = by_hour(&c, Some(local_ms(10)), Some(local_ms(12))).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].date, "2026-06-02 10:00");
+        assert_eq!(rows[0].requests, 2);
+        assert_eq!(rows[0].input_tokens, 20);
+        assert_eq!(rows[1].date, "2026-06-02 12:00");
+        assert_eq!(rows[1].requests, 1);
+        assert!(rows.iter().all(|r| r.date != "2026-06-02 18:00"));
     }
 }

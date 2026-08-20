@@ -87,6 +87,16 @@ export interface StatsHistoryPage {
   total: number;
 }
 
+/** 按本地小时聚合（跨端点）。`date` 为 `YYYY-MM-DD HH:00`。 */
+export interface HourlyStat {
+  date: string;
+  requests: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+}
+
 export interface RequestLogQuery {
   startMs?: number;
   endMs?: number;
@@ -105,6 +115,12 @@ export const statsApi = {
       endpoint: q.endpoint,
       page: q.page,
       pageSize: q.pageSize,
+    }),
+  /** 请求明细按本地小时聚合（跨端点求和）。 */
+  getRequestLogsHourly: (q: { startMs?: number; endMs?: number }) =>
+    request<HourlyStat[]>("get_request_logs_hourly", {
+      startMs: q.startMs,
+      endMs: q.endMs,
     }),
   /** 请求明细保留天数。 */
   getRetentionDays: () => request<number>("get_retention_days"),

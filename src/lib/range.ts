@@ -123,3 +123,40 @@ export function rangeValueLabel(v: RangeValue): string {
   }
   return `${fmtShortDateTime(v.startMs)} ~ ${fmtShortDateTime(v.endMs)}`;
 }
+
+/** 趋势图用的半开毫秒窗 `[start, endExclusive)`。`all` 无界时为 null。 */
+export interface TrendWindow {
+  startMs: number;
+  endExclusiveMs: number;
+}
+
+function isMidnight(ms: number): boolean {
+  return startOfTodayMs(ms) === ms;
+}
+
+/**
+ * 把 RangeValue 收成可分桶的半开区间。
+ * 端点「昨日」等 custom 把 1 个日历日编成零宽 `{start=end=当天0点}`，这里展开成 `[0点, 次日0点)`。
+ * 两端都是 0 点且跨多日（本周/本月）按闭日区间：`[start, end+1天)`。
+ */
+export function resolveTrendWindow(
+  range: RangeValue,
+  todayStartMs: number,
+): TrendWindow | null {
+  if (range.kind === "preset") {
+    if (range.key === "all") return null;
+    const { startMs, endMs } = rangeMs(range.key, todayStartMs);
+    if (startMs == null || endMs == null) return null;
+    return { startMs, endExclusiveMs: endMs };
+  }
+  const { startMs, endMs } = range;
+  if (isMidnight(startMs) && isMidnight(endMs)) {
+    return { startMs, endExclusiveMs: endMs + DAY_MS };
+  }
+  return { startMs, endExclusiveMs: endMs + 1 };
+}
+
+/** 窗口跨度 ≤24h（含闭区间多出的 1ms）则按小时，否则按天。`all` 无窗按天。 */
+export function isHourlyTrend(w: TrendWindow | null): boolean {
+  return w != null && w.endExclusiveMs - w.startMs <= DAY_MS + 1;
+}

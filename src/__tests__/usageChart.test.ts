@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   buildHeatmapCells,
   heatLevel,
+  hourKey,
   mergeByDate,
+  sliceHourlyTrend,
   sliceTrend,
 } from "@/pages/Statistics/_components/usageChart";
 import type { DailyUsage } from "@/services/modules/usage";
@@ -110,5 +112,37 @@ describe("sliceTrend", () => {
       TODAY,
     );
     expect(clamped[clamped.length - 1].date).toBe("2026-08-12");
+  });
+});
+
+describe("sliceHourlyTrend", () => {
+  const dayStart = new Date(2026, 7, 12, 0, 0, 0, 0).getTime();
+  const tomorrow = dayStart + 86_400_000;
+
+  it("今日 now=14:37：点为 00…14，无 15–23；缺小时补 0", () => {
+    const ten = new Date(2026, 7, 12, 10, 0).getTime();
+    const merged = mergeByDate([row(hourKey(ten), "claude", 5)]);
+    const now = new Date(2026, 7, 12, 14, 37).getTime();
+    const pts = sliceHourlyTrend(merged, { startMs: dayStart, endExclusiveMs: tomorrow }, now);
+    expect(pts).toHaveLength(15);
+    expect(pts[0].label).toBe("00:00");
+    expect(pts[14].label).toBe("14:00");
+    expect(pts.map((p) => p.label)).not.toContain("15:00");
+    expect(pts[10].requests).toBe(5);
+    expect(pts[0].requests).toBe(0);
+  });
+
+  it("昨日：24 点，00…23", () => {
+    const y = dayStart - 86_400_000;
+    const pts = sliceHourlyTrend(new Map(), { startMs: y, endExclusiveMs: dayStart }, dayStart);
+    expect(pts).toHaveLength(24);
+    expect(pts[0].label).toBe("00:00");
+    expect(pts[23].label).toBe("23:00");
+  });
+
+  it("空数据仍画出到 lastHour 的零序列", () => {
+    const now = new Date(2026, 7, 12, 2, 10).getTime();
+    const pts = sliceHourlyTrend(new Map(), { startMs: dayStart, endExclusiveMs: tomorrow }, now);
+    expect(pts.map((p) => p.requests)).toEqual([0, 0, 0]);
   });
 });

@@ -7,12 +7,12 @@ import { DateRangePicker, StatCard, TokenHint } from "@/components/business";
 import { TabularText } from "@/components/ui";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { rangeValueUsageFilter, startOfTodayMs, type RangeValue } from "@/lib/range";
+import { isHourlyTrend, rangeValueUsageFilter, resolveTrendWindow, startOfTodayMs, type RangeValue } from "@/lib/range";
 import { usageApi, type DayModelUsage, type UsageAppFilter } from "@/services/modules/usage";
 
 import { UsageHeatmap } from "./UsageHeatmap";
 import { UsageTrendChart } from "./UsageTrendChart";
-import { mergeByDate, sliceTrend } from "./usageChart";
+import { mergeByDate, sliceHourlyTrend, sliceTrend } from "./usageChart";
 
 const APP_TABS: { key: UsageAppFilter; label: string }[] = [
   { key: "all", label: "全部" },
@@ -77,10 +77,31 @@ export function UsagePanel() {
     queryFn: () => usageApi.getByDay({ appType }),
   });
   const dayTotals = useMemo(() => mergeByDate(byDay.data ?? []), [byDay.data]);
-  const trendData = useMemo(
-    () => sliceTrend(dayTotals, range, todayStart),
-    [dayTotals, range, todayStart],
+  const trendWin = useMemo(
+    () => resolveTrendWindow(range, todayStart),
+    [range, todayStart],
   );
+  const hourly = isHourlyTrend(trendWin);
+  const byHour = useQuery({
+    queryKey: ["usage", "by-hour", app, trendWin?.startMs, trendWin?.endExclusiveMs],
+    queryFn: () =>
+      usageApi.getByHour({
+        appType,
+        startTs: trendWin!.startMs,
+        endTs: trendWin!.endExclusiveMs - 1,
+      }),
+    enabled: hourly && trendWin != null,
+  });
+  const trendData = useMemo(() => {
+    if (hourly && trendWin) {
+      return sliceHourlyTrend(
+        mergeByDate(byHour.data ?? []),
+        trendWin,
+        Date.now(),
+      );
+    }
+    return sliceTrend(dayTotals, range, todayStart);
+  }, [hourly, trendWin, byHour.data, dayTotals, range, todayStart]);
 
   const s = summary.data;
 

@@ -1,7 +1,7 @@
 use tauri::State;
 
 use crate::error::AppResult;
-use crate::models::stats::{RequestLogPage, StatsHistoryPage, StatsOverview};
+use crate::models::stats::{HourlyStat, RequestLogPage, StatsHistoryPage, StatsOverview};
 use crate::modules::stats::aggregator;
 use crate::modules::storage::{request_logs_repo, stats_repo};
 use crate::state::AppState;
@@ -29,6 +29,18 @@ pub fn get_request_logs(
     let (items, total) =
         request_logs_repo::query_page(&conn, start_ms, end_ms, endpoint.as_deref(), limit, offset)?;
     Ok(RequestLogPage { items, total })
+}
+
+/// 请求明细按本地小时聚合（跨端点求和），空小时不返回。先 flush。
+#[tauri::command]
+pub fn get_request_logs_hourly(
+    state: State<AppState>,
+    start_ms: Option<i64>,
+    end_ms: Option<i64>,
+) -> AppResult<Vec<HourlyStat>> {
+    state.stats.flush()?;
+    let conn = state.db_pool.get()?;
+    request_logs_repo::by_hour(&conn, start_ms, end_ms)
 }
 
 /// 请求明细保留天数。前端展示用，避免 UI 文案与后端清理策略漂移。

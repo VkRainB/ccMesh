@@ -92,6 +92,18 @@ pub struct RequestLog {
     pub error_body: Option<String>,
 }
 
+/// 按本地小时聚合的调用趋势行（跨端点求和）。`date` 为 `YYYY-MM-DD HH:00`。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HourlyStat {
+    pub date: String,
+    pub requests: i64,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cache_creation_tokens: i64,
+    pub cache_read_tokens: i64,
+}
+
 /// 请求明细分页结果。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

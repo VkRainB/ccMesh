@@ -79,6 +79,20 @@ pub fn get_usage_by_day(
     usage_repo::by_day(&conn, &filter_of(&start, &end, start_ts, end_ts, &app_type))
 }
 
+/// 按本地小时聚合用量。`date` 为 `YYYY-MM-DD HH:00`；无 ts 的行不计入。
+#[tauri::command]
+pub fn get_usage_by_hour(
+    state: State<AppState>,
+    start: Option<String>,
+    end: Option<String>,
+    start_ts: Option<i64>,
+    end_ts: Option<i64>,
+    app_type: Option<String>,
+) -> AppResult<Vec<DailyUsage>> {
+    let conn = state.db_pool.get()?;
+    usage_repo::by_hour(&conn, &filter_of(&start, &end, start_ts, end_ts, &app_type))
+}
+
 /// 按天 × 来源 × 模型聚合（多维合并表）。
 #[tauri::command]
 pub fn get_usage_by_day_model(

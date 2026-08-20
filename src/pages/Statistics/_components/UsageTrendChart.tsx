@@ -27,7 +27,7 @@ const compact = new Intl.NumberFormat("en", {
   maximumFractionDigits: 1,
 });
 
-/** 调用趋势图（按天，跟随面板时间周期；指标可切换 次数/Tokens）。 */
+/** 调用趋势图（跟随面板粒度：≤24h 按小时，否则按天；指标可切换 次数/Tokens）。 */
 export function UsageTrendChart({ data }: { data: TrendPoint[] }) {
   const [metric, setMetric] = useState<Metric>("requests");
 

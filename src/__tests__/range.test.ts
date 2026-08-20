@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { rangeDates, rangeMs, startOfTodayMs } from "@/lib/range";
+import {
+  isHourlyTrend,
+  rangeDates,
+  rangeMs,
+  resolveTrendWindow,
+  startOfTodayMs,
+} from "@/lib/range";
 
 const DAY = 86_400_000;
 // 固定锚点：2026-06-07 00:00 本地时间（用具体时刻推导，避免依赖运行时"今天"）
@@ -61,5 +67,65 @@ describe("rangeDates（本地 YYYY-MM-DD）", () => {
 
   it("all：无界", () => {
     expect(rangeDates("all", anchor)).toEqual({});
+  });
+});
+
+describe("resolveTrendWindow / isHourlyTrend", () => {
+  const preset = (key: "today" | "7d" | "30d" | "all") =>
+    ({ kind: "preset", key }) as const;
+  const custom = (startMs: number, endMs: number) =>
+    ({ kind: "custom", startMs, endMs }) as const;
+  const hourly = (range: ReturnType<typeof preset> | ReturnType<typeof custom>, today = anchor) =>
+    isHourlyTrend(resolveTrendWindow(range, today));
+
+  it("today → 小时，窗 = [今日0, 次日0)", () => {
+    expect(resolveTrendWindow(preset("today"), anchor)).toEqual({
+      startMs: anchor,
+      endExclusiveMs: anchor + DAY,
+    });
+    expect(hourly(preset("today"))).toBe(true);
+  });
+
+  it("昨日零宽 → 小时，窗 = [昨日0, 今日0)", () => {
+    const y = anchor - DAY;
+    const range = custom(y, y);
+    expect(resolveTrendWindow(range, anchor)).toEqual({
+      startMs: y,
+      endExclusiveMs: anchor,
+    });
+    expect(hourly(range)).toBe(true);
+  });
+
+  it("周二「本周」（两端 0 点、跨两日）→ 按天", () => {
+    const mon = anchor;
+    const tue = anchor + DAY;
+    const range = custom(mon, tue);
+    expect(resolveTrendWindow(range, tue)).toEqual({
+      startMs: mon,
+      endExclusiveMs: tue + DAY,
+    });
+    expect(hourly(range, tue)).toBe(false);
+  });
+
+  it("周一「本周」零宽 → 小时（就是今日）", () => {
+    expect(hourly(custom(anchor, anchor))).toBe(true);
+  });
+
+  it("custom 10:00–18:00 → 小时", () => {
+    const range = custom(
+      new Date(2026, 5, 7, 10, 0).getTime(),
+      new Date(2026, 5, 7, 18, 0).getTime(),
+    );
+    expect(hourly(range)).toBe(true);
+  });
+
+  it("custom 跨 25h → 按天", () => {
+    expect(hourly(custom(anchor, anchor + DAY + 3_600_000))).toBe(false);
+  });
+
+  it("7d / all → 按天", () => {
+    expect(hourly(preset("7d"))).toBe(false);
+    expect(hourly(preset("all"))).toBe(false);
+    expect(resolveTrendWindow(preset("all"), anchor)).toBeNull();
   });
 });

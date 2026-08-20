@@ -5,7 +5,7 @@ import { RequestMonitor } from "@/components/business/RequestMonitor";
 import { DateRangePicker, StatCard } from "@/components/business";
 import type { RangePreset } from "@/components/business/DateRangePicker";
 import { useStats } from "@/hooks/useStats";
-import { rangeValueEquals, startOfTodayMs, ymd, type RangeValue } from "@/lib/range";
+import { rangeValueEquals, isHourlyTrend, resolveTrendWindow, startOfTodayMs, ymd, type RangeValue } from "@/lib/range";
 import {
   statsApi,
   type DailyStat,
@@ -17,7 +17,7 @@ import { HistoryDialog } from "./HistoryDialog";
 import { TrendBadge } from "./TrendBadge";
 import { UsageHeatmap } from "./UsageHeatmap";
 import { UsageTrendChart } from "./UsageTrendChart";
-import { mergeByDate, sliceTrend } from "./usageChart";
+import { mergeByDate, sliceHourlyTrend, sliceTrend } from "./usageChart";
 
 const PERIODS = [
   { key: "today", label: "今日" },
@@ -122,10 +122,30 @@ export function EndpointStatsPanel() {
     () => mergeByDate(history.data?.items ?? []),
     [history.data],
   );
-  const trendData = useMemo(
-    () => sliceTrend(dayTotals, range, todayStart),
-    [dayTotals, range, todayStart],
+  const trendWin = useMemo(
+    () => resolveTrendWindow(range, todayStart),
+    [range, todayStart],
   );
+  const hourly = isHourlyTrend(trendWin);
+  const hourlyQ = useQuery({
+    queryKey: ["stats", "hourly", trendWin?.startMs, trendWin?.endExclusiveMs],
+    queryFn: () =>
+      statsApi.getRequestLogsHourly({
+        startMs: trendWin!.startMs,
+        endMs: trendWin!.endExclusiveMs - 1,
+      }),
+    enabled: hourly && trendWin != null,
+  });
+  const trendData = useMemo(() => {
+    if (hourly && trendWin) {
+      return sliceHourlyTrend(
+        mergeByDate(hourlyQ.data ?? []),
+        trendWin,
+        Date.now(),
+      );
+    }
+    return sliceTrend(dayTotals, range, todayStart);
+  }, [hourly, trendWin, hourlyQ.data, dayTotals, range, todayStart]);
 
   // 命中四周期快捷项 → 用 get_stats 的实时聚合；自定义区间 → 从历史行按天聚合
   const activePeriod = PERIODS.map((p) => p.key).find((k) =>

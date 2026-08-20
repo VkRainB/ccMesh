@@ -68,4 +68,7 @@ export const usageApi = {
   /** 按天 × 来源聚合。 */
   getByDay: (f: UsageFilter = {}) =>
     request<DailyUsage[]>("get_usage_by_day", filterArgs(f)),
+  /** 按小时 × 来源聚合。`date` 为 `YYYY-MM-DD HH:00`。 */
+  getByHour: (f: UsageFilter = {}) =>
+    request<DailyUsage[]>("get_usage_by_hour", filterArgs(f)),
 };

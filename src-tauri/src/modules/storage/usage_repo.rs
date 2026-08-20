@@ -206,6 +206,37 @@ pub fn by_day_model(conn: &Connection, f: &UsageFilter<'_>) -> AppResult<Vec<Day
     Ok(out)
 }
 
+/// 按本地小时 × 来源聚合。`date` 字段为 `YYYY-MM-DD HH:00`。
+/// `ts IS NULL` 的孤儿行无法入小时桶，不返回（日合计 / 热力图仍走 `by_day`）。
+pub fn by_hour(conn: &Connection, f: &UsageFilter<'_>) -> AppResult<Vec<DailyUsage>> {
+    let (where_sql, args) = build_filter(f);
+    let sql = format!(
+        "SELECT strftime('%Y-%m-%d %H:00', ts/1000, 'unixepoch', 'localtime'),
+                app_type, SUM(requests), SUM(input_tokens), SUM(output_tokens),
+                SUM(cache_creation_tokens), SUM(cache_read_tokens)
+         FROM usage_records{where_sql} AND ts IS NOT NULL
+         GROUP BY 1, app_type
+         ORDER BY 1, app_type"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params_from_iter(args.iter()), |r| {
+        Ok(DailyUsage {
+            date: r.get(0)?,
+            app_type: r.get(1)?,
+            requests: r.get::<_, Option<i64>>(2)?.unwrap_or(0),
+            input_tokens: r.get::<_, Option<i64>>(3)?.unwrap_or(0),
+            output_tokens: r.get::<_, Option<i64>>(4)?.unwrap_or(0),
+            cache_creation_tokens: r.get::<_, Option<i64>>(5)?.unwrap_or(0),
+            cache_read_tokens: r.get::<_, Option<i64>>(6)?.unwrap_or(0),
+        })
+    })?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -354,6 +385,38 @@ mod tests {
         assert_eq!(rows[0].input_tokens, 111);
         assert_eq!(rows[1].model, "mimo");
         assert_eq!(rows[2].date, "2026-06-07"); // 日期倒序
+    }
+
+    #[test]
+    fn by_hour_groups_local_hour_and_skips_null_ts() {
+        let c = db();
+        let day = chrono::NaiveDate::from_ymd_opt(2026, 6, 2).unwrap();
+        let local_ms = |h: u32| {
+            day.and_hms_opt(h, 0, 0)
+                .unwrap()
+                .and_local_timezone(chrono::Local)
+                .unwrap()
+                .timestamp_millis()
+        };
+        let mut a = rec("claude", "a", "2026-06-02", "x", 1, 0);
+        a.ts = Some(local_ms(10));
+        let mut b = rec("claude", "b", "2026-06-02", "x", 2, 0);
+        b.ts = Some(local_ms(10));
+        let mut c_row = rec("codex", "c", "2026-06-02", "x", 8, 0);
+        c_row.ts = Some(local_ms(12));
+        let orphan = rec("claude", "d", "2026-06-02", "x", 4, 0);
+        for r in [&a, &b, &c_row, &orphan] {
+            insert_record(&c, r).unwrap();
+        }
+        let rows = by_hour(&c, &filter(None, None, None)).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].date, "2026-06-02 10:00");
+        assert_eq!(rows[0].app_type, "claude");
+        assert_eq!(rows[0].requests, 2);
+        assert_eq!(rows[0].input_tokens, 3);
+        assert_eq!(rows[1].date, "2026-06-02 12:00");
+        assert_eq!(rows[1].app_type, "codex");
+        assert_eq!(rows[1].input_tokens, 8);
     }
 
     #[test]

@@ -1,9 +1,9 @@
 /**
- * 用量图表的纯数据逻辑：按日合并、热力图网格、强度分级、趋势切片补零。
+ * 用量图表的纯数据逻辑：按日合并、热力图网格、强度分级、趋势切片补零（按日 / 按小时）。
  * 与组件分离，便于单测（见 src/__tests__/usageChart.test.ts）。
  */
 import { startOfDayMs } from "@/lib/dateRange";
-import { ymd, type RangeValue } from "@/lib/range";
+import { ymd, type RangeValue, type TrendWindow } from "@/lib/range";
 
 const DAY_MS = 86_400_000;
 
@@ -134,6 +134,48 @@ export function sliceTrend(
     points.push({
       date,
       label: `${d.getMonth() + 1}/${d.getDate()}`,
+      requests: t?.requests ?? 0,
+      tokens: t?.totalTokens ?? 0,
+    });
+  }
+  return points;
+}
+
+function startOfHourMs(ms: number): number {
+  const d = new Date(ms);
+  d.setMinutes(0, 0, 0);
+  return d.getTime();
+}
+
+/** 本地小时键，与 SQLite `strftime('%Y-%m-%d %H:00', …, 'localtime')` 对齐。 */
+export function hourKey(ms: number): string {
+  const d = new Date(ms);
+  return `${ymd(ms)} ${String(d.getHours()).padStart(2, "0")}:00`;
+}
+
+/**
+ * 按小时切出趋势序列（升序），缺失小时补 0。
+ * 上界截到 `min(now, endExclusive-1)` 所在小时，不垫未来空小时。
+ */
+export function sliceHourlyTrend(
+  merged: Map<string, DayTotals>,
+  { startMs, endExclusiveMs }: TrendWindow,
+  nowMs: number,
+): TrendPoint[] {
+  const first = startOfHourMs(startMs);
+  const last = startOfHourMs(Math.min(nowMs, endExclusiveMs - 1));
+  if (last < first) return [];
+  const points: TrendPoint[] = [];
+  for (let i = 0; ; i++) {
+    const d = new Date(first);
+    d.setHours(d.getHours() + i);
+    const ms = d.getTime();
+    if (ms > last) break;
+    const date = hourKey(ms);
+    const t = merged.get(date);
+    points.push({
+      date,
+      label: `${String(d.getHours()).padStart(2, "0")}:00`,
       requests: t?.requests ?? 0,
       tokens: t?.totalTokens ?? 0,
     });
