@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { EyeIcon, EyeOffIcon, FileCogIcon, RefreshCwIcon } from "lucide-react";
+import { EyeIcon, EyeOffIcon, FileCogIcon, RefreshCwIcon, Settings2Icon } from "lucide-react";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
 
@@ -44,6 +44,7 @@ import {
   type ClaudeOperationFields,
 } from "@/services/modules/tool_config";
 import { ChannelList } from "./ChannelList";
+import { ClaudeMoreConfigDialog } from "./ClaudeMoreConfigDialog";
 import { FormFieldLabel } from "./FormFieldLabel";
 import { ModelCombobox } from "./ModelCombobox";
 
@@ -109,6 +110,7 @@ export function ClaudeWorkspace() {
   const [rightEditable, setRightEditable] = useState(false);
   const [showKey, setShowKey] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<ChannelMeta | null>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
 
   const [opText, setOpText] = useState("");
 
@@ -291,6 +293,19 @@ export function ClaudeWorkspace() {
           onSelect={loadChannel}
           onNew={startNew}
           onDelete={(ch) => setPendingDelete(ch)}
+          headerActions={
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="shrink-0"
+              onClick={() => setMoreOpen(true)}
+              aria-label="更多配置"
+              title="更多配置"
+            >
+              <Settings2Icon className="size-4" />
+            </Button>
+          }
         />
 
         {/* 中栏：表单 + 操作字段编辑器 */}
@@ -563,6 +578,8 @@ export function ClaudeWorkspace() {
           应用
         </Button>
       </div>
+
+      <ClaudeMoreConfigDialog open={moreOpen} onOpenChange={setMoreOpen} />
 
       <Dialog open={!!pendingDelete} onOpenChange={(o) => !o && setPendingDelete(null)}>
         <DialogContent className="max-w-sm">

@@ -12,4 +12,5 @@ export * from "./modules/models";
 export * from "./modules/tokens";
 export * from "./modules/tool_config";
 export * from "./modules/claude_desktop_config";
+export * from "./modules/claude_user_config";
 export * from "./modules/pet";

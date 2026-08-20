@@ -22,6 +22,8 @@ interface Props<T extends ListItem> {
   title?: string;
   /** 标题与新增按钮之间的附加内容（如状态徽章）。 */
   headerAddon?: ReactNode;
+  /** 顶栏右侧、新增按钮左侧的动作区（如「更多配置」）。 */
+  headerActions?: ReactNode;
   /** 空态提示，默认「暂无渠道，点击右上角 + 新增」。 */
   emptyLabel?: string;
   /** 新增按钮 aria/title，默认「新增渠道」。 */
@@ -38,6 +40,7 @@ export function ChannelList<T extends ListItem>({
   onDelete,
   title = "渠道",
   headerAddon,
+  headerActions,
   emptyLabel = "暂无渠道，点击右上角 + 新增",
   newLabel = "新增渠道",
 }: Props<T>) {
@@ -48,17 +51,20 @@ export function ChannelList<T extends ListItem>({
           <span className="shrink-0 text-sm font-medium text-ink-secondary">{title}</span>
           {headerAddon}
         </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="shrink-0"
-          onClick={onNew}
-          aria-label={newLabel}
-          title={newLabel}
-        >
-          <PlusIcon className="size-4" />
-        </Button>
+        <div className="flex shrink-0 items-center gap-0.5">
+          {headerActions}
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="shrink-0"
+            onClick={onNew}
+            aria-label={newLabel}
+            title={newLabel}
+          >
+            <PlusIcon className="size-4" />
+          </Button>
+        </div>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
         {loading ? (
