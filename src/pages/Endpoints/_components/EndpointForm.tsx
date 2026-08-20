@@ -26,6 +26,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { getModelIcon } from "@/lib/model-icons";
+import { joinUpstreamUrl } from "@/lib/upstreamUrl";
 import { endpointApi, type Endpoint } from "@/services/modules/endpoint";
 
 const JsonEditor = lazy(() => import("@/components/common/JsonEditor"));
@@ -59,7 +60,7 @@ const EMPTY: FormState = {
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-/** 各转换器实际拼接的主请求路径（与后端 forward/test 拼法一致：base 去尾斜杠 + 完整后缀）。 */
+/** 各转换器逻辑后缀（join 时若 base 已含 /vN 或末尾 # 会去掉 /v1）。 */
 const PATH_BY_TRANSFORMER: Record<string, string> = {
   claude: "/v1/messages",
   openai: "/v1/chat/completions",
@@ -186,10 +187,10 @@ export function EndpointForm({ open, onOpenChange, editing }: Props) {
     { k: "remark", label: "备注（可选）" },
   ];
 
-  // api_url 辅助提示：按所选转换器实时预览完整请求地址；/v1 结尾会与后端追加的后缀叠成 /v1/v1。
-  const apiUrlBase = form.apiUrl.trim().replace(/\/+$/, "");
-  const hasV1Suffix = /\/v1$/i.test(apiUrlBase);
   const previewPath = PATH_BY_TRANSFORMER[form.transformer] ?? PATH_BY_TRANSFORMER.claude;
+  const previewUrl = form.apiUrl.trim()
+    ? joinUpstreamUrl(form.apiUrl, previewPath)
+    : `{url}${previewPath}`;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -240,18 +241,14 @@ export function EndpointForm({ open, onOpenChange, editing }: Props) {
                     onChange={(e) => set(f.k, e.target.value)}
                   />
                 )}
-                {f.k === "apiUrl" &&
-                  (hasV1Suffix ? (
-                    <p className="px-1 text-xs text-destructive">
-                      URL 不应以 /v1 结尾：实际请求会拼成 {apiUrlBase}
-                      {previewPath}，出现重复的 /v1，请去掉结尾的 /v1
-                    </p>
-                  ) : (
-                    <p className="px-1 text-xs text-ink-mute">
-                      完整请求地址：{apiUrlBase || "{url}"}
-                      {previewPath}
-                    </p>
-                  ))}
+                {f.k === "apiUrl" && (
+                  <p className="px-1 text-xs text-ink-mute">
+                    完整请求地址：{previewUrl}
+                    <br />
+                    路径已含 /v1、/v4 等版本号时不再附加 /v1；末尾加 # 可强制不加 /v1（例如
+                    https://host/openai#）
+                  </p>
+                )}
               </div>
             ))}
 
