@@ -76,12 +76,16 @@ fn build_filter(f: &UsageFilter<'_>) -> (String, Vec<SqlValue>) {
         args.push(SqlValue::Text(e.to_string()));
     }
     if let Some(ts) = f.start_ts {
-        sql.push_str(" AND (ts >= ? OR (ts IS NULL AND date >= date(?/1000, 'unixepoch', 'localtime')))");
+        sql.push_str(
+            " AND (ts >= ? OR (ts IS NULL AND date >= date(?/1000, 'unixepoch', 'localtime')))",
+        );
         args.push(SqlValue::Integer(ts));
         args.push(SqlValue::Integer(ts));
     }
     if let Some(ts) = f.end_ts {
-        sql.push_str(" AND (ts <= ? OR (ts IS NULL AND date <= date(?/1000, 'unixepoch', 'localtime')))");
+        sql.push_str(
+            " AND (ts <= ? OR (ts IS NULL AND date <= date(?/1000, 'unixepoch', 'localtime')))",
+        );
         args.push(SqlValue::Integer(ts));
         args.push(SqlValue::Integer(ts));
     }

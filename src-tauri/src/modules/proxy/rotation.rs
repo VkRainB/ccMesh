@@ -175,33 +175,18 @@ mod tests {
 
     #[test]
     fn unknown_path_404_is_neutral_known_path_404_trips() {
-        assert_eq!(
-            categorize_status(404, "/api/hello"),
-            Outcome::NonRetryable
-        );
+        assert_eq!(categorize_status(404, "/api/hello"), Outcome::NonRetryable);
         assert_eq!(categorize_status(404, "/foo"), Outcome::NonRetryable);
-        assert_eq!(
-            categorize_status(404, "/v1/messages"),
-            Outcome::Retryable
-        );
+        assert_eq!(categorize_status(404, "/v1/messages"), Outcome::Retryable);
         assert_eq!(
             categorize_status(404, "/v1/chat/completions"),
             Outcome::Retryable
         );
-        assert_eq!(
-            categorize_status(404, "/v1/responses"),
-            Outcome::Retryable
-        );
+        assert_eq!(categorize_status(404, "/v1/responses"), Outcome::Retryable);
         assert_eq!(categorize_status(404, "/v1/models"), Outcome::Retryable);
         // 尾斜杠 / 大小写仍视为已知
-        assert_eq!(
-            categorize_status(404, "/v1/messages/"),
-            Outcome::Retryable
-        );
-        assert_eq!(
-            categorize_status(404, "/V1/Messages"),
-            Outcome::Retryable
-        );
+        assert_eq!(categorize_status(404, "/v1/messages/"), Outcome::Retryable);
+        assert_eq!(categorize_status(404, "/V1/Messages"), Outcome::Retryable);
         // 带前缀的「假已知」仍算未知（根挂载精确匹配）
         assert_eq!(
             categorize_status(404, "/evil/v1/messages"),

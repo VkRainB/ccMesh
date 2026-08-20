@@ -90,7 +90,9 @@ fn unsupported_paths(platform: &str) -> ClaudeDesktopPathsDto {
         is_msix_virtualized: false,
         threep_enabled: false,
         candidates: vec![],
-        warning: Some(format!("当前平台 {platform} 暂不支持 Claude Desktop 配置接管")),
+        warning: Some(format!(
+            "当前平台 {platform} 暂不支持 Claude Desktop 配置接管"
+        )),
     }
 }
 
@@ -168,20 +170,11 @@ fn resolve_windows_paths(platform: String) -> AppResult<ClaudeDesktopPathsDto> {
     let is_msix = scored
         .first()
         .map(|c| {
-            c.source.contains("msix")
-                || c.path
-                    .to_string_lossy()
-                    .contains(r"\Packages\Claude_")
+            c.source.contains("msix") || c.path.to_string_lossy().contains(r"\Packages\Claude_")
         })
         .unwrap_or(false);
 
-    let mut dto = build_paths_dto(
-        platform,
-        scored,
-        pfn,
-        is_msix,
-        normal_config,
-    );
+    let mut dto = build_paths_dto(platform, scored, pfn, is_msix, normal_config);
     dto.threep_root_logical = Some(local.join("Claude-3p").to_string_lossy().into_owned());
     if dto.threep_root_resolved.is_none() {
         dto.warning = Some(
@@ -326,11 +319,7 @@ fn build_paths_dto(
         .or_else(|| scored.first());
 
     let (resolved, source, supported) = match best {
-        Some(c) => (
-            Some(c.path.clone()),
-            c.source.clone(),
-            true,
-        ),
+        Some(c) => (Some(c.path.clone()), c.source.clone(), true),
         None => (None, "none".into(), false),
     };
 
@@ -389,17 +378,14 @@ fn build_paths_dto(
 
 fn require_resolved_paths() -> AppResult<(ClaudeDesktopPathsDto, PathBuf)> {
     let paths_dto = resolve_paths()?;
-    let root = paths_dto
-        .threep_root_resolved
-        .clone()
-        .ok_or_else(|| {
-            AppError::Config(
-                paths_dto
-                    .warning
-                    .clone()
-                    .unwrap_or_else(|| "未解析到 Claude Desktop 3P 目录".into()),
-            )
-        })?;
+    let root = paths_dto.threep_root_resolved.clone().ok_or_else(|| {
+        AppError::Config(
+            paths_dto
+                .warning
+                .clone()
+                .unwrap_or_else(|| "未解析到 Claude Desktop 3P 目录".into()),
+        )
+    })?;
     Ok((paths_dto, PathBuf::from(root)))
 }
 
@@ -440,21 +426,16 @@ fn empty_meta() -> Value {
 }
 
 /// 备份到 `<app_data>/profiles/claude_desktop/backups/`。
-fn backup_file_if_exists(
-    app: &AppHandle,
-    src: &Path,
-    prefix: &str,
-) -> AppResult<Option<PathBuf>> {
+fn backup_file_if_exists(app: &AppHandle, src: &Path, prefix: &str) -> AppResult<Option<PathBuf>> {
     if !src.is_file() {
         return Ok(None);
     }
-    let backups = paths::profiles_dir(app)?.join("claude_desktop").join("backups");
+    let backups = paths::profiles_dir(app)?
+        .join("claude_desktop")
+        .join("backups");
     fs::create_dir_all(&backups)?;
     let ts = chrono::Local::now().format("%Y%m%d-%H%M%S%.3f");
-    let ext = src
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("json");
+    let ext = src.extension().and_then(|e| e.to_str()).unwrap_or("json");
     let dest = backups.join(format!("{prefix}-{ts}.{ext}"));
     let data = fs::read(src)?;
     atomic_write(&dest, &data)?;
@@ -776,7 +757,11 @@ pub fn save_profile(
                 }
             })
         })
-        .or(if req.register_in_meta { Some(name) } else { None });
+        .or(if req.register_in_meta {
+            Some(name)
+        } else {
+            None
+        });
     Ok(profile_meta_from_disk(
         &config_library,
         &profile_id,
@@ -801,9 +786,7 @@ pub fn unregister_profile(app: &AppHandle, id: &str) -> AppResult<()> {
 pub fn delete_profile_file(app: &AppHandle, id: &str) -> AppResult<()> {
     validate_profile_id(id)?;
     let (_paths, root) = require_resolved_paths()?;
-    let profile_path = root
-        .join(CONFIG_LIBRARY_DIR)
-        .join(format!("{id}.json"));
+    let profile_path = root.join(CONFIG_LIBRARY_DIR).join(format!("{id}.json"));
     if !profile_path.exists() {
         return Ok(());
     }

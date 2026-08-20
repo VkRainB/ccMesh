@@ -286,7 +286,10 @@ pub fn validate_apply_items(items: &[ApplyItem]) -> AppResult<()> {
     for item in items {
         validate_provider_id(&item.id)?;
         if !seen_provider_ids.insert(item.id.clone()) {
-            return Err(AppError::InvalidArgument(format!("重复 provider id: {}", item.id)));
+            return Err(AppError::InvalidArgument(format!(
+                "重复 provider id: {}",
+                item.id
+            )));
         }
     }
     Ok(())
@@ -303,8 +306,8 @@ pub struct ResolvedPaths {
 
 /// pi 路径解析：`~/.pi/agent/models.json` + `~/.pi/agent/settings.json` + `<app_data>/profiles/pi`。
 pub fn resolve_pi_paths(app: &AppHandle) -> AppResult<ResolvedPaths> {
-    let models_path = paths::pi_models_path()
-        .ok_or_else(|| AppError::Config("无法定位用户主目录".into()))?;
+    let models_path =
+        paths::pi_models_path().ok_or_else(|| AppError::Config("无法定位用户主目录".into()))?;
     let settings_path = paths::pi_settings_path()
         .ok_or_else(|| AppError::Config("无法定位程序配置文件路径".into()))?;
     let profiles_dir = paths::pi_profiles_dir(app)?;
@@ -321,8 +324,8 @@ pub fn resolve_pi_paths(app: &AppHandle) -> AppResult<ResolvedPaths> {
 
 /// omp 路径解析：`~/.omp/agent/models.yml` + `~/.omp/agent/config.yml` + `<app_data>/profiles/omp`。
 pub fn resolve_omp_paths(app: &AppHandle) -> AppResult<ResolvedPaths> {
-    let models_path = paths::omp_models_path()
-        .ok_or_else(|| AppError::Config("无法定位用户主目录".into()))?;
+    let models_path =
+        paths::omp_models_path().ok_or_else(|| AppError::Config("无法定位用户主目录".into()))?;
     let settings_path = paths::omp_settings_path()
         .ok_or_else(|| AppError::Config("无法定位程序配置文件路径".into()))?;
     let profiles_dir = paths::omp_profiles_dir(app)?;
@@ -374,8 +377,7 @@ pub fn sync_live_providers(resolved: &ResolvedPaths) -> AppResult<()> {
             .into_iter()
             .map(|stored_provider| (stored_provider.id.clone(), stored_provider))
             .collect();
-    for (provider_order, (provider_id, provider_json)) in live_provider_entries.iter().enumerate()
-    {
+    for (provider_order, (provider_id, provider_json)) in live_provider_entries.iter().enumerate() {
         let existing_provider = stored_provider_map.remove(provider_id);
         if existing_provider.as_ref().is_some_and(has_pending_edits) {
             continue;
@@ -484,24 +486,36 @@ mod tests {
     #[test]
     fn has_pending_edits_compares_timestamps_not_strings() {
         let clean = stored_provider(
-            "a", true, serde_json::json!({}),
-            "2026-01-01T00:00:00+08:00", Some("2026-01-02T00:00:00+08:00"),
+            "a",
+            true,
+            serde_json::json!({}),
+            "2026-01-01T00:00:00+08:00",
+            Some("2026-01-02T00:00:00+08:00"),
         );
         assert!(!has_pending_edits(&clean));
         let saved_after_apply = stored_provider(
-            "a", true, serde_json::json!({}),
-            "2026-01-03T00:00:00+08:00", Some("2026-01-02T00:00:00+08:00"),
+            "a",
+            true,
+            serde_json::json!({}),
+            "2026-01-03T00:00:00+08:00",
+            Some("2026-01-02T00:00:00+08:00"),
         );
         assert!(has_pending_edits(&saved_after_apply));
         let never_applied = stored_provider(
-            "a", true, serde_json::json!({}),
-            "2026-01-01T00:00:00+08:00", None,
+            "a",
+            true,
+            serde_json::json!({}),
+            "2026-01-01T00:00:00+08:00",
+            None,
         );
         assert!(has_pending_edits(&never_applied));
         // 跨时区偏移：09:00+08:00(=01:00Z) 早于 02:00Z，字符串序会误判为挂起
         let cross_timezone = stored_provider(
-            "a", true, serde_json::json!({}),
-            "2026-01-02T09:00:00+08:00", Some("2026-01-02T02:00:00+00:00"),
+            "a",
+            true,
+            serde_json::json!({}),
+            "2026-01-02T09:00:00+08:00",
+            Some("2026-01-02T02:00:00+00:00"),
         );
         assert!(!has_pending_edits(&cross_timezone));
     }
@@ -520,8 +534,11 @@ mod tests {
         write_json_file(
             &provider_file_path(&resolved.profiles_dir, "edited"),
             &stored_provider(
-                "edited", false, serde_json::json!({ "baseUrl": "local-edit" }),
-                "2026-01-03T00:00:00+08:00", Some("2026-01-02T00:00:00+08:00"),
+                "edited",
+                false,
+                serde_json::json!({ "baseUrl": "local-edit" }),
+                "2026-01-03T00:00:00+08:00",
+                Some("2026-01-02T00:00:00+08:00"),
             ),
         )
         .unwrap();
@@ -529,8 +546,11 @@ mod tests {
         write_json_file(
             &provider_file_path(&resolved.profiles_dir, "clean"),
             &stored_provider(
-                "clean", true, serde_json::json!({ "baseUrl": "old" }),
-                "2026-01-01T00:00:00+08:00", Some("2026-01-02T00:00:00+08:00"),
+                "clean",
+                true,
+                serde_json::json!({ "baseUrl": "old" }),
+                "2026-01-01T00:00:00+08:00",
+                Some("2026-01-02T00:00:00+08:00"),
             ),
         )
         .unwrap();
@@ -538,8 +558,11 @@ mod tests {
         write_json_file(
             &provider_file_path(&resolved.profiles_dir, "fresh"),
             &stored_provider(
-                "fresh", true, serde_json::json!({ "baseUrl": "new" }),
-                "2026-01-03T00:00:00+08:00", None,
+                "fresh",
+                true,
+                serde_json::json!({ "baseUrl": "new" }),
+                "2026-01-03T00:00:00+08:00",
+                None,
             ),
         )
         .unwrap();
@@ -548,22 +571,36 @@ mod tests {
             "clean": { "baseUrl": "live-updated" },
             "imported": { "baseUrl": "external" },
         }});
-        write_document(&resolved.models_path, ConfigFileFormat::Json, &models_document).unwrap();
+        write_document(
+            &resolved.models_path,
+            ConfigFileFormat::Json,
+            &models_document,
+        )
+        .unwrap();
 
         sync_live_providers(&resolved).unwrap();
 
         let edited =
             read_stored_provider(&provider_file_path(&resolved.profiles_dir, "edited")).unwrap();
-        assert_eq!(edited.provider, serde_json::json!({ "baseUrl": "local-edit" }));
+        assert_eq!(
+            edited.provider,
+            serde_json::json!({ "baseUrl": "local-edit" })
+        );
         assert!(!edited.enabled);
         let clean =
             read_stored_provider(&provider_file_path(&resolved.profiles_dir, "clean")).unwrap();
-        assert_eq!(clean.provider, serde_json::json!({ "baseUrl": "live-updated" }));
+        assert_eq!(
+            clean.provider,
+            serde_json::json!({ "baseUrl": "live-updated" })
+        );
         assert!(!has_pending_edits(&clean), "sync 刷新后不应被视为挂起编辑");
         let imported =
             read_stored_provider(&provider_file_path(&resolved.profiles_dir, "imported")).unwrap();
         assert!(imported.enabled);
-        assert_eq!(imported.provider, serde_json::json!({ "baseUrl": "external" }));
+        assert_eq!(
+            imported.provider,
+            serde_json::json!({ "baseUrl": "external" })
+        );
         let fresh =
             read_stored_provider(&provider_file_path(&resolved.profiles_dir, "fresh")).unwrap();
         assert!(fresh.enabled, "新建未应用的渠道不应被 sync 停用");

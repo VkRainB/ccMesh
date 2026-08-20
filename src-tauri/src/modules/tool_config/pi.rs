@@ -53,7 +53,10 @@ pub fn get_provider(app: &AppHandle, provider_id: &str) -> AppResult<PiProviderD
         provider_json: stored_provider.provider,
         provider_text,
         models_text: pi_omp_common::format_document(resolved.models_format, &models_document)?,
-        settings_text: pi_omp_common::format_document(resolved.settings_format, &settings_document)?,
+        settings_text: pi_omp_common::format_document(
+            resolved.settings_format,
+            &settings_document,
+        )?,
         paths: pi_paths_dto(&resolved),
         default_selection,
     })
@@ -63,7 +66,9 @@ pub fn save_provider(app: &AppHandle, request: SavePiProviderRequest) -> AppResu
     let provider_id = request.id.trim().to_string();
     validate_provider_id(&provider_id)?;
     if !request.provider_json.is_object() {
-        return Err(AppError::InvalidArgument("providerJson 必须是 JSON 对象".into()));
+        return Err(AppError::InvalidArgument(
+            "providerJson 必须是 JSON 对象".into(),
+        ));
     }
     let resolved = pi_omp_common::resolve_pi_paths(app)?;
     let provider_path = provider_file_path(&resolved.profiles_dir, &provider_id);
@@ -121,11 +126,23 @@ pub fn delete_provider(app: &AppHandle, provider_id: &str) -> AppResult<PiWorksp
         resolved.settings_format,
         pi_omp_common::empty_settings_document(),
     )?;
-    if parse_default_selection(&settings_document).provider.as_deref() == Some(provider_id) {
+    if parse_default_selection(&settings_document)
+        .provider
+        .as_deref()
+        == Some(provider_id)
+    {
         remove_default_selection(&mut settings_document)?;
     }
-    write_document(&resolved.models_path, resolved.models_format, &models_document)?;
-    write_document(&resolved.settings_path, resolved.settings_format, &settings_document)?;
+    write_document(
+        &resolved.models_path,
+        resolved.models_format,
+        &models_document,
+    )?;
+    write_document(
+        &resolved.settings_path,
+        resolved.settings_format,
+        &settings_document,
+    )?;
     build_workspace_state(app, false)
 }
 
@@ -155,8 +172,13 @@ pub fn rename_provider(app: &AppHandle, old_id: &str, new_id: &str) -> AppResult
         pi_omp_common::empty_models_document(),
     )?;
     let mut live_provider_entries = collect_live_provider_entries(&models_document)?;
-    if live_provider_entries.iter().any(|(provider_id, _)| provider_id == new_id) {
-        return Err(AppError::InvalidArgument(format!("汇总文件中已存在 provider: {new_id}")));
+    if live_provider_entries
+        .iter()
+        .any(|(provider_id, _)| provider_id == new_id)
+    {
+        return Err(AppError::InvalidArgument(format!(
+            "汇总文件中已存在 provider: {new_id}"
+        )));
     }
     let live_renamed = rename_live_provider_entry(&mut live_provider_entries, old_id, new_id);
 
@@ -184,16 +206,27 @@ pub fn rename_provider(app: &AppHandle, old_id: &str, new_id: &str) -> AppResult
     write_json_file(&new_provider_path, &stored_provider)?;
     if live_renamed {
         set_live_provider_entries(&mut models_document, live_provider_entries)?;
-        write_document(&resolved.models_path, resolved.models_format, &models_document)?;
+        write_document(
+            &resolved.models_path,
+            resolved.models_format,
+            &models_document,
+        )?;
     }
     if default_renamed {
-        write_document(&resolved.settings_path, resolved.settings_format, &settings_document)?;
+        write_document(
+            &resolved.settings_path,
+            resolved.settings_format,
+            &settings_document,
+        )?;
     }
     fs::remove_file(&old_provider_path)?;
     build_workspace_state(app, false)
 }
 
-pub fn apply_config(app: &AppHandle, request: ApplyPiConfigRequest) -> AppResult<ApplyPiConfigResult> {
+pub fn apply_config(
+    app: &AppHandle,
+    request: ApplyPiConfigRequest,
+) -> AppResult<ApplyPiConfigResult> {
     let resolved = pi_omp_common::resolve_pi_paths(app)?;
     let mut requested_items = request.items;
     requested_items.sort_by(|left_item, right_item| {
@@ -241,8 +274,16 @@ pub fn apply_config(app: &AppHandle, request: ApplyPiConfigRequest) -> AppResult
         request.default_provider,
         request.default_model,
     )?;
-    write_document(&resolved.models_path, resolved.models_format, &models_document)?;
-    write_document(&resolved.settings_path, resolved.settings_format, &settings_document)?;
+    write_document(
+        &resolved.models_path,
+        resolved.models_format,
+        &models_document,
+    )?;
+    write_document(
+        &resolved.settings_path,
+        resolved.settings_format,
+        &settings_document,
+    )?;
     for requested_item in &requested_items {
         let stored_provider = stored_provider_map
             .get(&requested_item.id)
@@ -264,7 +305,12 @@ pub fn apply_config(app: &AppHandle, request: ApplyPiConfigRequest) -> AppResult
 fn pi_paths_dto(resolved: &ResolvedPaths) -> PiConfigPaths {
     PiConfigPaths {
         app_type: "pi".to_string(),
-        agent_dir: path_to_string(&resolved.models_path.parent().unwrap_or(&resolved.models_path)),
+        agent_dir: path_to_string(
+            &resolved
+                .models_path
+                .parent()
+                .unwrap_or(&resolved.models_path),
+        ),
         models_path: path_to_string(&resolved.models_path),
         settings_path: path_to_string(&resolved.settings_path),
         profiles_dir: path_to_string(&resolved.profiles_dir),
@@ -290,7 +336,11 @@ fn parse_default_selection(settings_document: &Value) -> PiDefaultSelection {
         .as_ref()
         .zip(model.as_ref())
         .map(|(provider_id, model_id)| format!("{provider_id}/{model_id}"));
-    PiDefaultSelection { provider, model, selector }
+    PiDefaultSelection {
+        provider,
+        model,
+        selector,
+    }
 }
 
 fn remove_default_selection(settings_document: &mut Value) -> AppResult<()> {
@@ -302,12 +352,22 @@ fn remove_default_selection(settings_document: &mut Value) -> AppResult<()> {
     Ok(())
 }
 
-fn write_default_selection(settings_document: &mut Value, provider_id: &str, model_id: &str) -> AppResult<()> {
+fn write_default_selection(
+    settings_document: &mut Value,
+    provider_id: &str,
+    model_id: &str,
+) -> AppResult<()> {
     let root_object = settings_document
         .as_object_mut()
         .ok_or_else(|| AppError::InvalidArgument("程序配置文件根节点必须是对象".into()))?;
-    root_object.insert("defaultProvider".to_string(), Value::String(provider_id.to_string()));
-    root_object.insert("defaultModel".to_string(), Value::String(model_id.to_string()));
+    root_object.insert(
+        "defaultProvider".to_string(),
+        Value::String(provider_id.to_string()),
+    );
+    root_object.insert(
+        "defaultModel".to_string(),
+        Value::String(model_id.to_string()),
+    );
     Ok(())
 }
 
@@ -315,8 +375,12 @@ fn default_selection_is_valid(
     default_selection: &PiDefaultSelection,
     enabled_provider_map: &HashMap<String, Value>,
 ) -> bool {
-    let Some(provider_id) = default_selection.provider.as_deref() else { return false };
-    let Some(model_id) = default_selection.model.as_deref() else { return false };
+    let Some(provider_id) = default_selection.provider.as_deref() else {
+        return false;
+    };
+    let Some(model_id) = default_selection.model.as_deref() else {
+        return false;
+    };
     enabled_provider_map
         .get(provider_id)
         .map(|provider_json| provider_has_model(provider_json, model_id))
@@ -332,10 +396,16 @@ fn reconcile_default_selection(
     let enabled_provider_map: HashMap<String, Value> =
         enabled_provider_entries.iter().cloned().collect();
     let normalized_requested_provider = requested_provider
-        .as_deref().map(str::trim).filter(|provider_id| !provider_id.is_empty());
+        .as_deref()
+        .map(str::trim)
+        .filter(|provider_id| !provider_id.is_empty());
     let normalized_requested_model = requested_model
-        .as_deref().map(str::trim).filter(|model_id| !model_id.is_empty());
-    if let (Some(provider_id), Some(model_id)) = (normalized_requested_provider, normalized_requested_model) {
+        .as_deref()
+        .map(str::trim)
+        .filter(|model_id| !model_id.is_empty());
+    if let (Some(provider_id), Some(model_id)) =
+        (normalized_requested_provider, normalized_requested_model)
+    {
         let requested_default = PiDefaultSelection {
             provider: Some(provider_id.to_string()),
             model: Some(model_id.to_string()),
@@ -374,18 +444,33 @@ fn build_provider_meta(
 
 fn build_workspace_state(app: &AppHandle, sync_from_live: bool) -> AppResult<PiWorkspaceState> {
     let resolved = pi_omp_common::resolve_pi_paths(app)?;
-    if sync_from_live { sync_live_providers(&resolved)?; }
-    let models_document = read_document(&resolved.models_path, resolved.models_format, pi_omp_common::empty_models_document())?;
-    let settings_document = read_document(&resolved.settings_path, resolved.settings_format, pi_omp_common::empty_settings_document())?;
+    if sync_from_live {
+        sync_live_providers(&resolved)?;
+    }
+    let models_document = read_document(
+        &resolved.models_path,
+        resolved.models_format,
+        pi_omp_common::empty_models_document(),
+    )?;
+    let settings_document = read_document(
+        &resolved.settings_path,
+        resolved.settings_format,
+        pi_omp_common::empty_settings_document(),
+    )?;
     let default_selection = parse_default_selection(&settings_document);
     let provider_metas = list_stored_providers(&resolved.profiles_dir)?
-        .iter().map(|p| build_provider_meta(p, &default_selection)).collect();
+        .iter()
+        .map(|p| build_provider_meta(p, &default_selection))
+        .collect();
     Ok(PiWorkspaceState {
         paths: pi_paths_dto(&resolved),
         providers: provider_metas,
         default_selection,
         models_text: pi_omp_common::format_document(resolved.models_format, &models_document)?,
-        settings_text: pi_omp_common::format_document(resolved.settings_format, &settings_document)?,
+        settings_text: pi_omp_common::format_document(
+            resolved.settings_format,
+            &settings_document,
+        )?,
     })
 }
 
@@ -400,7 +485,10 @@ mod tests {
         let selection = parse_default_selection(&settings);
         assert_eq!(selection.provider.as_deref(), Some("local"));
         assert_eq!(selection.model.as_deref(), Some("deepseek-v4-flash"));
-        assert_eq!(selection.selector.as_deref(), Some("local/deepseek-v4-flash"));
+        assert_eq!(
+            selection.selector.as_deref(),
+            Some("local/deepseek-v4-flash")
+        );
     }
 
     #[test]
@@ -437,8 +525,15 @@ mod tests {
             &[("remote-gpt".to_string(), provider_json)],
             Some("remote-gpt".to_string()),
             Some("gpt-5.5".to_string()),
-        ).unwrap();
-        assert_eq!(settings.get("defaultProvider").and_then(Value::as_str), Some("remote-gpt"));
-        assert_eq!(settings.get("defaultModel").and_then(Value::as_str), Some("gpt-5.5"));
+        )
+        .unwrap();
+        assert_eq!(
+            settings.get("defaultProvider").and_then(Value::as_str),
+            Some("remote-gpt")
+        );
+        assert_eq!(
+            settings.get("defaultModel").and_then(Value::as_str),
+            Some("gpt-5.5")
+        );
     }
 }

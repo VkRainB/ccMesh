@@ -5,8 +5,7 @@ use crate::modules::claude_user_config::{self as cuc, ClaudeUserFlags, ClaudeUse
 use crate::utils::paths;
 
 fn require_path() -> AppResult<std::path::PathBuf> {
-    paths::claude_user_json_path()
-        .ok_or_else(|| AppError::Config("无法定位 ~/.claude.json".into()))
+    paths::claude_user_json_path().ok_or_else(|| AppError::Config("无法定位 ~/.claude.json".into()))
 }
 
 #[tauri::command]

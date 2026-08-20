@@ -147,11 +147,7 @@ mod tests {
     fn set_true_preserves_other_keys() {
         let tmp = tempdir().unwrap();
         let path = path_in(&tmp);
-        fs::write(
-            &path,
-            r#"{"mcpServers":{"x":{}},"theme":"dark"}"#,
-        )
-        .unwrap();
+        fs::write(&path, r#"{"mcpServers":{"x":{}},"theme":"dark"}"#).unwrap();
         set_flags(
             &path,
             &ClaudeUserFlagsPatch {

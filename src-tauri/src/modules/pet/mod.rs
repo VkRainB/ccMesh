@@ -39,7 +39,9 @@ pub fn get_active_pet(app: &AppHandle) -> AppResult<Option<String>> {
 /// 设置激活宠物（须已存在于 `pets/`）。
 pub fn set_active_pet(app: &AppHandle, dir_id: &str) -> AppResult<()> {
     if !is_valid_dir_id(dir_id) {
-        return Err(AppError::InvalidArgument(format!("非法宠物目录名: {dir_id}")));
+        return Err(AppError::InvalidArgument(format!(
+            "非法宠物目录名: {dir_id}"
+        )));
     }
     let root = paths::pets_dir(app)?;
     if !root.join(dir_id).is_dir() {
@@ -57,7 +59,9 @@ pub fn delete_pet(app: &AppHandle, dir_id: &str) -> AppResult<()> {
 
 fn delete_pet_in_root(root: &Path, dir_id: &str) -> AppResult<()> {
     if !is_valid_dir_id(dir_id) {
-        return Err(AppError::InvalidArgument(format!("非法宠物目录名: {dir_id}")));
+        return Err(AppError::InvalidArgument(format!(
+            "非法宠物目录名: {dir_id}"
+        )));
     }
     let dest = root.join(dir_id);
     if !dest.is_dir() {
@@ -113,7 +117,11 @@ fn scan_pets_dir(root: &Path) -> Vec<PetListItem> {
         if !path.is_dir() {
             continue;
         }
-        let Some(dir_id) = path.file_name().and_then(|n| n.to_str()).map(str::to_string) else {
+        let Some(dir_id) = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(str::to_string)
+        else {
             continue;
         };
         if !is_valid_dir_id(&dir_id) {
@@ -124,7 +132,11 @@ fn scan_pets_dir(root: &Path) -> Vec<PetListItem> {
             None => warn!(dir = %dir_id, "跳过无效宠物目录"),
         }
     }
-    out.sort_by(|a, b| a.display_name.to_lowercase().cmp(&b.display_name.to_lowercase()));
+    out.sort_by(|a, b| {
+        a.display_name
+            .to_lowercase()
+            .cmp(&b.display_name.to_lowercase())
+    });
     out
 }
 
@@ -184,9 +196,8 @@ fn find_package_dir(root: &Path) -> AppResult<PathBuf> {
         return Ok(root.to_path_buf());
     }
     let mut candidates = Vec::new();
-    let entries = fs::read_dir(root).map_err(|e| {
-        AppError::InvalidArgument(format!("无法读取宠物包目录: {e}"))
-    })?;
+    let entries = fs::read_dir(root)
+        .map_err(|e| AppError::InvalidArgument(format!("无法读取宠物包目录: {e}")))?;
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() && path.join(MANIFEST_FILE).is_file() {
@@ -204,7 +215,11 @@ fn find_package_dir(root: &Path) -> AppResult<PathBuf> {
     }
 }
 
-fn dir_id_for_package(package_dir: &Path, extract_root: Option<&Path>, fallback: &str) -> AppResult<String> {
+fn dir_id_for_package(
+    package_dir: &Path,
+    extract_root: Option<&Path>,
+    fallback: &str,
+) -> AppResult<String> {
     let name = if extract_root.is_some_and(|r| r == package_dir) {
         fallback.to_string()
     } else {
@@ -321,8 +336,7 @@ fn extract_zip(zip_path: &Path, dest: &Path) -> AppResult<()> {
             let _ = fs::remove_file(&out);
             return Err(AppError::InvalidArgument(format!(
                 "压缩包内条目过大（解压 {} 字节），单条上限 {} 字节",
-                n,
-                ZIP_MAX_ENTRY_UNCOMPRESSED
+                n, ZIP_MAX_ENTRY_UNCOMPRESSED
             )));
         }
         total = total
@@ -332,8 +346,7 @@ fn extract_zip(zip_path: &Path, dest: &Path) -> AppResult<()> {
             let _ = fs::remove_file(&out);
             return Err(AppError::InvalidArgument(format!(
                 "压缩包解压总大小超限（{} 字节），上限 {} 字节",
-                total,
-                ZIP_MAX_TOTAL_UNCOMPRESSED
+                total, ZIP_MAX_TOTAL_UNCOMPRESSED
             )));
         }
     }
@@ -445,7 +458,10 @@ mod tests {
 
         assert_eq!(item.display_name, "PandaV2");
         assert!(pets_root.join(dir_id).join(MANIFEST_FILE).is_file());
-        assert!(!pets_root.join(dir_id).join("legacy.txt").exists(), "旧文件应被清除");
+        assert!(
+            !pets_root.join(dir_id).join("legacy.txt").exists(),
+            "旧文件应被清除"
+        );
         let leftovers: Vec<_> = fs::read_dir(&pets_root)
             .unwrap()
             .flatten()

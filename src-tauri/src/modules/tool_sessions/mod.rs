@@ -58,10 +58,7 @@ pub fn scan_sessions() -> Vec<SessionMeta> {
     let (r1, r2) = std::thread::scope(|s| {
         let h1 = s.spawn(codex::scan_sessions);
         let h2 = s.spawn(claude::scan_sessions);
-        (
-            h1.join().unwrap_or_default(),
-            h2.join().unwrap_or_default(),
-        )
+        (h1.join().unwrap_or_default(), h2.join().unwrap_or_default())
     });
 
     let mut sessions = Vec::new();

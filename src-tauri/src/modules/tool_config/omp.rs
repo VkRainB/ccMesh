@@ -36,8 +36,16 @@ pub fn get_provider(app: &AppHandle, provider_id: &str) -> AppResult<OmpProvider
     let provider_path = provider_file_path(&resolved.profiles_dir, provider_id);
     let stored_provider = read_stored_provider_optional(&provider_path)?
         .ok_or_else(|| AppError::NotFound(format!("渠道不存在: {provider_id}")))?;
-    let models_document = read_document(&resolved.models_path, resolved.models_format, pi_omp_common::empty_models_document())?;
-    let settings_document = read_document(&resolved.settings_path, resolved.settings_format, pi_omp_common::empty_settings_document())?;
+    let models_document = read_document(
+        &resolved.models_path,
+        resolved.models_format,
+        pi_omp_common::empty_models_document(),
+    )?;
+    let settings_document = read_document(
+        &resolved.settings_path,
+        resolved.settings_format,
+        pi_omp_common::empty_settings_document(),
+    )?;
     let default_selection = parse_default_selection(&settings_document);
     let provider_text = serde_json::to_string_pretty(&stored_provider.provider)?;
     Ok(OmpProviderData {
@@ -45,32 +53,57 @@ pub fn get_provider(app: &AppHandle, provider_id: &str) -> AppResult<OmpProvider
         provider_json: stored_provider.provider,
         provider_text,
         models_text: pi_omp_common::format_document(resolved.models_format, &models_document)?,
-        settings_text: pi_omp_common::format_document(resolved.settings_format, &settings_document)?,
+        settings_text: pi_omp_common::format_document(
+            resolved.settings_format,
+            &settings_document,
+        )?,
         paths: omp_paths_dto(&resolved),
         default_selection,
     })
 }
 
-pub fn save_provider(app: &AppHandle, request: SaveOmpProviderRequest) -> AppResult<OmpProviderMeta> {
+pub fn save_provider(
+    app: &AppHandle,
+    request: SaveOmpProviderRequest,
+) -> AppResult<OmpProviderMeta> {
     let provider_id = request.id.trim().to_string();
     validate_provider_id(&provider_id)?;
     if !request.provider_json.is_object() {
-        return Err(AppError::InvalidArgument("providerJson 必须是 JSON 对象".into()));
+        return Err(AppError::InvalidArgument(
+            "providerJson 必须是 JSON 对象".into(),
+        ));
     }
     let resolved = pi_omp_common::resolve_omp_paths(app)?;
     let provider_path = provider_file_path(&resolved.profiles_dir, &provider_id);
     let now = now_rfc3339();
     let existing_provider = read_stored_provider_optional(&provider_path)?;
-    let provider_name = request.name.as_deref().map(str::trim).filter(|n| !n.is_empty()).unwrap_or(&provider_id).to_string();
+    let provider_name = request
+        .name
+        .as_deref()
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+        .unwrap_or(&provider_id)
+        .to_string();
     let stored_provider = StoredProvider {
-        id: provider_id.clone(), name: provider_name, enabled: request.enabled,
-        order: request.order, provider: request.provider_json,
-        created_at: existing_provider.as_ref().map(|p| p.created_at.clone()).unwrap_or_else(|| now.clone()),
-        updated_at: now.clone(), configured_at: now,
+        id: provider_id.clone(),
+        name: provider_name,
+        enabled: request.enabled,
+        order: request.order,
+        provider: request.provider_json,
+        created_at: existing_provider
+            .as_ref()
+            .map(|p| p.created_at.clone())
+            .unwrap_or_else(|| now.clone()),
+        updated_at: now.clone(),
+        configured_at: now,
         applied_at: existing_provider.and_then(|p| p.applied_at),
     };
     write_json_file(&provider_path, &stored_provider)?;
-    let settings_document = read_document(&resolved.settings_path, resolved.settings_format, pi_omp_common::empty_settings_document())?;
+    let settings_document = read_document(
+        &resolved.settings_path,
+        resolved.settings_format,
+        pi_omp_common::empty_settings_document(),
+    )?;
     let default_selection = parse_default_selection(&settings_document);
     Ok(build_provider_meta(&stored_provider, &default_selection))
 }
@@ -79,24 +112,50 @@ pub fn delete_provider(app: &AppHandle, provider_id: &str) -> AppResult<OmpWorks
     validate_provider_id(provider_id)?;
     let resolved = pi_omp_common::resolve_omp_paths(app)?;
     let provider_path = provider_file_path(&resolved.profiles_dir, provider_id);
-    if provider_path.exists() { fs::remove_file(&provider_path)?; }
-    let mut models_document = read_document(&resolved.models_path, resolved.models_format, pi_omp_common::empty_models_document())?;
+    if provider_path.exists() {
+        fs::remove_file(&provider_path)?;
+    }
+    let mut models_document = read_document(
+        &resolved.models_path,
+        resolved.models_format,
+        pi_omp_common::empty_models_document(),
+    )?;
     let mut live_provider_entries = collect_live_provider_entries(&models_document)?;
     live_provider_entries.retain(|(candidate_provider_id, _)| candidate_provider_id != provider_id);
     set_live_provider_entries(&mut models_document, live_provider_entries)?;
-    let mut settings_document = read_document(&resolved.settings_path, resolved.settings_format, pi_omp_common::empty_settings_document())?;
-    if parse_default_selection(&settings_document).provider.as_deref() == Some(provider_id) {
+    let mut settings_document = read_document(
+        &resolved.settings_path,
+        resolved.settings_format,
+        pi_omp_common::empty_settings_document(),
+    )?;
+    if parse_default_selection(&settings_document)
+        .provider
+        .as_deref()
+        == Some(provider_id)
+    {
         remove_default_selection(&mut settings_document)?;
     }
-    write_document(&resolved.models_path, resolved.models_format, &models_document)?;
-    write_document(&resolved.settings_path, resolved.settings_format, &settings_document)?;
+    write_document(
+        &resolved.models_path,
+        resolved.models_format,
+        &models_document,
+    )?;
+    write_document(
+        &resolved.settings_path,
+        resolved.settings_format,
+        &settings_document,
+    )?;
     build_workspace_state(app, false)
 }
 
 /// 重命名渠道：一次迁移拆分文件名、汇总文件 providers 键（保持原位置）、config.yml 的 modelRoles.default 引用。
 /// 写入顺序：新拆分文件 → 汇总文件 → config.yml → 删除旧拆分文件；
 /// 中途失败最多残留一个旧拆分文件（下次 sync 可见、可手动删除），不会丢真实配置。
-pub fn rename_provider(app: &AppHandle, old_id: &str, new_id: &str) -> AppResult<OmpWorkspaceState> {
+pub fn rename_provider(
+    app: &AppHandle,
+    old_id: &str,
+    new_id: &str,
+) -> AppResult<OmpWorkspaceState> {
     let old_id = old_id.trim();
     let new_id = new_id.trim();
     validate_provider_id(old_id)?;
@@ -119,8 +178,13 @@ pub fn rename_provider(app: &AppHandle, old_id: &str, new_id: &str) -> AppResult
         pi_omp_common::empty_models_document(),
     )?;
     let mut live_provider_entries = collect_live_provider_entries(&models_document)?;
-    if live_provider_entries.iter().any(|(provider_id, _)| provider_id == new_id) {
-        return Err(AppError::InvalidArgument(format!("汇总文件中已存在 provider: {new_id}")));
+    if live_provider_entries
+        .iter()
+        .any(|(provider_id, _)| provider_id == new_id)
+    {
+        return Err(AppError::InvalidArgument(format!(
+            "汇总文件中已存在 provider: {new_id}"
+        )));
     }
     let live_renamed = rename_live_provider_entry(&mut live_provider_entries, old_id, new_id);
 
@@ -153,63 +217,112 @@ pub fn rename_provider(app: &AppHandle, old_id: &str, new_id: &str) -> AppResult
     write_json_file(&new_provider_path, &stored_provider)?;
     if live_renamed {
         set_live_provider_entries(&mut models_document, live_provider_entries)?;
-        write_document(&resolved.models_path, resolved.models_format, &models_document)?;
+        write_document(
+            &resolved.models_path,
+            resolved.models_format,
+            &models_document,
+        )?;
     }
     if default_renamed {
-        write_document(&resolved.settings_path, resolved.settings_format, &settings_document)?;
+        write_document(
+            &resolved.settings_path,
+            resolved.settings_format,
+            &settings_document,
+        )?;
     }
     fs::remove_file(&old_provider_path)?;
     build_workspace_state(app, false)
 }
 
-pub fn apply_config(app: &AppHandle, request: ApplyOmpConfigRequest) -> AppResult<ApplyOmpConfigResult> {
+pub fn apply_config(
+    app: &AppHandle,
+    request: ApplyOmpConfigRequest,
+) -> AppResult<ApplyOmpConfigResult> {
     let resolved = pi_omp_common::resolve_omp_paths(app)?;
     let requested_thinking_level = normalize_thinking_level(request.thinking_level)?;
     let mut requested_items = request.items;
     requested_items.sort_by(|left_item, right_item| {
-        left_item.order.cmp(&right_item.order).then_with(|| left_item.id.cmp(&right_item.id))
+        left_item
+            .order
+            .cmp(&right_item.order)
+            .then_with(|| left_item.id.cmp(&right_item.id))
     });
     validate_apply_items(&requested_items)?;
     let mut stored_provider_map: HashMap<String, StoredProvider> =
-        list_stored_providers(&resolved.profiles_dir)?.into_iter().map(|p| (p.id.clone(), p)).collect();
+        list_stored_providers(&resolved.profiles_dir)?
+            .into_iter()
+            .map(|p| (p.id.clone(), p))
+            .collect();
     let now = now_rfc3339();
     let mut enabled_provider_entries = Vec::new();
     for requested_item in &requested_items {
-        let stored_provider = stored_provider_map.get_mut(&requested_item.id)
+        let stored_provider = stored_provider_map
+            .get_mut(&requested_item.id)
             .ok_or_else(|| AppError::NotFound(format!("渠道不存在: {}", requested_item.id)))?;
         stored_provider.enabled = requested_item.enabled;
         stored_provider.order = requested_item.order;
         stored_provider.updated_at = now.clone();
         stored_provider.applied_at = Some(now.clone());
         if requested_item.enabled {
-            enabled_provider_entries.push((stored_provider.id.clone(), stored_provider.provider.clone()));
+            enabled_provider_entries
+                .push((stored_provider.id.clone(), stored_provider.provider.clone()));
         }
     }
-    let mut models_document = read_document(&resolved.models_path, resolved.models_format, pi_omp_common::empty_models_document())?;
-    set_live_provider_entries(&mut models_document, enabled_provider_entries.clone())?;
-    let mut settings_document = read_document(&resolved.settings_path, resolved.settings_format, pi_omp_common::empty_settings_document())?;
-    reconcile_default_selection(
-        &mut settings_document, &enabled_provider_entries,
-        request.default_provider, request.default_model, requested_thinking_level,
+    let mut models_document = read_document(
+        &resolved.models_path,
+        resolved.models_format,
+        pi_omp_common::empty_models_document(),
     )?;
-    write_document(&resolved.models_path, resolved.models_format, &models_document)?;
-    write_document(&resolved.settings_path, resolved.settings_format, &settings_document)?;
+    set_live_provider_entries(&mut models_document, enabled_provider_entries.clone())?;
+    let mut settings_document = read_document(
+        &resolved.settings_path,
+        resolved.settings_format,
+        pi_omp_common::empty_settings_document(),
+    )?;
+    reconcile_default_selection(
+        &mut settings_document,
+        &enabled_provider_entries,
+        request.default_provider,
+        request.default_model,
+        requested_thinking_level,
+    )?;
+    write_document(
+        &resolved.models_path,
+        resolved.models_format,
+        &models_document,
+    )?;
+    write_document(
+        &resolved.settings_path,
+        resolved.settings_format,
+        &settings_document,
+    )?;
     for requested_item in &requested_items {
-        let stored_provider = stored_provider_map.get(&requested_item.id)
+        let stored_provider = stored_provider_map
+            .get(&requested_item.id)
             .ok_or_else(|| AppError::NotFound(format!("渠道不存在: {}", requested_item.id)))?;
-        write_json_file(&provider_file_path(&resolved.profiles_dir, &requested_item.id), stored_provider)?;
+        write_json_file(
+            &provider_file_path(&resolved.profiles_dir, &requested_item.id),
+            stored_provider,
+        )?;
     }
     let workspace_state = build_workspace_state(app, false)?;
     Ok(ApplyOmpConfigResult {
-        paths: workspace_state.paths, providers: workspace_state.providers,
-        default_selection: workspace_state.default_selection,         enabled_count: enabled_provider_entries.len(),
+        paths: workspace_state.paths,
+        providers: workspace_state.providers,
+        default_selection: workspace_state.default_selection,
+        enabled_count: enabled_provider_entries.len(),
     })
 }
 
 fn omp_paths_dto(resolved: &ResolvedPaths) -> OmpConfigPaths {
     OmpConfigPaths {
         app_type: "omp".to_string(),
-        agent_dir: path_to_string(&resolved.models_path.parent().unwrap_or(&resolved.models_path)),
+        agent_dir: path_to_string(
+            &resolved
+                .models_path
+                .parent()
+                .unwrap_or(&resolved.models_path),
+        ),
         models_path: path_to_string(&resolved.models_path),
         settings_path: path_to_string(&resolved.settings_path),
         profiles_dir: path_to_string(&resolved.profiles_dir),
@@ -238,10 +351,14 @@ fn parse_omp_default_selector(selector: &str) -> Option<OmpDefaultSelection> {
 }
 
 /// OMP 支持的思考档位（选择器 `provider/model:<level>` 的合法后缀）。
-const OMP_THINKING_LEVELS: &[&str] = &["off", "minimal", "low", "medium", "high", "xhigh", "max", "auto", "inherit"];
+const OMP_THINKING_LEVELS: &[&str] = &[
+    "off", "minimal", "low", "medium", "high", "xhigh", "max", "auto", "inherit",
+];
 
 fn split_thinking_suffix(model_id: &str) -> (&str, Option<&str>) {
-    let Some(colon_index) = model_id.rfind(':') else { return (model_id, None) };
+    let Some(colon_index) = model_id.rfind(':') else {
+        return (model_id, None);
+    };
     let suffix = &model_id[colon_index + 1..];
     if OMP_THINKING_LEVELS.contains(&suffix) && colon_index > 0 {
         (&model_id[..colon_index], Some(suffix))
@@ -267,7 +384,11 @@ fn normalize_thinking_level(level: Option<String>) -> AppResult<Option<String>> 
     Ok(Some(trimmed.to_string()))
 }
 
-fn format_omp_default_selector(provider_id: &str, model_id: &str, thinking_level: Option<&str>) -> String {
+fn format_omp_default_selector(
+    provider_id: &str,
+    model_id: &str,
+    thinking_level: Option<&str>,
+) -> String {
     match thinking_level.filter(|level| !level.trim().is_empty()) {
         Some(level) => format!("{provider_id}/{model_id}:{level}"),
         None => format!("{provider_id}/{model_id}"),
@@ -276,56 +397,103 @@ fn format_omp_default_selector(provider_id: &str, model_id: &str, thinking_level
 
 fn parse_default_selection(settings_document: &Value) -> OmpDefaultSelection {
     settings_document
-        .get("modelRoles").and_then(|model_roles| model_roles.get("default")).and_then(Value::as_str)
-        .and_then(parse_omp_default_selector).unwrap_or_default()
+        .get("modelRoles")
+        .and_then(|model_roles| model_roles.get("default"))
+        .and_then(Value::as_str)
+        .and_then(parse_omp_default_selector)
+        .unwrap_or_default()
 }
 
 fn remove_default_selection(settings_document: &mut Value) -> AppResult<()> {
-    let root_object = settings_document.as_object_mut()
+    let root_object = settings_document
+        .as_object_mut()
         .ok_or_else(|| AppError::InvalidArgument("程序配置文件根节点必须是对象".into()))?;
     if let Some(model_roles_value) = root_object.get_mut("modelRoles") {
         if let Some(model_roles_object) = model_roles_value.as_object_mut() {
             model_roles_object.remove("default");
-            if model_roles_object.is_empty() { root_object.remove("modelRoles"); }
+            if model_roles_object.is_empty() {
+                root_object.remove("modelRoles");
+            }
         }
     }
     Ok(())
 }
 
 fn write_default_selection(
-    settings_document: &mut Value, provider_id: &str, model_id: &str, thinking_level: Option<&str>,
+    settings_document: &mut Value,
+    provider_id: &str,
+    model_id: &str,
+    thinking_level: Option<&str>,
 ) -> AppResult<()> {
-    let root_object = settings_document.as_object_mut()
+    let root_object = settings_document
+        .as_object_mut()
         .ok_or_else(|| AppError::InvalidArgument("程序配置文件根节点必须是对象".into()))?;
-    let model_roles_value = root_object.entry("modelRoles".to_string()).or_insert_with(|| Value::Object(Map::new()));
-    let model_roles_object = model_roles_value.as_object_mut()
+    let model_roles_value = root_object
+        .entry("modelRoles".to_string())
+        .or_insert_with(|| Value::Object(Map::new()));
+    let model_roles_object = model_roles_value
+        .as_object_mut()
         .ok_or_else(|| AppError::InvalidArgument("程序配置文件 modelRoles 必须是对象".into()))?;
-    model_roles_object.insert("default".to_string(), Value::String(format_omp_default_selector(provider_id, model_id, thinking_level)));
+    model_roles_object.insert(
+        "default".to_string(),
+        Value::String(format_omp_default_selector(
+            provider_id,
+            model_id,
+            thinking_level,
+        )),
+    );
     Ok(())
 }
 
 fn default_selection_is_valid(
-    default_selection: &OmpDefaultSelection, enabled_provider_map: &HashMap<String, Value>,
+    default_selection: &OmpDefaultSelection,
+    enabled_provider_map: &HashMap<String, Value>,
 ) -> bool {
-    let Some(provider_id) = default_selection.provider.as_deref() else { return false };
-    let Some(model_id) = default_selection.model.as_deref() else { return false };
-    enabled_provider_map.get(provider_id).map(|p| provider_has_model(p, model_id)).unwrap_or(false)
+    let Some(provider_id) = default_selection.provider.as_deref() else {
+        return false;
+    };
+    let Some(model_id) = default_selection.model.as_deref() else {
+        return false;
+    };
+    enabled_provider_map
+        .get(provider_id)
+        .map(|p| provider_has_model(p, model_id))
+        .unwrap_or(false)
 }
 
 fn reconcile_default_selection(
-    settings_document: &mut Value, enabled_provider_entries: &[(String, Value)],
-    requested_provider: Option<String>, requested_model: Option<String>, requested_thinking_level: Option<String>,
+    settings_document: &mut Value,
+    enabled_provider_entries: &[(String, Value)],
+    requested_provider: Option<String>,
+    requested_model: Option<String>,
+    requested_thinking_level: Option<String>,
 ) -> AppResult<()> {
-    let enabled_provider_map: HashMap<String, Value> = enabled_provider_entries.iter().cloned().collect();
-    let normalized_requested_provider = requested_provider.as_deref().map(str::trim).filter(|p| !p.is_empty());
-    let normalized_requested_model = requested_model.as_deref().map(str::trim).filter(|m| !m.is_empty());
-    if let (Some(provider_id), Some(model_id)) = (normalized_requested_provider, normalized_requested_model) {
+    let enabled_provider_map: HashMap<String, Value> =
+        enabled_provider_entries.iter().cloned().collect();
+    let normalized_requested_provider = requested_provider
+        .as_deref()
+        .map(str::trim)
+        .filter(|p| !p.is_empty());
+    let normalized_requested_model = requested_model
+        .as_deref()
+        .map(str::trim)
+        .filter(|m| !m.is_empty());
+    if let (Some(provider_id), Some(model_id)) =
+        (normalized_requested_provider, normalized_requested_model)
+    {
         let requested_default = OmpDefaultSelection {
-            provider: Some(provider_id.to_string()), model: Some(model_id.to_string()),
-            thinking_level: requested_thinking_level.clone(), selector: None,
+            provider: Some(provider_id.to_string()),
+            model: Some(model_id.to_string()),
+            thinking_level: requested_thinking_level.clone(),
+            selector: None,
         };
         if default_selection_is_valid(&requested_default, &enabled_provider_map) {
-            write_default_selection(settings_document, provider_id, model_id, requested_thinking_level.as_deref())?;
+            write_default_selection(
+                settings_document,
+                provider_id,
+                model_id,
+                requested_thinking_level.as_deref(),
+            )?;
             return Ok(());
         }
     }
@@ -336,30 +504,54 @@ fn reconcile_default_selection(
     Ok(())
 }
 
-fn build_provider_meta(stored_provider: &StoredProvider, default_selection: &OmpDefaultSelection) -> OmpProviderMeta {
+fn build_provider_meta(
+    stored_provider: &StoredProvider,
+    default_selection: &OmpDefaultSelection,
+) -> OmpProviderMeta {
     let is_default = default_selection.provider.as_deref() == Some(stored_provider.id.as_str())
         && default_selection.model.is_some();
     OmpProviderMeta {
-        id: stored_provider.id.clone(), name: stored_provider.name.clone(),
-        enabled: stored_provider.enabled, order: stored_provider.order,
-        model_count: provider_model_ids(&stored_provider.provider).len(), is_default,
-        updated_at: stored_provider.updated_at.clone(), configured_at: stored_provider.configured_at.clone(),
+        id: stored_provider.id.clone(),
+        name: stored_provider.name.clone(),
+        enabled: stored_provider.enabled,
+        order: stored_provider.order,
+        model_count: provider_model_ids(&stored_provider.provider).len(),
+        is_default,
+        updated_at: stored_provider.updated_at.clone(),
+        configured_at: stored_provider.configured_at.clone(),
         applied_at: stored_provider.applied_at.clone(),
     }
 }
 
 fn build_workspace_state(app: &AppHandle, sync_from_live: bool) -> AppResult<OmpWorkspaceState> {
     let resolved = pi_omp_common::resolve_omp_paths(app)?;
-    if sync_from_live { sync_live_providers(&resolved)?; }
-    let models_document = read_document(&resolved.models_path, resolved.models_format, pi_omp_common::empty_models_document())?;
-    let settings_document = read_document(&resolved.settings_path, resolved.settings_format, pi_omp_common::empty_settings_document())?;
+    if sync_from_live {
+        sync_live_providers(&resolved)?;
+    }
+    let models_document = read_document(
+        &resolved.models_path,
+        resolved.models_format,
+        pi_omp_common::empty_models_document(),
+    )?;
+    let settings_document = read_document(
+        &resolved.settings_path,
+        resolved.settings_format,
+        pi_omp_common::empty_settings_document(),
+    )?;
     let default_selection = parse_default_selection(&settings_document);
     let provider_metas = list_stored_providers(&resolved.profiles_dir)?
-        .iter().map(|p| build_provider_meta(p, &default_selection)).collect();
+        .iter()
+        .map(|p| build_provider_meta(p, &default_selection))
+        .collect();
     Ok(OmpWorkspaceState {
-        paths: omp_paths_dto(&resolved), providers: provider_metas, default_selection,
+        paths: omp_paths_dto(&resolved),
+        providers: provider_metas,
+        default_selection,
         models_text: pi_omp_common::format_document(resolved.models_format, &models_document)?,
-        settings_text: pi_omp_common::format_document(resolved.settings_format, &settings_document)?,
+        settings_text: pi_omp_common::format_document(
+            resolved.settings_format,
+            &settings_document,
+        )?,
     })
 }
 
@@ -395,13 +587,19 @@ mod tests {
     fn normalize_thinking_level_accepts_known_levels_and_rejects_garbage() {
         assert_eq!(normalize_thinking_level(None).unwrap(), None);
         assert_eq!(normalize_thinking_level(Some("  ".into())).unwrap(), None);
-        assert_eq!(normalize_thinking_level(Some("xhigh".into())).unwrap().as_deref(), Some("xhigh"));
+        assert_eq!(
+            normalize_thinking_level(Some("xhigh".into()))
+                .unwrap()
+                .as_deref(),
+            Some("xhigh")
+        );
         assert!(normalize_thinking_level(Some("__none__".into())).is_err());
     }
 
     #[test]
     fn removes_invalid_default_when_provider_is_disabled() {
-        let mut settings_document = json!({ "modelRoles": { "default": "remote-gpt/gpt-5.5:xhigh" } });
+        let mut settings_document =
+            json!({ "modelRoles": { "default": "remote-gpt/gpt-5.5:xhigh" } });
         reconcile_default_selection(&mut settings_document, &[], None, None, None).unwrap();
         assert!(settings_document.get("modelRoles").is_none());
     }
@@ -413,10 +611,16 @@ mod tests {
         reconcile_default_selection(
             &mut settings_document,
             &[("remote-gpt".to_string(), provider_json)],
-            Some("remote-gpt".to_string()), Some("gpt-5.5".to_string()), Some("xhigh".to_string()),
-        ).unwrap();
+            Some("remote-gpt".to_string()),
+            Some("gpt-5.5".to_string()),
+            Some("xhigh".to_string()),
+        )
+        .unwrap();
         assert_eq!(
-            settings_document.get("modelRoles").and_then(|m| m.get("default")).and_then(Value::as_str),
+            settings_document
+                .get("modelRoles")
+                .and_then(|m| m.get("default"))
+                .and_then(Value::as_str),
             Some("remote-gpt/gpt-5.5:xhigh"),
         );
     }

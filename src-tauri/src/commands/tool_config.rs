@@ -176,7 +176,10 @@ pub fn rename_pi_provider(
 }
 
 #[tauri::command]
-pub fn apply_pi_config(app: AppHandle, req: ApplyPiConfigRequest) -> AppResult<ApplyPiConfigResult> {
+pub fn apply_pi_config(
+    app: AppHandle,
+    req: ApplyPiConfigRequest,
+) -> AppResult<ApplyPiConfigResult> {
     tc::pi::apply_config(&app, req)
 }
 
@@ -198,7 +201,10 @@ pub fn get_omp_provider(app: AppHandle, id: String) -> AppResult<OmpProviderData
 }
 
 #[tauri::command]
-pub fn save_omp_provider(app: AppHandle, req: SaveOmpProviderRequest) -> AppResult<OmpProviderMeta> {
+pub fn save_omp_provider(
+    app: AppHandle,
+    req: SaveOmpProviderRequest,
+) -> AppResult<OmpProviderMeta> {
     tc::omp::save_provider(&app, req)
 }
 
@@ -217,6 +223,9 @@ pub fn rename_omp_provider(
 }
 
 #[tauri::command]
-pub fn apply_omp_config(app: AppHandle, req: ApplyOmpConfigRequest) -> AppResult<ApplyOmpConfigResult> {
+pub fn apply_omp_config(
+    app: AppHandle,
+    req: ApplyOmpConfigRequest,
+) -> AppResult<ApplyOmpConfigResult> {
     tc::omp::apply_config(&app, req)
 }
