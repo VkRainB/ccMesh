@@ -11,6 +11,7 @@ use crate::modules::proxy::client::{build_client, should_use_proxy};
 use crate::modules::storage::{config_repo, endpoint_repo};
 use crate::modules::transform::transformer::UpstreamFormat;
 use crate::state::AppState;
+use crate::utils::upstream_url::join_upstream_url;
 
 /// 端点配置/测试状态变更事件（payload 为空，前端收到后全量重拉相关查询）。
 const ENDPOINTS_CHANGED_EVENT: &str = "endpoints-changed";
@@ -179,7 +180,6 @@ pub async fn test_endpoint(
     let want = should_use_proxy(ep.use_proxy, proxy_enabled, &proxy_url);
     let client = build_client(want, &proxy_url, Duration::from_secs(30))?;
 
-    let base = ep.api_url.trim_end_matches('/');
     let format = UpstreamFormat::from_transformer_name(&ep.transformer);
     // 优先用调用方指定的模型（前端选择），否则端点锁定 model，再否则按格式回落默认
     let fallback = format.default_model();
@@ -194,21 +194,21 @@ pub async fn test_endpoint(
 
     let (url, body) = match format {
         UpstreamFormat::OpenAiChat => (
-            format!("{base}/v1/chat/completions"),
+            join_upstream_url(&ep.api_url, "/v1/chat/completions"),
             json!({
                 "model": model, "max_tokens": 16,
                 "messages": [{ "role": "user", "content": "ping" }]
             }),
         ),
         UpstreamFormat::OpenAiResponses => (
-            format!("{base}/v1/responses"),
+            join_upstream_url(&ep.api_url, "/v1/responses"),
             json!({
                 "model": model, "max_output_tokens": 16,
                 "input": "ping"
             }),
         ),
         UpstreamFormat::Claude => (
-            format!("{base}/v1/messages"),
+            join_upstream_url(&ep.api_url, "/v1/messages"),
             json!({
                 "model": model, "max_tokens": 16,
                 "messages": [{ "role": "user", "content": "ping" }]

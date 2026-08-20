@@ -60,20 +60,7 @@ fn outbound_model(ep: &Endpoint, inbound: &str) -> String {
 }
 
 pub(crate) fn endpoint_api_url(api_url: &str, api_path: &str) -> String {
-    let base_url = api_url.trim_end_matches('/');
-    let normalized_api_path = if base_ends_with_v1(base_url) && api_path.starts_with("/v1/") {
-        &api_path[3..]
-    } else {
-        api_path
-    };
-    format!("{base_url}{normalized_api_path}")
-}
-
-fn base_ends_with_v1(base_url: &str) -> bool {
-    base_url
-        .rsplit('/')
-        .next()
-        .is_some_and(|last_segment| last_segment.eq_ignore_ascii_case("v1"))
+    crate::utils::upstream_url::join_upstream_url(api_url, api_path)
 }
 
 fn build_messages(history: &[(String, String)]) -> Vec<Value> {
@@ -409,18 +396,6 @@ mod tests {
         assert_eq!(
             parse_sse_data_line(UpstreamFormat::Claude, d).as_deref(),
             Some("嘿")
-        );
-    }
-
-    #[test]
-    fn endpoint_api_url_does_not_duplicate_v1() {
-        assert_eq!(
-            endpoint_api_url("https://example.com/v1", "/v1/messages"),
-            "https://example.com/v1/messages"
-        );
-        assert_eq!(
-            endpoint_api_url("https://example.com", "/v1/messages"),
-            "https://example.com/v1/messages"
         );
     }
 }

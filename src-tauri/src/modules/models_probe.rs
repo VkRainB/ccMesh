@@ -5,13 +5,13 @@
 //! 2. 同 URL 换另一种鉴权方式重试；
 //! 3. 两种鉴权均失败后，剥离已知兼容子路径构造候选 URL，重复 1-2。
 //!
-//! 若 base 已以 `/v1` 结尾（如 codex `base_url = http://host:3000/v1`），
-//! 拉取模型时拼接 `/models` 而非 `/v1/models`，避免 `/v1/v1/models`；表单输入值不变。
+//! 模型列表 URL 走 `join_upstream_url`：base 已含 `/vN` 或末尾 `#` 时只追加 `/models`。
 
 use serde_json::Value;
 
 use crate::modules::transform::transformer::UpstreamFormat;
 use crate::utils::ua;
+use crate::utils::upstream_url::join_upstream_url;
 
 /// 已知兼容子路径：部分供应商在真实 API 根后挂代理子路径，剥离后可能命中 `/v1/models`。
 const KNOWN_COMPAT_SUFFIXES: [&str; 9] = [
@@ -66,26 +66,17 @@ impl ProbeAuth {
     }
 }
 
-/// 由 API base 构造模型列表 URL：base 已含 `/v1` 时只追加 `/models`。
+/// 由 API base 构造模型列表 URL：已含 `/vN` 或末尾 `#` 时只追加 `/models`。
 pub fn models_url_from_base(api_url: &str) -> String {
-    let base = api_url.trim_end_matches('/');
-    if base_ends_with_v1(base) {
-        format!("{base}/models")
-    } else {
-        format!("{base}/v1/models")
-    }
-}
-
-fn base_ends_with_v1(base: &str) -> bool {
-    base.len() >= 3 && base[base.len() - 3..].eq_ignore_ascii_case("/v1")
+    join_upstream_url(api_url, "/v1/models")
 }
 
 /// 构造候选模型 URL（已含 `/models` 或 `/v1/models` 后缀），去重保序：
 /// 原始 base → 剥离已知兼容子路径（大小写不敏感，至多剥离一层）。
 fn build_candidate_urls(api_url: &str) -> Vec<String> {
-    let base = api_url.trim_end_matches('/');
-    let mut out = vec![models_url_from_base(base)];
-    if let Some(stripped) = strip_known_suffix(base) {
+    let mut out = vec![models_url_from_base(api_url)];
+    let for_strip = api_url.trim().trim_end_matches('#').trim_end_matches('/');
+    if let Some(stripped) = strip_known_suffix(for_strip) {
         let stripped = stripped.trim_end_matches('/');
         if !stripped.is_empty() {
             let url = models_url_from_base(stripped);
@@ -203,6 +194,25 @@ mod tests {
         assert_eq!(
             models_url_from_base("https://x.com/V1"),
             "https://x.com/V1/models"
+        );
+    }
+
+    #[test]
+    fn v4_and_hash_skip_v1_models() {
+        assert_eq!(
+            build_candidate_urls("https://open.bigmodel.cn/api/coding/paas/v4"),
+            vec!["https://open.bigmodel.cn/api/coding/paas/v4/models"]
+        );
+        assert_eq!(
+            build_candidate_urls("https://host/openai#"),
+            vec!["https://host/openai/models"]
+        );
+        assert_eq!(
+            build_candidate_urls("https://api.deepseek.com/anthropic#"),
+            vec![
+                "https://api.deepseek.com/anthropic/models",
+                "https://api.deepseek.com/v1/models",
+            ]
         );
     }
 

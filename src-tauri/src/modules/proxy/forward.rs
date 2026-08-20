@@ -33,6 +33,7 @@ use crate::modules::transform::thinking_rectifier::{
 use crate::modules::transform::transformer::{get_transformer, UpstreamFormat};
 use crate::modules::usage;
 use crate::utils::ua;
+use crate::utils::upstream_url::join_upstream_url;
 
 const MAX_ERROR_BODY_BYTES: usize = 4096;
 
@@ -820,8 +821,7 @@ async fn send_upstream(
     headers: &HeaderMap,
     body: &Bytes,
 ) -> reqwest::Result<reqwest::Response> {
-    let base = ep.api_url.trim_end_matches('/');
-    let url = format!("{base}{upstream_path}");
+    let url = join_upstream_url(&ep.api_url, upstream_path);
     let rmethod =
         reqwest::Method::from_bytes(method.as_str().as_bytes()).unwrap_or(reqwest::Method::POST);
 
