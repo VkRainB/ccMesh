@@ -72,6 +72,14 @@ describe("VersionPopover", () => {
     });
   });
 
+  it("compact 触发器与侧栏图标按钮同尺寸，且不把版本号排进文档流", async () => {
+    render(<VersionPopover compact />);
+    const trigger = await screen.findByRole("button", { name: /版本 v0\.1\.2/ });
+    expect(trigger.className).toMatch(/size-9/);
+    expect(trigger.className).toMatch(/justify-center/);
+    expect(screen.queryByText("v0.1.2")).not.toBeInTheDocument();
+  });
+
   it("available=false 时不渲染更新图标", async () => {
     render(<VersionPopover />);
     await waitFor(() => {

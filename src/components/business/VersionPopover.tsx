@@ -74,14 +74,15 @@ export function VersionPopover({ compact = false }: { compact?: boolean }) {
         <button
           type="button"
           className={cn(
-            "inline-flex items-center gap-1 text-xs text-accent-foreground/70 transition-colors hover:text-accent-foreground",
-            compact && "relative size-7 justify-center rounded-md hover:bg-surface-hover"
+            "inline-flex items-center text-xs text-accent-foreground/70 transition-colors hover:text-accent-foreground",
+            compact
+              ? "relative size-9 shrink-0 justify-center rounded-full hover:bg-surface-hover"
+              : "gap-1"
           )}
           aria-label={compact ? `版本 v${version}` : undefined}
         >
-          {/* 折叠侧栏里没有版本号文本可点，用一个图标兜住触发区 */}
-          {compact && <TagIcon className="size-4" />}
-          <span className={compact ? "sr-only" : undefined}>v{version}</span>
+          {/* 折叠侧栏用图标触发；size-9 与主题/语言按钮同宽，避免窄按钮在 stretch 列里贴左 */}
+          {compact ? <TagIcon className="size-4" /> : <span>v{version}</span>}
           {available && (
             <DownloadIcon
               className={cn(

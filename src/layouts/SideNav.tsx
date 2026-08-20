@@ -65,13 +65,13 @@ export function SideNav() {
             collapsed ? "flex-col items-center" : "items-center justify-between"
           )}
         >
-          <div className={cn("flex gap-1", collapsed && "flex-col")}>
+          <div className={cn("flex gap-1", collapsed && "flex-col items-center")}>
             <ThemeToggle />
             <LangToggle />
             {/* 折叠态标题栏塞不下版本号，挪到按钮组，保证仍能手动检查更新 */}
             {collapsed && <VersionPopover compact />}
           </div>
-          <div className={cn("flex gap-1", collapsed && "flex-col")}>
+          <div className={cn("flex gap-1", collapsed && "flex-col items-center")}>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
