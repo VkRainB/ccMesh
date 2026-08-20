@@ -10,6 +10,8 @@
     "test": "vitest run",
     "check:front": "tsc --noEmit",
     "check:rust": "cargo check --manifest-path src-tauri/Cargo.toml --message-format=short",
+    "check:fmt": "cargo fmt --manifest-path src-tauri/Cargo.toml -- --check",
+    "fmt:rust": "cargo fmt --manifest-path src-tauri/Cargo.toml",
     "check": "pnpm check:front && pnpm check:rust",
     "tauri": "tauri",
     "tauri:dev:cdp": "node scripts/tauri-dev-cdp.mjs",
