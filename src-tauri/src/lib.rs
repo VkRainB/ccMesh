@@ -285,6 +285,8 @@ pub fn run() {
             commands::tool_config::delete_omp_provider,
             commands::tool_config::rename_omp_provider,
             commands::tool_config::apply_omp_config,
+            commands::claude_user_config::get_claude_user_flags,
+            commands::claude_user_config::set_claude_user_flags,
             commands::tool_env::get_tool_versions,
             commands::tool_env::run_tool_lifecycle_action,
             commands::tool_env::probe_tool_installations,

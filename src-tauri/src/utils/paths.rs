@@ -31,6 +31,13 @@ pub fn claude_settings_path() -> Option<PathBuf> {
     home_dir().map(|h| h.join(".claude").join("settings.json"))
 }
 
+/// Claude Code 用户级配置：`~/.claude.json`（Windows: `%USERPROFILE%\.claude.json`）。
+///
+/// 与 [`claude_settings_path`]（`~/.claude/settings.json`，渠道「应用」写入）不是同一个文件。
+pub fn claude_user_json_path() -> Option<PathBuf> {
+    home_dir().map(|h| h.join(".claude.json"))
+}
+
 /// 本机 Codex 鉴权文件：`~/.codex/auth.json`。
 pub fn codex_auth_path() -> Option<PathBuf> {
     home_dir().map(|h| h.join(".codex").join("auth.json"))
