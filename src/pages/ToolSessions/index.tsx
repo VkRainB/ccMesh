@@ -15,7 +15,7 @@ import {
   Trash2Icon,
   XIcon,
 } from "lucide-react";
-import { ClaudeCode, Codex } from "@lobehub/icons";
+import { ClaudeCode, Codex, OpenCode } from "@lobehub/icons";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -69,7 +69,7 @@ import {
 const LIST_VIEW_KEY = "ccmesh.toolSessions.listViewMode";
 const GROUP_EXPANSION_KEY = "ccmesh.toolSessions.groupExpansionState";
 
-type ProviderFilter = "all" | "claude" | "codex";
+type ProviderFilter = "all" | "claude" | "codex" | "opencode";
 type ListViewMode = "flat" | "grouped";
 
 function readListViewMode(): ListViewMode {
@@ -79,22 +79,23 @@ function readListViewMode(): ListViewMode {
 }
 
 function readExpandedProviders(): Set<string> {
-  if (typeof window === "undefined") return new Set(["claude", "codex"]);
+  if (typeof window === "undefined") return new Set(["claude", "codex", "opencode"]);
   try {
     const raw = window.localStorage.getItem(GROUP_EXPANSION_KEY);
     const parsed = raw ? JSON.parse(raw) : null;
     const ids = Array.isArray(parsed?.expandedProviderIds)
       ? parsed.expandedProviderIds.filter((x: unknown) => typeof x === "string")
-      : ["claude", "codex"];
+      : ["claude", "codex", "opencode"];
     return new Set(ids);
   } catch {
-    return new Set(["claude", "codex"]);
+    return new Set(["claude", "codex", "opencode"]);
   }
 }
 
 function ProviderIcon({ providerId, size = 22 }: { providerId: string; size?: number }) {
   if (providerId === "claude") return <ClaudeCode.Color size={size} />;
   if (providerId === "codex") return <Codex.Color size={size} />;
+  if (providerId === "opencode") return <OpenCode size={size} />;
   return null;
 }
 
@@ -380,7 +381,7 @@ export function ToolSessions() {
           </Button>
           <h1 className="text-2xl font-light tracking-tight">会话管理</h1>
           <span className="text-xs text-ink-mute">
-            本机 Claude / Codex 工具会话（与应用内对话无关）
+            本机 Claude / Codex / OpenCode 工具会话（与应用内对话无关）
           </span>
         </header>
 
@@ -518,6 +519,7 @@ export function ToolSessions() {
                         <SelectItem value="all">全部</SelectItem>
                         <SelectItem value="claude">Claude</SelectItem>
                         <SelectItem value="codex">Codex</SelectItem>
+                        <SelectItem value="opencode">OpenCode</SelectItem>
                       </SelectContent>
                     </Select>
                     <Tooltip>
@@ -552,7 +554,7 @@ export function ToolSessions() {
                 </p>
               ) : filteredSessions.length === 0 ? (
                 <p className="p-3 text-sm text-muted-foreground">
-                  未找到工具会话。请确认本机已有 Claude Code / Codex 历史。
+                  未找到工具会话。请确认本机已有 Claude Code / Codex / OpenCode 历史。
                 </p>
               ) : listViewMode === "grouped" ? (
                 renderGrouped(providerGroups)
@@ -741,7 +743,7 @@ export function ToolSessions() {
                 : "删除会话"}
             </DialogTitle>
             <DialogDescription>
-              将从磁盘删除工具会话文件（Claude 会一并删除 sidecar），此操作不可恢复。与应用内对话无关。
+              将删除本机会话数据，不可恢复。与应用内对话无关。
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

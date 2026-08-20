@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   formatSessionTitle,
+  getProviderLabel,
   getSessionKey,
   groupSessionsByProviderAndDirectory,
   matchesSessionSearch,
@@ -41,17 +42,27 @@ describe("toolSessions utils", () => {
     expect(matchesSessionSearch(s, "claude")).toBe(false);
   });
 
+  it("getProviderLabel maps known providers", () => {
+    expect(getProviderLabel("claude")).toBe("Claude");
+    expect(getProviderLabel("codex")).toBe("Codex");
+    expect(getProviderLabel("opencode")).toBe("OpenCode");
+  });
+
   it("groupSessionsByProviderAndDirectory groups by provider", () => {
     const groups = groupSessionsByProviderAndDirectory(
       [
         sample({ providerId: "claude", sessionId: "c1" }),
         sample({ providerId: "codex", sessionId: "x1" }),
         sample({ providerId: "codex", sessionId: "x2" }),
+        sample({ providerId: "opencode", sessionId: "o1" }),
       ],
       "未知项目",
     );
-    expect(groups).toHaveLength(2);
+    expect(groups).toHaveLength(3);
     const codex = groups.find((g) => g.providerId === "codex");
     expect(codex?.sessions).toHaveLength(2);
+    expect(groups.find((g) => g.providerId === "opencode")?.sessions).toHaveLength(
+      1,
+    );
   });
 });

@@ -1,5 +1,5 @@
 import { ChevronRight, Clock } from "lucide-react";
-import { ClaudeCode, Codex } from "@lobehub/icons";
+import { ClaudeCode, Codex, OpenCode } from "@lobehub/icons";
 
 import {
   Tooltip,
@@ -23,6 +23,9 @@ function ProviderGlyph({ providerId }: { providerId: string }) {
   }
   if (providerId === "codex") {
     return <Codex.Color size={18} />;
+  }
+  if (providerId === "opencode") {
+    return <OpenCode size={18} />;
   }
   return (
     <span className="inline-flex size-[18px] items-center justify-center rounded-full bg-muted text-[10px]">

@@ -437,7 +437,7 @@ export function Chat() {
               variant="outline"
               size="sm"
               onClick={() => setActiveView("toolSessions")}
-              title="管理本机 Claude / Codex 工具会话"
+              title="管理本机 Claude / Codex / OpenCode 工具会话"
             >
               <HistoryIcon className="size-3.5" />
               会话管理

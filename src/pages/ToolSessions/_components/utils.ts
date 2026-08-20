@@ -62,6 +62,7 @@ export const formatRelativeTime = (value?: number) => {
 export const getProviderLabel = (providerId: string) => {
   if (providerId === "claude") return "Claude";
   if (providerId === "codex") return "Codex";
+  if (providerId === "opencode") return "OpenCode";
   return providerId;
 };
 
