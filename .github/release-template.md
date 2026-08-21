@@ -20,7 +20,7 @@
         <tr>
         <td>Windows</td>
             <td>
-                <a href="https://github.com/VkRainB/ccMesh/releases/download/vVERSION/ccMesh_VERSION_x64-setup.exe"><img src="https://img.shields.io/badge/Setup-NSIS-2d7d9a.svg?logo=windows"></a><br>
+                <a href="https://github.com/VkRainB/ccMesh/releases/download/vVERSION/ccMesh_VERSION_x64-setup.exe"><img src="https://img.shields.io/badge/Setup-EXE-2d7d9a.svg?logo=windows"></a><br>
                 <a href="https://github.com/VkRainB/ccMesh/releases/download/vVERSION/ccMesh_VERSION_x64_en-US.msi"><img src="https://img.shields.io/badge/Setup-MSI-67b7d1.svg?logo=windows"></a>
             </td>
         </tr>
@@ -43,7 +43,7 @@
 
 </div>
 
-完整更新历史见 [CHANGELOG.md](https://github.com/VkRainB/ccMesh/blob/main/CHANGELOG.md)
+完整更新历史见 [CHANGELOG.md](https://github.com/VkRainB/ccMesh/blob/master/CHANGELOG.md)
 
 ---
 
