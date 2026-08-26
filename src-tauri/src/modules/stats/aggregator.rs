@@ -29,6 +29,17 @@ pub fn retention_cutoff_ms() -> i64 {
 /// 明细清理最小间隔：每小时至多一次。
 const PRUNE_INTERVAL: Duration = Duration::from_secs(3600);
 
+/// 不进请求监控 / 日聚合的入站 path（Claude Desktop 探活等）。
+/// ponytail: 硬编码 denylist，条数少；与熔断 known-business allowlist 语义相反，禁止复用。
+/// 升级=往表里加 path；配置/设置页有第二需求再做。
+const SKIP_INBOUND_PATHS: &[&str] = &["/api/hello"];
+
+/// 入站 path 是否跳过 `record`（去尾 `/`、ASCII 小写、精确相等）。
+fn should_skip_inbound_path(path: &str) -> bool {
+    let lower = path.trim_end_matches('/').to_ascii_lowercase();
+    SKIP_INBOUND_PATHS.iter().any(|k| lower == *k)
+}
+
 #[derive(Default, Clone, Copy)]
 struct Delta {
     requests: i64,
@@ -109,7 +120,11 @@ impl StatsAggregator {
     }
 
     /// 记录一次请求结果（累加内存 + 缓冲明细 + 立即发事件）。
+    /// 命中 `SKIP_INBOUND_PATHS`（如 `/api/hello`）则整段跳过：不聚合、不落库、不发事件。
     pub fn record(&self, rec: RequestRecord) {
+        if should_skip_inbound_path(&rec.inbound_path) {
+            return;
+        }
         let date = periods::today();
         let ts = chrono::Utc::now().timestamp_millis();
         {
@@ -233,5 +248,27 @@ impl StatsAggregator {
             this_month,
             trend,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_skip_inbound_path;
+
+    #[test]
+    fn skips_claude_desktop_hello() {
+        assert!(should_skip_inbound_path("/api/hello"));
+        assert!(should_skip_inbound_path("/api/hello/"));
+        assert!(should_skip_inbound_path("/API/HELLO"));
+    }
+
+    #[test]
+    fn records_business_and_unrelated_paths() {
+        assert!(!should_skip_inbound_path("/v1/messages"));
+        assert!(!should_skip_inbound_path("/v1/chat/completions"));
+        assert!(!should_skip_inbound_path("/v1/responses"));
+        assert!(!should_skip_inbound_path("/evil/api/hello"));
+        assert!(!should_skip_inbound_path("/api/hello/world"));
+        assert!(!should_skip_inbound_path(""));
     }
 }
