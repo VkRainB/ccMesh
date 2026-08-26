@@ -34,7 +34,7 @@
 | [yagni-protocol-session-state.md](./decisions/yagni-protocol-session-state.md) | Chat Completions 全量历史路径不需要 Responses 专属的 ID 缓存 |
 | [passthrough-vs-transform-by-protocol.md](./decisions/passthrough-vs-transform-by-protocol.md) | 上游按端点协议判定透传/转换；入站识别勿硬编码 UA |
 | [reference-impl-portability-tiers.md](./decisions/reference-impl-portability-tiers.md) | 私有 crate 不假移植，改自研 + 外部映射表校对 |
-| [unknown-field-forwarding-policy.md](./decisions/unknown-field-forwarding-policy.md) | 默认不转发 body 未知字段；显式缓存/会话字段单独决策 |
+| [unknown-field-forwarding-policy.md](./decisions/unknown-field-forwarding-policy.md) | Chat 出站剥离 cache_control；metadata 不进 body |
 | [circuit-breaker-status-classification.md](./decisions/circuit-breaker-status-classification.md) | 4xx 请求侧错误中性不计熔断；403 与 429/5xx 一样计失败 |
 
 ## patterns
