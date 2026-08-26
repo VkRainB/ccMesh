@@ -4,6 +4,8 @@
 
 ## [未发布]
 
+## [0.2.5]
+
 ### 新增
 
 - 代理：Claude Code 走 `/v1/messages` 入站、端点转换器为 `codex（Responses）` 时，转换为 OpenAI Responses 并转发到上游 `/v1/responses`，响应再转回 Claude Messages
