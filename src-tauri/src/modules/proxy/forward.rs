@@ -20,6 +20,10 @@ use crate::modules::proxy::rotation::{self, Rotation};
 use crate::modules::stats::aggregator::{RequestRecord, StatsAggregator};
 use crate::modules::storage::{db::DbPool, endpoint_repo};
 use crate::modules::transform::claude_openai::openai_response_to_claude;
+use crate::modules::transform::claude_responses::{
+    claude_request_to_responses, final_response_from_sse, responses_response_to_claude,
+    ResponsesToClaudeConverter,
+};
 use crate::modules::transform::reasoning_effort::{
     downgrade_reasoning_effort_in_responses, is_unsupported_reasoning_effort_error,
 };
@@ -512,10 +516,14 @@ pub async fn handle_proxy(
         let format = UpstreamFormat::from_transformer_name(&ep.transformer);
         // 出站模型解析：入站名命中映射 → 出站名；否则锁定 model；否则透传（空串）。
         let outbound_model = resolver::resolve_outbound(&ep, model.as_deref()).unwrap_or_default();
-        // 转换场景（互斥）：Claude 入站+OpenAI 端点 → Claude↔Chat；Responses 入站+OpenAI 端点 → Responses↔Chat；
-        // Responses 入站+codex 端点 → 透传（仅改 model）；其余（OpenAI 入站透传、Claude 直通）不转换。
+        // 转换场景（互斥）：Claude 入站+OpenAI 端点 → Claude↔Chat；Claude 入站+codex 端点 → Claude↔Responses；
+        // Responses 入站+OpenAI 端点 → Responses↔Chat；Responses 入站+codex 端点 → 透传（仅改 model）；
+        // 其余（OpenAI 入站透传、Claude 直通）不转换。
         let needs_transform =
             !inbound_openai && !inbound_responses && matches!(format, UpstreamFormat::OpenAiChat);
+        let claude_to_responses = !inbound_openai
+            && !inbound_responses
+            && matches!(format, UpstreamFormat::OpenAiResponses);
         let responses_to_chat = inbound_responses && matches!(format, UpstreamFormat::OpenAiChat);
         let attempt_body: Bytes = if needs_transform {
             // Claude → OpenAI（transform_request 内部按出站模型覆盖，空则透传客户端 model）
@@ -526,6 +534,16 @@ pub async fn handle_proxy(
                     .and_then(|v| serde_json::to_vec(&v).ok())
                     .map(Bytes::from)
                     .unwrap_or_else(|| body.clone()),
+                None => body.clone(),
+            }
+        } else if claude_to_responses {
+            // Claude → Responses（出站强制 stream:true，客户端非流式时聚合回 Claude JSON）
+            match &body_json {
+                Some(cj) => {
+                    serde_json::to_vec(&claude_request_to_responses(cj, Some(&outbound_model)))
+                        .map(Bytes::from)
+                        .unwrap_or_else(|_| body.clone())
+                }
                 None => body.clone(),
             }
         } else if responses_to_chat {
@@ -565,12 +583,16 @@ pub async fn handle_proxy(
         };
         let upstream_path = if needs_transform || responses_to_chat {
             "/v1/chat/completions"
+        } else if claude_to_responses {
+            "/v1/responses"
         } else {
             path.as_str()
         };
         last_upstream_path = upstream_path.to_string();
         let route_mode = if responses_to_chat {
             "responses->chat"
+        } else if claude_to_responses {
+            "claude->responses"
         } else if needs_transform {
             "claude->openai"
         } else {
@@ -668,6 +690,15 @@ pub async fn handle_proxy(
                     }
                     // 真实 token 由各响应处理函数解析上游 usage 后记录
                     let stats = st.stats.clone();
+                    if claude_to_responses {
+                        // Claude 入站 + codex 端点：上游恒为 Responses SSE（出站已强制 stream）。
+                        // 客户端流式 → 边转边发 Claude SSE；非流式 → 聚合最终快照转 Claude JSON。
+                        return if client_wants_stream {
+                            stream_claude_from_responses(resp, stats, meta)
+                        } else {
+                            buffered_claude_from_responses(resp, stats, meta).await
+                        };
+                    }
                     if responses_to_chat {
                         // Responses 入站 + OpenAI 端点：上游 Chat 响应转回 Responses。
                         return if client_wants_stream {
@@ -1118,6 +1149,123 @@ mod tests {
         assert!(body.contains("已截断"));
         assert!(body.is_char_boundary(body.len()));
     }
+}
+
+/// 非流式（Claude 入站 + codex 端点）：出站已强制流式，缓冲全部 SSE 后取最终
+/// response 快照（兼容上游直接回 JSON）→ 转 Claude JSON 回传；记录真实 usage。
+async fn buffered_claude_from_responses(
+    resp: reqwest::Response,
+    stats: Arc<StatsAggregator>,
+    meta: RequestMeta,
+) -> Response {
+    let text = match resp.text().await {
+        Ok(t) => t,
+        Err(e) => return json_error(StatusCode::BAD_GATEWAY, &format!("读取上游响应失败: {e}")),
+    };
+    let final_resp = serde_json::from_str::<Value>(&text)
+        .ok()
+        .filter(|v| v.get("output").is_some())
+        .or_else(|| final_response_from_sse(&text));
+    let Some(r) = final_resp else {
+        return json_error(StatusCode::BAD_GATEWAY, "上游响应解析失败");
+    };
+    if r.get("status").and_then(|v| v.as_str()) == Some("failed") {
+        let msg = r
+            .pointer("/error/message")
+            .and_then(|v| v.as_str())
+            .unwrap_or("codex 上游返回失败");
+        stats.record(meta.into_record_with_error_body(
+            Some(502),
+            true,
+            usage::TokenUsage::default(),
+            Some(msg.to_string()),
+        ));
+        return json_error(StatusCode::BAD_GATEWAY, msg);
+    }
+    let model = meta.model.clone().unwrap_or_default();
+    let tu = usage::from_response(&r, UpstreamFormat::OpenAiResponses);
+    stats.record(meta.into_record(Some(200), false, tu));
+    (
+        StatusCode::OK,
+        axum::Json(responses_response_to_claude(&r, &model)),
+    )
+        .into_response()
+}
+
+/// 流式（Claude 入站 + codex 端点）：Responses SSE → 边解析边转换为 Claude SSE
+/// 事件流回传；流结束记录真实 usage。
+fn stream_claude_from_responses(
+    resp: reqwest::Response,
+    stats: Arc<StatsAggregator>,
+    meta: RequestMeta,
+) -> Response {
+    let (tx, rx) = mpsc::channel::<Result<Bytes, std::io::Error>>(32);
+    tokio::spawn(async move {
+        let mut meta = meta;
+        let mut converter =
+            ResponsesToClaudeConverter::new(meta.model.clone().unwrap_or_default());
+        let mut stream = resp.bytes_stream();
+        let mut buf = String::new();
+        let mut first = true;
+        while let Some(item) = stream.next().await {
+            let chunk = match item {
+                Ok(c) => c,
+                Err(_) => break,
+            };
+            if first {
+                meta.first_byte_ms = Some(chrono::Utc::now().timestamp_millis() - meta.started_ms);
+                first = false;
+            }
+            buf.push_str(&String::from_utf8_lossy(&chunk));
+            while let Some(nl) = buf.find('\n') {
+                let line: String = buf[..nl].to_string();
+                buf.drain(..=nl);
+                let line = line.trim();
+                let Some(data) = line.strip_prefix("data:") else {
+                    continue;
+                };
+                let data = data.trim();
+                if data.is_empty() || data == "[DONE]" {
+                    continue;
+                }
+                if let Ok(j) = serde_json::from_str::<Value>(data) {
+                    for ev in converter.process_event(&j) {
+                        let _ = tx.send(Ok(Bytes::from(ev))).await;
+                    }
+                }
+            }
+        }
+        // 上游未发 response.completed 时兜底收尾（finish 幂等）
+        for ev in converter.finish() {
+            let _ = tx.send(Ok(Bytes::from(ev))).await;
+        }
+        let (input, output, cache_creation, cache_read) = converter.usage();
+        let tu = usage::TokenUsage {
+            input,
+            output,
+            cache_creation,
+            cache_read,
+        };
+        // 与 buffered_claude_from_responses 对齐：上游 SSE 失败不当成功。
+        if let Some(msg) = converter.error_message() {
+            stats.record(meta.into_record_with_error_body(
+                Some(502),
+                true,
+                tu,
+                Some(msg.to_string()),
+            ));
+        } else {
+            stats.record(meta.into_record(Some(200), false, tu));
+        }
+    });
+
+    let body = Body::from_stream(ReceiverStream::new(rx));
+    let mut response = Response::new(body);
+    response.headers_mut().insert(
+        axum::http::header::CONTENT_TYPE,
+        HeaderValue::from_static("text/event-stream"),
+    );
+    response
 }
 
 /// 非流式 Chat 响应 → 缓冲后转换为 Responses JSON 回传；记录真实 usage（codex 端点的 openai 上游路径）。

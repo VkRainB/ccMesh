@@ -1,4 +1,5 @@
 pub mod claude_openai;
+pub mod claude_responses;
 pub mod gpt_reasoning_effort;
 pub mod json_canonical;
 pub mod reasoning_effort;
