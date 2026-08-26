@@ -4,6 +4,15 @@
 
 ## [未发布]
 
+### 新增
+
+- 代理：Claude Code 走 `/v1/messages` 入站、端点转换器为 `codex（Responses）` 时，转换为 OpenAI Responses 并转发到上游 `/v1/responses`，响应再转回 Claude Messages
+
+### 修复
+
+- Claude→OpenAI Chat：多段 text 压成字符串（换行拼接），并剥离 `cache_control`，避免 GLM 等严格校验上游因 content 数组 / 未知字段返回 400
+- 实时请求监控：不再记录 Claude Desktop 打到网关的 `/api/hello` 探活（仍转发上游，不计入明细与今日请求数）
+
 ## [0.2.4]
 
 ### 新增
