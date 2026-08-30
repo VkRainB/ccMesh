@@ -7,11 +7,11 @@ meta:
 
 # 自动更新如何工作
 
-ccMesh 内置基于 **GitHub Releases** 的更新器，可检测、下载并应用新版本。
+CC Mesh 内置基于 **GitHub Releases** 的更新器，可检测、下载并应用新版本。
 
 ## 用户侧
 
-在 [关于页](/features/about) 点 **检查更新**；设置里也可配合代理更新开关。有新版本时提示下载与应用，并可跳过指定版本。
+在 **关于** 页点 **检查更新**；设置里也可配合代理更新开关。有新版本时提示下载与应用，并可跳过指定版本。
 
 安装包发布在 [GitHub Releases](https://github.com/VkRainB/ccMesh/releases/latest)。
 
@@ -22,7 +22,7 @@ Tauri 更新器依赖签名保证完整性与来源可信：
 - 发布产物时用私钥对更新包签名
 - 应用内置公钥校验，通过后才应用更新
 
-出站下载是否走代理由设置中的 **代理更新**（`proxyForUpdate`）与代理 URL 决定，见 [如何调整设置](/features/settings)。
+出站下载是否走代理由设置中的 **代理更新**（`proxyForUpdate`）与代理 URL 决定。
 
 ## 构建带签名的产物
 
@@ -42,4 +42,3 @@ pnpm tauri build
 - [`docs/KB_dev/build-release/tauri-updater-signing.md`](https://github.com/VkRainB/ccMesh/blob/master/docs/KB_dev/build-release/tauri-updater-signing.md)
 - [`docs/KB_dev/build-release/tauri-ci-release-workflow.md`](https://github.com/VkRainB/ccMesh/blob/master/docs/KB_dev/build-release/tauri-ci-release-workflow.md)
 
-从源码构建见 [如何从源码构建](/advanced/build-from-source)。
