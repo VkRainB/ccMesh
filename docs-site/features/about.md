@@ -1,13 +1,13 @@
 ---
-title: 关于页能做什么
+title: 关于
 description: 查看版本、检查更新，以及本机 Claude Code / Codex / OpenCode / Pi 的环境检查。无登录。
 meta:
   contentType: Reference
 ---
 
-# 关于页能做什么
+# 关于
 
-**关于** 展示应用信息与本机工具环境。ccMesh 无账号登录或认证页。
+**关于** 展示应用信息与本机工具环境。CC Mesh 无账号登录或认证页。
 
 ## 应用信息
 
@@ -15,7 +15,7 @@ meta:
 - **检查更新**：对照 GitHub Releases；若有新版本可进入更新流程，也可跳过该版本。
 - 打开 GitHub 仓库、Releases，或快速入门文档链接。
 
-更新机制细节见 [自动更新如何工作](/advanced/auto-update)。
+更新机制细节见侧栏「自动更新」。
 
 ## 本地环境检查
 

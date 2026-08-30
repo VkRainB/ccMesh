@@ -1,23 +1,15 @@
 ---
-title: 如何配置上游端点
+title: 配置上游端点
 description: 在端点管理新增、编辑、点亮模型、映射、代理与启用，组成可轮换的上游池。
 meta:
   contentType: How-to
 ---
 
-# 如何配置上游端点
+# 配置上游端点
 
 在 **端点管理** 维护上游 API：填写地址与密钥、选转换器、点亮对外模型，并决定是否走全局出站代理。
 
 ![端点管理](/screenshots/endpoints/endpoints.png)
-
-## 增删改与列表操作
-
-1. 点击 **+ 新建端点**（或编辑已有卡片）打开表单。
-2. 填写字段后点 **保存**。
-3. 用开关 **启用 / 停用**：停用端点不参与路由。
-4. 拖拽卡片调整全局排序（影响启用队列顺序）。
-5. 可切换列表 / 网格视图；支持克隆、归档与还原。
 
 ## 表单字段
 
@@ -33,15 +25,11 @@ meta:
 | **启用代理** | 该端点经设置中的全局代理地址出网 |
 | **加入快速队列** | 仅已启用端点编辑时出现；打开后进入优先选路子集 |
 
-表单有 **表单** / **JSON** 两个标签，内容双向同步。表单里不再配置认证模式字段。
-
 点亮规则：
 
 - 全部未点亮时默认全部公布
 - 点亮任意项后，只公布点亮子集
 - 移除模型时会同步从点亮集剔除
-
-术语见 [点亮模型](/guide/concepts#点亮模型-activemodels)。
 
 ## 选择转换器
 
@@ -51,17 +39,17 @@ meta:
 - **openai（转换）**：上游是 OpenAI Chat Completions
 - **codex（Responses）**：上游是 OpenAI Responses
 
-选错会导致上游返回协议错误。互转管线与兼容矩阵见 [请求如何在协议间转换](/advanced/protocol-transform)。
+选错会导致上游返回协议错误。
 
-完整请求路径（根地址 + 转换器后缀；已含 `/vN` 或末尾 `#` 时去掉后缀里的 `/v1`）：
+实际请求地址 = API URL + 下表路径。根地址已带 `/v1`、`/v4` 等版本号，或末尾写了 `#` 时，不再重复加 `/v1`：
 
-| 转换器 | 默认后缀 | 跳过 `/v1` 后 |
-|--------|----------|----------------|
+| 转换器 | 默认拼上 | 已有版本或 `#` 时 |
+|--------|----------|-------------------|
 | claude | `/v1/messages` | `/messages` |
 | openai | `/v1/chat/completions` | `/chat/completions` |
 | codex | `/v1/responses` | `/responses` |
 
-示例：智谱 `https://open.bigmodel.cn/api/coding/paas/v4` + openai → `.../v4/chat/completions`（不必写 `#`）。`#` 不是「整段 URL 原样发出」。
+例如智谱填 `https://open.bigmodel.cn/api/coding/paas/v4`、转换器选 openai，会请求 `.../v4/chat/completions`，不必加 `#`。`#` 只阻止自动加版本号，仍会拼上 `/chat/completions` 等路径，不会把整段 URL 原样发出。
 
 ## 配置模型映射
 
@@ -81,12 +69,12 @@ meta:
 proxy = (useProxy || proxyEnabled) && proxyUrl 非空
 ```
 
-地址为空时直连。全局地址与测试见 [如何调整设置](/features/settings)。
+地址为空时直连；全局地址与测试在设置页的代理卡片。
 
 ## 连通性测试
 
-在端点卡片执行测试，状态写入 `testStatus`：`available` / `unavailable` / `unknown`。代理未运行时也可作粗略健康参考。应用内 **对话** 页也可做无工具的连通性试探，见 [如何用对话试探连通性](/features/chat)。
+在端点卡片执行测试，状态写入 `testStatus`：`available` / `unavailable` / `unknown`。代理未运行时也可作粗略健康参考。应用内 **对话** 页也可做无工具的连通性试探。
 
 ## 轮换与熔断
 
-启用端点参与选路；存在快速队列成员时只轮询快速队列。熔断阈值与状态机数字以 [轮换与熔断如何工作](/advanced/rotation) 为准，本页不复述。
+启用端点参与选路；存在快速队列成员时只轮询快速队列。熔断阈值与状态机数字见侧栏「轮换与熔断」。
