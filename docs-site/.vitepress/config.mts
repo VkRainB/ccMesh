@@ -1,12 +1,13 @@
 import { defineConfig } from 'vitepress'
-import { fetchReleaseVersion } from './fetch-version.mts'
+import { fetchReleaseDownloads, fetchReleaseVersion } from './fetch-version.mts'
 
 const releaseVersion = await fetchReleaseVersion()
+const releaseDownloads = await fetchReleaseDownloads(releaseVersion)
 
 // https://vitepress.dev/zh/reference/site-config
 export default defineConfig({
   lang: 'zh-CN',
-  title: 'ccMesh',
+  title: 'CC Mesh',
   description: '跨平台 AI 代理网关桌面应用 · 功能文档',
   base: '/ccMesh/',
   cleanUrls: true,
@@ -19,19 +20,20 @@ export default defineConfig({
   },
   head: [
     ['link', { rel: 'icon', href: '/ccMesh/screenshots/logo.png' }],
-    ['meta', { name: 'keywords', content: 'ccMesh,AI,代理网关,Claude,OpenAI,Codex,协议转换,端点轮换,熔断,Tauri,跨平台' }],
+    ['meta', { name: 'keywords', content: 'CC Mesh,AI,代理网关,Claude,OpenAI,Codex,协议转换,端点轮换,熔断,Tauri,跨平台' }],
     ['meta', { name: 'author', content: 'VkRainB' }],
     ['meta', { name: 'robots', content: 'index, follow' }],
-    ['meta', { property: 'og:site_name', content: 'ccMesh' }],
-    ['meta', { property: 'og:title', content: 'ccMesh：跨平台 AI 代理网关' }],
+    ['meta', { property: 'og:site_name', content: 'CC Mesh' }],
+    ['meta', { property: 'og:title', content: 'CC Mesh：跨平台 AI 代理网关' }],
     ['meta', { property: 'og:type', content: 'website' }],
     ['meta', { property: 'og:url', content: 'https://vkrainb.github.io/ccMesh/' }],
     ['meta', { property: 'og:image', content: 'https://vkrainb.github.io/ccMesh/screenshots/logo.png' }],
     ['meta', { name: 'twitter:card', content: 'summary' }],
-    ['meta', { name: 'twitter:title', content: 'ccMesh：跨平台 AI 代理网关' }]
+    ['meta', { name: 'twitter:title', content: 'CC Mesh：跨平台 AI 代理网关' }]
   ],
   themeConfig: {
     // https://vitepress.dev/zh/reference/default-theme-config
+    releaseDownloads,
     logo: '/screenshots/logo.png',
     nav: [
       { text: '指南', link: '/guide/introduction' },
@@ -53,8 +55,8 @@ export default defineConfig({
             { text: '项目简介', link: '/guide/introduction' },
             { text: '安装', link: '/guide/installation' },
             { text: '快速入门', link: '/guide/quickstart' },
-            { text: '第一次跑通', link: '/guide/getting-started' },
-            { text: '核心概念', link: '/guide/concepts' }
+            { text: '核心概念', link: '/guide/concepts' },
+            { text: '主题组件', link: '/guide/theme-components' }
           ]
         }
       ],
@@ -108,7 +110,19 @@ export default defineConfig({
       text: '在 GitHub 上编辑此页'
     },
     search: {
-      provider: 'local'
+      provider: 'local',
+      options: {
+        translations: {
+          button: { buttonText: '搜索', buttonAriaLabel: '搜索文档' },
+          modal: {
+            displayDetails: '显示详细列表',
+            resetButtonTitle: '清除查询',
+            backButtonTitle: '返回',
+            noResultsText: '没有结果',
+            footer: { selectText: '选择', navigateText: '切换', closeText: '关闭' }
+          }
+        }
+      }
     }
   }
 })
