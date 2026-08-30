@@ -1,13 +1,13 @@
 ---
-title: 如何安装 ccMesh
-description: 从 GitHub Releases 安装 Windows / macOS / Linux 包，以及系统要求与源码构建入口。
+title: 如何安装 CC Mesh
+description: 从 GitHub Releases 安装 Windows / macOS / Linux 包，以及系统要求。
 meta:
   contentType: How-to
 ---
 
-# 如何安装 ccMesh
+# 如何安装 CC Mesh
 
-最新安装包见 [Releases](https://github.com/VkRainB/ccMesh/releases/latest)。应用支持通过内置更新器拉取新版本，见 [自动更新如何工作](/advanced/auto-update)。
+最新安装包见 [Releases](https://github.com/VkRainB/ccMesh/releases/latest)。应用内置基于 GitHub Releases 的自动更新器。
 
 ## Windows
 
@@ -17,10 +17,14 @@ meta:
 
 ## macOS（当前为未签名版本）
 
-暂未配置 Apple 开发者签名与公证。Gatekeeper 可能拦截首次打开。推荐步骤：
+::: warning Warning
+当前 macOS 包未签名、未公证。Gatekeeper 可能拦截首次打开，请用右键「打开」。
+:::
+
+暂未配置 Apple 开发者签名与公证。推荐步骤：
 
 1. 将 `ccMesh.app` 拖入「应用程序」。
-2. **右键** ccMesh →「打开」→ 再次确认「打开」。
+2. **右键** CC Mesh →「打开」→ 再次确认「打开」。
 
 若提示「已损坏」，在终端执行：
 
@@ -34,13 +38,13 @@ xattr -dr com.apple.quarantine /Applications/ccMesh.app
 
 ::: code-group
 
-```bash [AppImage（推荐）]
-chmod +x ccMesh_*.AppImage
-./ccMesh_*.AppImage
+```bash [deb（Debian/Ubuntu，推荐）]
+sudo apt install ./ccMesh_*_amd64.deb
 ```
 
-```bash [deb（Debian/Ubuntu）]
-sudo apt install ./ccMesh_*_amd64.deb
+```bash [AppImage]
+chmod +x ccMesh_*.AppImage
+./ccMesh_*.AppImage
 ```
 
 ```bash [rpm（Fedora/RHEL）]
@@ -56,9 +60,3 @@ sudo dnf install ./ccMesh-*.x86_64.rpm
 | Windows | Windows 10/11，WebView2 运行时 |
 | macOS | macOS 通用二进制（Apple Silicon / Intel） |
 | Linux | AppImage / deb / rpm，依赖 WebKitGTK |
-
-## 从源码构建
-
-自行编译见 [如何从源码构建](/advanced/build-from-source)。
-
-安装完成后，走 [第一次把请求跑通](/guide/getting-started) 或 [用截图完成第一次接入](/guide/quickstart)。
