@@ -1,17 +1,17 @@
 ---
-title: ccMesh 内部如何分层
+title: CC Mesh 内部如何分层
 description: Tauri 前后端分层、页面清单、代理数据流与持久化边界，供贡献者与进阶用户对照源码。
 meta:
   contentType: Conceptual
 ---
 
-# ccMesh 内部如何分层
+# CC Mesh 内部如何分层
 
 本节说明整体架构与模块划分，帮助贡献者与进阶用户对照源码。
 
 ## 总体分层
 
-ccMesh 是 Tauri 2 桌面应用：**Rust 后端** 与 **React 前端** 通过 IPC（命令 + 事件）通信。
+CC Mesh 是 Tauri 2 桌面应用：**Rust 后端** 与 **React 前端** 通过 IPC（命令 + 事件）通信。
 
 ```text
 ┌──────────────────────────────────────────────┐
@@ -51,7 +51,7 @@ ccMesh 是 Tauri 2 桌面应用：**Rust 后端** 与 **React 前端** 通过 IP
 |------|------|
 | `Dashboard` | 代理启停、端点队列、快速队列、实时监控 |
 | `Endpoints` | 端点 CRUD、点亮、映射、测试 |
-| `ConfigProfiles` | Claude Code / Codex / Claude Desktop 渠道 |
+| `ConfigProfiles` | Claude Code / Claude Desktop / Codex / Pi / OMP 渠道 |
 | `Chat` | 无工具连通性试探 |
 | `ToolSessions` | 本机 Claude / Codex 会话文件 |
 | `Statistics` | 端点统计 / 用量统计 |
@@ -99,4 +99,3 @@ ccMesh 是 Tauri 2 桌面应用：**Rust 后端** 与 **React 前端** 通过 IP
 - TLS 走 rustls，不依赖系统 OpenSSL
 - 写入工具配置前自动备份
 
-转换细节见 [请求如何在协议间转换](/advanced/protocol-transform)。选路数字见 [轮换与熔断如何工作](/advanced/rotation)。
