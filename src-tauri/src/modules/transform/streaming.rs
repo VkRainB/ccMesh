@@ -288,7 +288,12 @@ impl StreamConverter {
                 }
             }
 
-            if let Some(fr) = ch.get("finish_reason").and_then(|v| v.as_str()) {
+            // SenseNova 进行中 chunk 带 finish_reason:""（标准 OpenAI 是 null）；空串视为未结束，避免每条关块
+            if let Some(fr) = ch
+                .get("finish_reason")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+            {
                 self.stop_reason =
                     map_finish_reason(Some(fr), self.ctx.any_tool_started).to_string();
                 self.close_open_blocks(&mut events);
@@ -556,5 +561,28 @@ mod tests {
         })));
         assert!(e2.contains("thinking_delta"));
         assert!(e2.contains("nested"));
+    }
+
+    #[test]
+    fn sensenova_empty_finish_reason_keeps_single_block() {
+        // SenseNova 进行中每条 chunk 带 finish_reason:""（非 null），不应每条关块开新块。
+        let mut c = StreamConverter::new("deepseek-v4-flash".into(), 0);
+        let e0 = join(c.process_chunk(&json!({
+            "id":"x","choices":[{"index":0,"delta":{"role":"assistant","content":"cc"},"finish_reason":""}]
+        })));
+        let e1 = join(c.process_chunk(&json!({
+            "choices":[{"index":0,"delta":{"role":"assistant","content":"mesh"},"finish_reason":""}]
+        })));
+        let e2 = join(c.process_chunk(&json!({
+            "choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":"stop"}]
+        })));
+        // 第一条只开一次 text 块；第二条仍在同一块里，不应再开新块
+        assert_eq!(e0.matches("event: content_block_start").count(), 1);
+        assert!(e0.contains("\"text\":\"cc\""));
+        assert!(!e1.contains("event: content_block_start"));
+        assert!(e1.contains("\"text\":\"mesh\""));
+        // 直到真正的 stop 才关块
+        assert!(e2.contains("event: content_block_stop"));
+        assert!(join(c.finish()).contains("event: message_stop"));
     }
 }

@@ -783,7 +783,12 @@ impl ResponsesStreamConverter {
                 }
             }
 
-            if let Some(fr) = ch.get("finish_reason").and_then(|v| v.as_str()) {
+            // SenseNova 进行中 chunk 带 finish_reason:""（标准 OpenAI 是 null）；空串视为未结束，避免每条关块
+            if let Some(fr) = ch
+                .get("finish_reason")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+            {
                 if fr == "length" {
                     self.incomplete = true;
                 }
