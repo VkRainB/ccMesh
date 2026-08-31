@@ -45,3 +45,6 @@ Thumbs.db
 .env.*
 !.env.example
 .ace-tool/
+
+# test
+temp/
