@@ -125,6 +125,8 @@ struct BreakerInner {
     open_reason: Option<OpenReason>,
     /// 429 携带的 Retry-After（若上游提供），仅 RateLimited 时有效。
     retry_after: Option<Duration>,
+    /// 跳闸当时按入站 preset 算死的冷却；HalfOpen 判定与 UI 剩余时间都读这份，避免换 inbound 提前半开。
+    cooldown: Option<Duration>,
     last_error: Option<String>,
     last_failure_ms: Option<i64>,
 }
@@ -141,6 +143,7 @@ impl Default for BreakerInner {
             opened_at: None,
             open_reason: None,
             retry_after: None,
+            cooldown: None,
             last_error: None,
             last_failure_ms: None,
         }
@@ -148,11 +151,18 @@ impl Default for BreakerInner {
 }
 
 impl BreakerInner {
-    fn to_open(&mut self, now: Instant, reason: OpenReason, retry_after: Option<Duration>) {
+    fn to_open(
+        &mut self,
+        now: Instant,
+        reason: OpenReason,
+        retry_after: Option<Duration>,
+        cfg: &CircuitBreakerConfig,
+    ) {
         self.state = CircuitState::Open;
         self.opened_at = Some(now);
         self.open_reason = Some(reason);
         self.retry_after = retry_after;
+        self.cooldown = Some(cooldown_duration(reason, retry_after, cfg));
         self.half_open_in_flight = 0;
         self.consecutive_successes = 0;
     }
@@ -163,6 +173,7 @@ impl BreakerInner {
         self.consecutive_successes = 0;
         self.open_reason = None;
         self.retry_after = None;
+        self.cooldown = None;
     }
 
     fn to_closed(&mut self) {
@@ -175,20 +186,13 @@ impl BreakerInner {
         self.opened_at = None;
         self.open_reason = None;
         self.retry_after = None;
+        self.cooldown = None;
     }
 
-    /// Open 且冷却到期 → 惰性转 HalfOpen。冷却时长按 open_reason 选取：
-    /// Broken 用 cfg.timeout；RateLimited 用 min(retry_after 或 rate_limit_timeout, max)。
-    fn maybe_half_open(&mut self, cfg: &CircuitBreakerConfig, now: Instant) {
+    /// Open 且冷却到期 → 惰性转 HalfOpen。读跳闸时存下的 cooldown，不随当次 inbound 变。
+    fn maybe_half_open(&mut self, now: Instant) {
         if self.state == CircuitState::Open {
-            if let Some(t) = self.opened_at {
-                let cooldown = match self.open_reason {
-                    Some(OpenReason::RateLimited) => self
-                        .retry_after
-                        .unwrap_or(cfg.rate_limit_timeout)
-                        .min(cfg.max_rate_limit_timeout),
-                    _ => cfg.timeout,
-                };
+            if let (Some(t), Some(cooldown)) = (self.opened_at, self.cooldown) {
                 if now.saturating_duration_since(t) >= cooldown {
                     self.to_half_open();
                 }
@@ -196,7 +200,20 @@ impl BreakerInner {
         }
     }
 
-    fn to_info(&self, name: &str) -> EndpointHealthInfo {
+    fn cooldown_remaining_ms(&self, now: Instant) -> Option<u64> {
+        if self.state != CircuitState::Open {
+            return None;
+        }
+        match (self.opened_at, self.cooldown) {
+            (Some(t), Some(cd)) => Some(
+                cd.saturating_sub(now.saturating_duration_since(t))
+                    .as_millis() as u64,
+            ),
+            _ => Some(0),
+        }
+    }
+
+    fn to_info(&self, name: &str, now: Instant) -> EndpointHealthInfo {
         let success_rate = if self.total_requests == 0 {
             1.0
         } else {
@@ -215,6 +232,7 @@ impl BreakerInner {
             success_rate,
             last_error: self.last_error.clone(),
             last_failure_ms: self.last_failure_ms,
+            cooldown_remaining_ms: self.cooldown_remaining_ms(now),
         }
     }
 }
@@ -232,6 +250,8 @@ pub struct EndpointHealthInfo {
     pub success_rate: f64,
     pub last_error: Option<String>,
     pub last_failure_ms: Option<i64>,
+    /// 仅 Open：距冷却到期的剩余毫秒；到期仍 Open（惰性半开）时为 0。Closed / HalfOpen 为 None。
+    pub cooldown_remaining_ms: Option<u64>,
 }
 
 impl EndpointHealthInfo {
@@ -245,6 +265,7 @@ impl EndpointHealthInfo {
             success_rate: 1.0,
             last_error: None,
             last_failure_ms: None,
+            cooldown_remaining_ms: None,
         }
     }
 
@@ -273,7 +294,10 @@ pub struct BreakerRegistry {
 impl BreakerRegistry {
     /// 生产构造：默认 + Claude 两套 preset。
     pub fn new() -> Self {
-        Self::with_configs(CircuitBreakerConfig::default(), CircuitBreakerConfig::claude())
+        Self::with_configs(
+            CircuitBreakerConfig::default(),
+            CircuitBreakerConfig::claude(),
+        )
     }
 
     /// 显式指定两套 preset（测试用）。
@@ -299,20 +323,18 @@ impl BreakerRegistry {
     }
 
     /// 选路过滤用：端点当前是否可选（不占半开许可）。Open 到期会惰性转 HalfOpen。
-    pub fn is_available(&self, name: &str, inbound: InboundKind, now: Instant) -> bool {
-        let cfg = self.cfg_for(inbound);
+    pub fn is_available(&self, name: &str, _inbound: InboundKind, now: Instant) -> bool {
         let mut g = self.inner.lock().unwrap();
         let b = g.entry(name.to_string()).or_default();
-        b.maybe_half_open(cfg, now);
+        b.maybe_half_open(now);
         b.state != CircuitState::Open
     }
 
     /// 发请求前取许可。HalfOpen 同一时刻只放行 1 个探测。
-    pub fn allow_request(&self, name: &str, inbound: InboundKind, now: Instant) -> AllowResult {
-        let cfg = self.cfg_for(inbound);
+    pub fn allow_request(&self, name: &str, _inbound: InboundKind, now: Instant) -> AllowResult {
         let mut g = self.inner.lock().unwrap();
         let b = g.entry(name.to_string()).or_default();
-        b.maybe_half_open(cfg, now);
+        b.maybe_half_open(now);
         match b.state {
             CircuitState::Closed => AllowResult {
                 allowed: true,
@@ -385,7 +407,7 @@ impl BreakerRegistry {
         match b.state {
             CircuitState::HalfOpen => {
                 let (reason, retry_after) = kind_to_open(&kind);
-                b.to_open(now, reason, retry_after);
+                b.to_open(now, reason, retry_after, cfg);
                 true
             }
             CircuitState::Closed => {
@@ -394,7 +416,7 @@ impl BreakerRegistry {
                         >= cfg.error_rate_threshold;
                 if b.consecutive_failures >= cfg.failure_threshold || rate_trip {
                     let (reason, retry_after) = kind_to_open(&kind);
-                    b.to_open(now, reason, retry_after);
+                    b.to_open(now, reason, retry_after, cfg);
                     true
                 } else {
                     false
@@ -420,8 +442,13 @@ impl BreakerRegistry {
     /// 单端点健康信息；无熔断记录（未承接流量）返回 `None`，由调用方决定回退
     /// （避免伪造 healthy 覆盖手动测试结论）。
     pub fn health_of(&self, name: &str) -> Option<EndpointHealthInfo> {
+        self.health_at(name, Instant::now())
+    }
+
+    /// 指定时刻的健康快照（单测用假时钟；生产走 `health_of`）。
+    pub fn health_at(&self, name: &str, now: Instant) -> Option<EndpointHealthInfo> {
         let g = self.inner.lock().unwrap();
-        g.get(name).map(|b| b.to_info(name))
+        g.get(name).map(|b| b.to_info(name, now))
     }
 
     /// 强制闭合指定端点熔断器（用户手动测试确认可用时调用）。
@@ -443,10 +470,9 @@ impl BreakerRegistry {
     pub fn rate_limit_backoff(
         &self,
         names: &[String],
-        inbound: InboundKind,
+        _inbound: InboundKind,
         now: Instant,
     ) -> Option<Duration> {
-        let cfg = self.cfg_for(inbound);
         let g = self.inner.lock().unwrap();
         let mut soonest: Option<Duration> = None;
         let mut any_open = false;
@@ -462,11 +488,7 @@ impl BreakerRegistry {
             if b.open_reason != Some(OpenReason::RateLimited) {
                 return None;
             }
-            if let Some(t) = b.opened_at {
-                let cooldown = b
-                    .retry_after
-                    .unwrap_or(cfg.rate_limit_timeout)
-                    .min(cfg.max_rate_limit_timeout);
+            if let (Some(t), Some(cooldown)) = (b.opened_at, b.cooldown) {
                 let remaining = cooldown.saturating_sub(now.saturating_duration_since(t));
                 soonest = Some(soonest.map_or(remaining, |cur| cur.min(remaining)));
             }
@@ -476,6 +498,19 @@ impl BreakerRegistry {
         } else {
             soonest.or(Some(Duration::ZERO))
         }
+    }
+}
+
+fn cooldown_duration(
+    reason: OpenReason,
+    retry_after: Option<Duration>,
+    cfg: &CircuitBreakerConfig,
+) -> Duration {
+    match reason {
+        OpenReason::RateLimited => retry_after
+            .unwrap_or(cfg.rate_limit_timeout)
+            .min(cfg.max_rate_limit_timeout),
+        OpenReason::Broken => cfg.timeout,
     }
 }
 
@@ -548,9 +583,30 @@ mod tests {
         let reg = BreakerRegistry::new_uniform(cfg());
         let now = Instant::now();
         // 连续失败达阈值 3 → Open
-        assert!(!reg.record_failure("a", false, now, "boom", InboundKind::OpenAi, FailureKind::Broken));
-        assert!(!reg.record_failure("a", false, now, "boom", InboundKind::OpenAi, FailureKind::Broken));
-        assert!(reg.record_failure("a", false, now, "boom", InboundKind::OpenAi, FailureKind::Broken)); // 第 3 次触发转换
+        assert!(!reg.record_failure(
+            "a",
+            false,
+            now,
+            "boom",
+            InboundKind::OpenAi,
+            FailureKind::Broken
+        ));
+        assert!(!reg.record_failure(
+            "a",
+            false,
+            now,
+            "boom",
+            InboundKind::OpenAi,
+            FailureKind::Broken
+        ));
+        assert!(reg.record_failure(
+            "a",
+            false,
+            now,
+            "boom",
+            InboundKind::OpenAi,
+            FailureKind::Broken
+        )); // 第 3 次触发转换
         assert!(!reg.is_available("a", InboundKind::OpenAi, now)); // Open 未到期 → 选路跳过
 
         // 冷却到期 → 惰性转 HalfOpen，可选
@@ -576,13 +632,27 @@ mod tests {
         let reg = BreakerRegistry::new_uniform(cfg());
         let now = Instant::now();
         for _ in 0..3 {
-            reg.record_failure("a", false, now, "boom", InboundKind::OpenAi, FailureKind::Broken);
+            reg.record_failure(
+                "a",
+                false,
+                now,
+                "boom",
+                InboundKind::OpenAi,
+                FailureKind::Broken,
+            );
         }
         let later = now + Duration::from_secs(61);
         let r = reg.allow_request("a", InboundKind::OpenAi, later);
         assert!(r.allowed && r.used_half_open_permit);
         // 半开期失败 → 立即重新 Open
-        assert!(reg.record_failure("a", true, later, "again", InboundKind::OpenAi, FailureKind::Broken));
+        assert!(reg.record_failure(
+            "a",
+            true,
+            later,
+            "again",
+            InboundKind::OpenAi,
+            FailureKind::Broken
+        ));
         assert!(!reg.is_available("a", InboundKind::OpenAi, later));
     }
 
@@ -597,13 +667,27 @@ mod tests {
         let now = Instant::now();
         // 交替成功/失败避免触发"连续失败"，但累计错误率达标
         for _ in 0..6 {
-            reg.record_failure("a", false, now, "e", InboundKind::OpenAi, FailureKind::Broken);
+            reg.record_failure(
+                "a",
+                false,
+                now,
+                "e",
+                InboundKind::OpenAi,
+                FailureKind::Broken,
+            );
         }
         for _ in 0..4 {
             reg.record_success("a", false, InboundKind::OpenAi);
         }
         // 此刻 total=10、failed=6 → 0.6 ≥ 阈值；再来一次失败触发
-        let tripped = reg.record_failure("a", false, now, "e", InboundKind::OpenAi, FailureKind::Broken);
+        let tripped = reg.record_failure(
+            "a",
+            false,
+            now,
+            "e",
+            InboundKind::OpenAi,
+            FailureKind::Broken,
+        );
         assert!(tripped);
         assert!(!reg.is_available("a", InboundKind::OpenAi, now));
     }
@@ -626,7 +710,14 @@ mod tests {
         let eps = vec![ep("a"), ep("b")];
         // a 熔断
         for _ in 0..3 {
-            reg.record_failure("a", false, now, "boom", InboundKind::OpenAi, FailureKind::Broken);
+            reg.record_failure(
+                "a",
+                false,
+                now,
+                "boom",
+                InboundKind::OpenAi,
+                FailureKind::Broken,
+            );
         }
         let c = select_candidates(&eps, &reg, InboundKind::OpenAi, now);
         assert_eq!(c.len(), 1);
@@ -634,7 +725,14 @@ mod tests {
 
         // b 也熔断 → 全 Open → 返回空（不再兜底放行）
         for _ in 0..3 {
-            reg.record_failure("b", false, now, "boom", InboundKind::OpenAi, FailureKind::Broken);
+            reg.record_failure(
+                "b",
+                false,
+                now,
+                "boom",
+                InboundKind::OpenAi,
+                FailureKind::Broken,
+            );
         }
         let c2 = select_candidates(&eps, &reg, InboundKind::OpenAi, now);
         assert!(c2.is_empty());
@@ -648,10 +746,17 @@ mod tests {
         assert!(!reg.force_close("a"));
         // 累计失败达阈值 → Open
         for _ in 0..3 {
-            reg.record_failure("a", false, now, "boom", InboundKind::OpenAi, FailureKind::Broken);
+            reg.record_failure(
+                "a",
+                false,
+                now,
+                "boom",
+                InboundKind::OpenAi,
+                FailureKind::Broken,
+            );
         }
         assert!(!reg.is_available("a", InboundKind::OpenAi, now)); // Open 未到期 → 选路跳过
-        // force_close → Closed，返回 true；计数清零、health 反映 healthy/closed
+                                                                   // force_close → Closed，返回 true；计数清零、health 反映 healthy/closed
         assert!(reg.force_close("a"));
         let h = reg.health_of("a").unwrap();
         assert_eq!(h.circuit, "closed");
@@ -664,7 +769,14 @@ mod tests {
         // HalfOpen 也能强制闭合
         let reg2 = BreakerRegistry::new_uniform(cfg());
         for _ in 0..3 {
-            reg2.record_failure("b", false, now, "boom", InboundKind::OpenAi, FailureKind::Broken);
+            reg2.record_failure(
+                "b",
+                false,
+                now,
+                "boom",
+                InboundKind::OpenAi,
+                FailureKind::Broken,
+            );
         }
         let later = now + Duration::from_secs(61);
         assert!(reg2.allow_request("b", InboundKind::OpenAi, later).allowed); // 惰性转 HalfOpen 并占许可
@@ -678,10 +790,17 @@ mod tests {
         let reg = BreakerRegistry::new_uniform(cfg());
         let now = Instant::now();
         for _ in 0..3 {
-            reg.record_failure("a", false, now, "429", InboundKind::OpenAi, FailureKind::RateLimited { retry_after: None });
+            reg.record_failure(
+                "a",
+                false,
+                now,
+                "429",
+                InboundKind::OpenAi,
+                FailureKind::RateLimited { retry_after: None },
+            );
         }
         assert!(!reg.is_available("a", InboundKind::OpenAi, now)); // Open
-        // 5s 缺省冷却到期 → 惰性转 HalfOpen（60s 仍未到期，验证不是长冷却）
+                                                                   // 5s 缺省冷却到期 → 惰性转 HalfOpen（60s 仍未到期，验证不是长冷却）
         let soon = now + Duration::from_secs(6);
         assert!(reg.is_available("a", InboundKind::OpenAi, soon));
     }
@@ -693,7 +812,16 @@ mod tests {
         let now = Instant::now();
         // Retry-After=10s → 10s 后恢复（< max 60s，不截断）
         for _ in 0..3 {
-            reg.record_failure("a", false, now, "429", InboundKind::OpenAi, FailureKind::RateLimited { retry_after: Some(Duration::from_secs(10)) });
+            reg.record_failure(
+                "a",
+                false,
+                now,
+                "429",
+                InboundKind::OpenAi,
+                FailureKind::RateLimited {
+                    retry_after: Some(Duration::from_secs(10)),
+                },
+            );
         }
         assert!(!reg.is_available("a", InboundKind::OpenAi, now + Duration::from_secs(9)));
         assert!(reg.is_available("a", InboundKind::OpenAi, now + Duration::from_secs(11)));
@@ -701,7 +829,16 @@ mod tests {
         // Retry-After=120s → 截断到 max 60s
         let reg2 = BreakerRegistry::new_uniform(cfg());
         for _ in 0..3 {
-            reg2.record_failure("b", false, now, "429", InboundKind::OpenAi, FailureKind::RateLimited { retry_after: Some(Duration::from_secs(120)) });
+            reg2.record_failure(
+                "b",
+                false,
+                now,
+                "429",
+                InboundKind::OpenAi,
+                FailureKind::RateLimited {
+                    retry_after: Some(Duration::from_secs(120)),
+                },
+            );
         }
         assert!(!reg2.is_available("b", InboundKind::OpenAi, now + Duration::from_secs(59)));
         assert!(reg2.is_available("b", InboundKind::OpenAi, now + Duration::from_secs(61)));
@@ -713,14 +850,28 @@ mod tests {
         let reg = BreakerRegistry::new_uniform(cfg());
         let now = Instant::now();
         for _ in 0..3 {
-            reg.record_failure("a", false, now, "429", InboundKind::OpenAi, FailureKind::RateLimited { retry_after: None });
+            reg.record_failure(
+                "a",
+                false,
+                now,
+                "429",
+                InboundKind::OpenAi,
+                FailureKind::RateLimited { retry_after: None },
+            );
         }
         // 5s 后惰性转 HalfOpen 并占许可
         let soon = now + Duration::from_secs(6);
         let r = reg.allow_request("a", InboundKind::OpenAi, soon);
         assert!(r.allowed && r.used_half_open_permit);
         // 探测又 429 → 重新 Open（短冷却）
-        assert!(reg.record_failure("a", true, soon, "429", InboundKind::OpenAi, FailureKind::RateLimited { retry_after: None }));
+        assert!(reg.record_failure(
+            "a",
+            true,
+            soon,
+            "429",
+            InboundKind::OpenAi,
+            FailureKind::RateLimited { retry_after: None }
+        ));
         assert!(!reg.is_available("a", InboundKind::OpenAi, soon));
         // 再次 5s 后恢复（验证仍是短冷却，非 60s）
         assert!(reg.is_available("a", InboundKind::OpenAi, soon + Duration::from_secs(6)));
@@ -733,20 +884,48 @@ mod tests {
         let now = Instant::now();
         // OpenAI 入站：4 次 Broken 失败 → 第 4 次 trip
         for _ in 0..3 {
-            assert!(!reg.record_failure("a", false, now, "boom", InboundKind::OpenAi, FailureKind::Broken));
+            assert!(!reg.record_failure(
+                "a",
+                false,
+                now,
+                "boom",
+                InboundKind::OpenAi,
+                FailureKind::Broken
+            ));
         }
-        assert!(reg.record_failure("a", false, now, "boom", InboundKind::OpenAi, FailureKind::Broken));
+        assert!(reg.record_failure(
+            "a",
+            false,
+            now,
+            "boom",
+            InboundKind::OpenAi,
+            FailureKind::Broken
+        ));
         assert!(!reg.is_available("a", InboundKind::OpenAi, now));
 
         // Claude 入站：8 次才 trip
         for i in 0..7 {
             assert!(
-                !reg.record_failure("c", false, now, "boom", InboundKind::Claude, FailureKind::Broken),
+                !reg.record_failure(
+                    "c",
+                    false,
+                    now,
+                    "boom",
+                    InboundKind::Claude,
+                    FailureKind::Broken
+                ),
                 "第 {} 次 Claude 失败不应 trip",
                 i + 1
             );
         }
-        assert!(reg.record_failure("c", false, now, "boom", InboundKind::Claude, FailureKind::Broken)); // 第 8 次
+        assert!(reg.record_failure(
+            "c",
+            false,
+            now,
+            "boom",
+            InboundKind::Claude,
+            FailureKind::Broken
+        )); // 第 8 次
         assert!(!reg.is_available("c", InboundKind::Claude, now));
         // Claude Broken 冷却 90s
         assert!(!reg.is_available("c", InboundKind::Claude, now + Duration::from_secs(89)));
@@ -760,20 +939,40 @@ mod tests {
         let now = Instant::now();
         // a：429，retry_after=10s
         for _ in 0..3 {
-            reg.record_failure("a", false, now, "429", InboundKind::OpenAi, FailureKind::RateLimited { retry_after: Some(Duration::from_secs(10)) });
+            reg.record_failure(
+                "a",
+                false,
+                now,
+                "429",
+                InboundKind::OpenAi,
+                FailureKind::RateLimited {
+                    retry_after: Some(Duration::from_secs(10)),
+                },
+            );
         }
         // b：429，缺省 5s
         for _ in 0..3 {
-            reg.record_failure("b", false, now, "429", InboundKind::OpenAi, FailureKind::RateLimited { retry_after: None });
+            reg.record_failure(
+                "b",
+                false,
+                now,
+                "429",
+                InboundKind::OpenAi,
+                FailureKind::RateLimited { retry_after: None },
+            );
         }
         let names = vec!["a".to_string(), "b".to_string()];
         // now 时：a 剩 10s，b 剩 5s → 最近是 b 的 ~5s
-        let backoff = reg.rate_limit_backoff(&names, InboundKind::OpenAi, now).unwrap();
+        let backoff = reg
+            .rate_limit_backoff(&names, InboundKind::OpenAi, now)
+            .unwrap();
         assert!(backoff <= Duration::from_secs(5));
         assert!(backoff > Duration::from_secs(4));
         // 3s 后：a 剩 7s，b 剩 2s → 最近是 b 的 ~2s
         let mid = now + Duration::from_secs(3);
-        let backoff2 = reg.rate_limit_backoff(&names, InboundKind::OpenAi, mid).unwrap();
+        let backoff2 = reg
+            .rate_limit_backoff(&names, InboundKind::OpenAi, mid)
+            .unwrap();
         assert!(backoff2 <= Duration::from_secs(2));
         assert!(backoff2 > Duration::from_secs(1));
         // 5s 后：b 已到期（剩 0）→ 返回 0，调用方应立即重选
@@ -790,13 +989,30 @@ mod tests {
         let reg = BreakerRegistry::new_uniform(cfg());
         let now = Instant::now();
         for _ in 0..3 {
-            reg.record_failure("a", false, now, "429", InboundKind::OpenAi, FailureKind::RateLimited { retry_after: None });
+            reg.record_failure(
+                "a",
+                false,
+                now,
+                "429",
+                InboundKind::OpenAi,
+                FailureKind::RateLimited { retry_after: None },
+            );
         }
         for _ in 0..3 {
-            reg.record_failure("b", false, now, "boom", InboundKind::OpenAi, FailureKind::Broken);
+            reg.record_failure(
+                "b",
+                false,
+                now,
+                "boom",
+                InboundKind::OpenAi,
+                FailureKind::Broken,
+            );
         }
         let names = vec!["a".to_string(), "b".to_string()];
-        assert_eq!(reg.rate_limit_backoff(&names, InboundKind::OpenAi, now), None);
+        assert_eq!(
+            reg.rate_limit_backoff(&names, InboundKind::OpenAi, now),
+            None
+        );
     }
 
     /// rate_limit_backoff：无任何 Open → 返回 None。
@@ -805,6 +1021,127 @@ mod tests {
         let reg = BreakerRegistry::new_uniform(cfg());
         let now = Instant::now();
         let names = vec!["a".to_string()];
-        assert_eq!(reg.rate_limit_backoff(&names, InboundKind::OpenAi, now), None);
+        assert_eq!(
+            reg.rate_limit_backoff(&names, InboundKind::OpenAi, now),
+            None
+        );
+    }
+
+    /// 健康快照：Open 报剩余冷却；到期仍 Open（惰性）报 0；Closed / HalfOpen 为 None。
+    #[test]
+    fn health_snapshot_cooldown_remaining() {
+        let reg = BreakerRegistry::new_uniform(cfg());
+        let now = Instant::now();
+        for _ in 0..3 {
+            reg.record_failure(
+                "a",
+                false,
+                now,
+                "boom",
+                InboundKind::OpenAi,
+                FailureKind::Broken,
+            );
+        }
+        let h = reg.health_at("a", now).unwrap();
+        assert_eq!(h.circuit, "open");
+        assert_eq!(h.cooldown_remaining_ms, Some(60_000));
+
+        let mid = now + Duration::from_secs(10);
+        assert_eq!(
+            reg.health_at("a", mid).unwrap().cooldown_remaining_ms,
+            Some(50_000)
+        );
+
+        let expired = now + Duration::from_secs(60);
+        let h_expired = reg.health_at("a", expired).unwrap();
+        assert_eq!(h_expired.circuit, "open"); // 惰性：无请求不过半开
+        assert_eq!(h_expired.cooldown_remaining_ms, Some(0));
+
+        assert!(reg.force_close("a"));
+        let closed = reg.health_at("a", expired).unwrap();
+        assert_eq!(closed.circuit, "closed");
+        assert_eq!(closed.cooldown_remaining_ms, None);
+    }
+
+    #[test]
+    fn health_snapshot_rate_limited_and_retry_after() {
+        let reg = BreakerRegistry::new_uniform(cfg());
+        let now = Instant::now();
+        for _ in 0..3 {
+            reg.record_failure(
+                "a",
+                false,
+                now,
+                "429",
+                InboundKind::OpenAi,
+                FailureKind::RateLimited { retry_after: None },
+            );
+        }
+        assert_eq!(
+            reg.health_at("a", now).unwrap().cooldown_remaining_ms,
+            Some(5_000)
+        );
+
+        let reg2 = BreakerRegistry::new_uniform(cfg());
+        for _ in 0..3 {
+            reg2.record_failure(
+                "b",
+                false,
+                now,
+                "429",
+                InboundKind::OpenAi,
+                FailureKind::RateLimited {
+                    retry_after: Some(Duration::from_secs(10)),
+                },
+            );
+        }
+        assert_eq!(
+            reg2.health_at("b", now).unwrap().cooldown_remaining_ms,
+            Some(10_000)
+        );
+    }
+
+    #[test]
+    fn health_snapshot_half_open_has_no_remaining() {
+        let reg = BreakerRegistry::new_uniform(cfg());
+        let now = Instant::now();
+        for _ in 0..3 {
+            reg.record_failure(
+                "a",
+                false,
+                now,
+                "boom",
+                InboundKind::OpenAi,
+                FailureKind::Broken,
+            );
+        }
+        let later = now + Duration::from_secs(61);
+        assert!(reg.allow_request("a", InboundKind::OpenAi, later).allowed);
+        let h = reg.health_at("a", later).unwrap();
+        assert_eq!(h.circuit, "halfOpen");
+        assert_eq!(h.cooldown_remaining_ms, None);
+    }
+
+    /// Claude 跳闸存 90s；之后即使按 OpenAI inbound 检查也不提前半开。
+    #[test]
+    fn stored_cooldown_survives_inbound_switch() {
+        let reg = BreakerRegistry::new();
+        let now = Instant::now();
+        for _ in 0..8 {
+            reg.record_failure(
+                "c",
+                false,
+                now,
+                "boom",
+                InboundKind::Claude,
+                FailureKind::Broken,
+            );
+        }
+        assert_eq!(
+            reg.health_at("c", now).unwrap().cooldown_remaining_ms,
+            Some(90_000)
+        );
+        assert!(!reg.is_available("c", InboundKind::OpenAi, now + Duration::from_secs(61)));
+        assert!(reg.is_available("c", InboundKind::OpenAi, now + Duration::from_secs(91)));
     }
 }
