@@ -28,7 +28,7 @@ import { useEndpointHealth, useEndpointHealthEvents } from "@/hooks/useEndpointH
 import { useProxyStatus } from "@/hooks/useProxyStatus";
 import { cn } from "@/lib/utils";
 import { endpointApi, type Endpoint } from "@/services/modules/endpoint";
-import { circuitDot, type EndpointHealth } from "@/services/modules/health";
+import { circuitBadgeLabel, circuitDot, type EndpointHealth } from "@/services/modules/health";
 import { proxyApi } from "@/services/modules/proxy";
 import { statsApi } from "@/services/modules/stats";
 import { useLayoutStore } from "@/stores";
@@ -50,16 +50,20 @@ function endpointStatus(
   current: string | null,
   running: boolean,
   healthByName: Map<string, EndpointHealth>,
+  receivedAt: number,
 ): { status: QueueStatus; active: boolean; title?: string } {
   const active = endpoint.name === current;
   const health = healthByName.get(endpoint.name);
   if (health && health.circuit !== "closed") {
+    const label = circuitBadgeLabel(
+      health.circuit,
+      health.cooldownRemainingMs,
+      receivedAt,
+    );
     return {
       active,
       status: circuitDot(health.circuit),
-      title: `${health.circuit === "open" ? "熔断中" : "恢复中"}${
-        health.lastError ? ` · ${health.lastError}` : ""
-      }`,
+      title: `${label}${health.lastError ? ` · ${health.lastError}` : ""}`,
     };
   }
   return { active, status: active && running ? "info" : "success" };
@@ -87,15 +91,23 @@ function QueueItem({
   current,
   running,
   healthByName,
+  receivedAt,
   fast,
 }: {
   endpoint: Endpoint;
   current: string | null;
   running: boolean;
   healthByName: Map<string, EndpointHealth>;
+  receivedAt: number;
   fast?: boolean;
 }) {
-  const { status, active, title } = endpointStatus(endpoint, current, running, healthByName);
+  const { status, active, title } = endpointStatus(
+    endpoint,
+    current,
+    running,
+    healthByName,
+    receivedAt,
+  );
   return (
     <li title={title} className="inline-flex items-center gap-1.5">
       {fast ? (
@@ -122,12 +134,14 @@ function QueueSection({
   current,
   running,
   healthByName,
+  receivedAt,
 }: {
   endpoints: Endpoint[];
   empty: string;
   current: string | null;
   running: boolean;
   healthByName: Map<string, EndpointHealth>;
+  receivedAt: number;
 }) {
   return (
     <div className="flex flex-col gap-2">
@@ -142,6 +156,7 @@ function QueueSection({
               current={current}
               running={running}
               healthByName={healthByName}
+              receivedAt={receivedAt}
               fast={endpoint.fast}
             />
           ))}
@@ -454,7 +469,7 @@ export function ServiceCard() {
   const [liveEndpoint, setLiveEndpoint] = useState<string | null>(null);
   // 端点实时健康/熔断态；健康/端点变更事件到达即刷新（共享 hook 统一订阅）。
   useEndpointHealthEvents();
-  const { data: epHealth } = useEndpointHealth();
+  const { data: epHealth, dataUpdatedAt } = useEndpointHealth();
   const healthByName = useMemo(() => {
     const byName = new Map<string, EndpointHealth>();
     for (const health of epHealth ?? []) byName.set(health.name, health);
@@ -556,6 +571,7 @@ export function ServiceCard() {
               current={current}
               running={running}
               healthByName={healthByName}
+              receivedAt={dataUpdatedAt}
             />
           </CardContent>
         </Card>

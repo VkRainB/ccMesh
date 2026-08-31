@@ -52,6 +52,7 @@ import {
   outboundModels,
   type Endpoint,
 } from "@/services/modules/endpoint";
+import { circuitBadgeLabel, type EndpointHealth } from "@/services/modules/health";
 import type { EndpointView } from "@/stores";
 import { ModelMappingDialog } from "./ModelMappingDialog";
 import { TestBadge } from "./TestBadge";
@@ -65,6 +66,35 @@ const TRANSFORMER_ICON: Record<string, ComponentType<{ size?: number; className?
   codex: Codex.Color,
 };
 export const getTransformerIcon = (transformer: string) => TRANSFORMER_ICON[transformer] ?? OpenAI;
+
+/** 熔断徽章：open 本地倒计时，到期显示「待探测」（惰性半开，无流量不会自动恢复）。 */
+function CircuitBadge({
+  health,
+  receivedAt,
+}: {
+  health: EndpointHealth;
+  receivedAt: number;
+}) {
+  const open = health.circuit === "open";
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    setNow(Date.now());
+  }, [receivedAt]);
+  useEffect(() => {
+    if (!open) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [open]);
+  return (
+    <Badge
+      variant={health.circuit === "open" ? "danger" : "warning"}
+      title={health.lastError ?? undefined}
+      className="tabular-nums"
+    >
+      {circuitBadgeLabel(health.circuit, health.cooldownRemainingMs, receivedAt, now)}
+    </Badge>
+  );
+}
 
 function IconAction({
   label,
@@ -133,16 +163,11 @@ export function EndpointCard({
   const onMutateError = (e: unknown) => toast.error(errMsg(e));
 
   // 共享 ["endpoint-health"] 查询（多卡片去重）；展示运行期熔断态。
-  const { data: epHealth } = useEndpointHealth();
+  const { data: epHealth, dataUpdatedAt } = useEndpointHealth();
   const health = epHealth?.find((h) => h.name === endpoint.name);
   const circuitBadge =
     health && health.circuit !== "closed" ? (
-      <Badge
-        variant={health.circuit === "open" ? "danger" : "warning"}
-        title={health.lastError ?? undefined}
-      >
-        {health.circuit === "open" ? "熔断中" : "恢复中"}
-      </Badge>
+      <CircuitBadge health={health} receivedAt={dataUpdatedAt} />
     ) : null;
 
   const toggle = useMutation({
