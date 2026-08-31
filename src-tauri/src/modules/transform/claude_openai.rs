@@ -646,7 +646,9 @@ mod tests {
 
     fn json_contains_key(v: &Value, key: &str) -> bool {
         match v {
-            Value::Object(o) => o.contains_key(key) || o.values().any(|x| json_contains_key(x, key)),
+            Value::Object(o) => {
+                o.contains_key(key) || o.values().any(|x| json_contains_key(x, key))
+            }
             Value::Array(a) => a.iter().any(|x| json_contains_key(x, key)),
             _ => false,
         }

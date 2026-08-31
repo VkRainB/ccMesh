@@ -14,9 +14,7 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
 use crate::models::endpoint::Endpoint;
-use crate::modules::proxy::circuit_breaker::{
-    self, BreakerRegistry, FailureKind, InboundKind,
-};
+use crate::modules::proxy::circuit_breaker::{self, BreakerRegistry, FailureKind, InboundKind};
 use crate::modules::proxy::resolver;
 use crate::modules::proxy::rotation::{self, Rotation};
 use crate::modules::stats::aggregator::{RequestRecord, StatsAggregator};
@@ -189,9 +187,7 @@ fn rate_limited_response(retry_after: Duration) -> Response {
     }));
     (
         StatusCode::TOO_MANY_REQUESTS,
-        [
-            (axum::http::header::RETRY_AFTER, HeaderValue::from(secs)),
-        ],
+        [(axum::http::header::RETRY_AFTER, HeaderValue::from(secs))],
         body,
     )
         .into_response()
@@ -448,16 +444,26 @@ pub async fn handle_proxy(
         (enabled, false)
     } else {
         let (cands, gate) = loop {
-            let cands =
-                circuit_breaker::select_candidates(&enabled_before_breaker, &st.breakers, inbound, Instant::now());
+            let cands = circuit_breaker::select_candidates(
+                &enabled_before_breaker,
+                &st.breakers,
+                inbound,
+                Instant::now(),
+            );
             let gate = cands.len() < enabled_before_breaker.len();
             let exhausted = !enabled_before_breaker.is_empty() && cands.is_empty();
             if !cands.is_empty() || !exhausted {
                 break (cands, gate);
             }
             // 全 Open：仅当皆因限流才退避
-            let names: Vec<String> = enabled_before_breaker.iter().map(|e| e.name.clone()).collect();
-            let wait = match st.breakers.rate_limit_backoff(&names, inbound, Instant::now()) {
+            let names: Vec<String> = enabled_before_breaker
+                .iter()
+                .map(|e| e.name.clone())
+                .collect();
+            let wait = match st
+                .breakers
+                .rate_limit_backoff(&names, inbound, Instant::now())
+            {
                 Some(w) => w,
                 None => break (cands, gate), // 含 Broken → 走 502
             };
@@ -525,8 +531,14 @@ pub async fn handle_proxy(
         // 全 Open 且皆因 429 限流（退避预算已耗尽）：回 429 + Retry-After，让客户端自然退避，
         // 而非 502「无端点可用」噪音；含 Broken-Open 或模型不匹配仍走 502。
         if breaker_exhausted && !use_specific {
-            let names: Vec<String> = enabled_before_breaker.iter().map(|e| e.name.clone()).collect();
-            if let Some(wait) = st.breakers.rate_limit_backoff(&names, inbound, Instant::now()) {
+            let names: Vec<String> = enabled_before_breaker
+                .iter()
+                .map(|e| e.name.clone())
+                .collect();
+            if let Some(wait) = st
+                .breakers
+                .rate_limit_backoff(&names, inbound, Instant::now())
+            {
                 return rate_limited_response(wait);
             }
         }
@@ -869,17 +881,14 @@ pub async fn handle_proxy(
             Some(Err(e)) => {
                 let msg = e.to_string();
                 // 网络错误计入熔断（Retryable，Broken 长冷却）；转换则通知前端
-                if st
-                    .breakers
-                    .record_failure(
-                        &ep.name,
-                        used_permit,
-                        Instant::now(),
-                        &msg,
-                        inbound,
-                        FailureKind::Broken,
-                    )
-                {
+                if st.breakers.record_failure(
+                    &ep.name,
+                    used_permit,
+                    Instant::now(),
+                    &msg,
+                    inbound,
+                    FailureKind::Broken,
+                ) {
                     st.stats.emit_health_changed();
                 }
                 last_err = msg.clone();
@@ -1191,7 +1200,10 @@ fn stream_transform_response(
 
 #[cfg(test)]
 mod tests {
-    use super::{empty_candidates_message, error_body_from_bytes, parse_retry_after, rate_limited_response, truncate_error_body};
+    use super::{
+        empty_candidates_message, error_body_from_bytes, parse_retry_after, rate_limited_response,
+        truncate_error_body,
+    };
     use axum::body::Bytes;
     use axum::http::{HeaderMap, HeaderValue, StatusCode};
 
@@ -1233,11 +1245,20 @@ mod tests {
     fn parse_retry_after_reads_delta_seconds() {
         let mut h = HeaderMap::new();
         assert_eq!(parse_retry_after(&h), None);
-        h.insert(axum::http::header::RETRY_AFTER, HeaderValue::from_static("12"));
-        assert_eq!(parse_retry_after(&h), Some(std::time::Duration::from_secs(12)));
+        h.insert(
+            axum::http::header::RETRY_AFTER,
+            HeaderValue::from_static("12"),
+        );
+        assert_eq!(
+            parse_retry_after(&h),
+            Some(std::time::Duration::from_secs(12))
+        );
         // 非数字 / HTTP-date 不解析 → None（ponytail: 暂不支持 HTTP-date）
         let mut h2 = HeaderMap::new();
-        h2.insert(axum::http::header::RETRY_AFTER, HeaderValue::from_static("Wed, 21 Oct 2025 07:28:00 GMT"));
+        h2.insert(
+            axum::http::header::RETRY_AFTER,
+            HeaderValue::from_static("Wed, 21 Oct 2025 07:28:00 GMT"),
+        );
         assert_eq!(parse_retry_after(&h2), None);
     }
 
@@ -1303,8 +1324,7 @@ fn stream_claude_from_responses(
     let (tx, rx) = mpsc::channel::<Result<Bytes, std::io::Error>>(32);
     tokio::spawn(async move {
         let mut meta = meta;
-        let mut converter =
-            ResponsesToClaudeConverter::new(meta.model.clone().unwrap_or_default());
+        let mut converter = ResponsesToClaudeConverter::new(meta.model.clone().unwrap_or_default());
         let mut stream = resp.bytes_stream();
         let mut buf = String::new();
         let mut first = true;

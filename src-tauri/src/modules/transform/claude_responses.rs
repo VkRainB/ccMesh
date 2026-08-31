@@ -243,10 +243,7 @@ fn claude_image_to_data_url(block: &Value) -> Option<String> {
             let data = source.get("data").and_then(|v| v.as_str())?;
             Some(format!("data:{media};base64,{data}"))
         }
-        Some("url") => source
-            .get("url")
-            .and_then(|v| v.as_str())
-            .map(String::from),
+        Some("url") => source.get("url").and_then(|v| v.as_str()).map(String::from),
         _ => None,
     }
 }
@@ -301,7 +298,10 @@ pub fn final_response_from_sse(text: &str) -> Option<Value> {
 
 /// 完整 Responses 响应体 → Claude Messages 响应体。`fallback_model` 在上游未回显 model 时使用。
 pub fn responses_response_to_claude(resp: &Value, fallback_model: &str) -> Value {
-    let id = resp.get("id").and_then(|v| v.as_str()).unwrap_or("msg_proxy");
+    let id = resp
+        .get("id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("msg_proxy");
     let model = resp
         .get("model")
         .and_then(|v| v.as_str())
@@ -685,12 +685,7 @@ impl ResponsesToClaudeConverter {
 
     /// `response.completed` / `response.incomplete`：吸收 usage、补发快照独有的
     /// function_call / encrypted reasoning、判定 stop_reason 并收尾。
-    fn finish_from_final(
-        &mut self,
-        resp: &Value,
-        incomplete: bool,
-        events: &mut Vec<String>,
-    ) {
+    fn finish_from_final(&mut self, resp: &Value, incomplete: bool, events: &mut Vec<String>) {
         if let Some(u) = resp.get("usage") {
             self.apply_usage(u);
         }
@@ -868,8 +863,7 @@ impl ResponsesToClaudeConverter {
         self.message_start(&mut events);
         self.close_text(&mut events);
         self.close_thinking(&mut events);
-        let mut open_indices: Vec<i64> =
-            self.tools.values().map(|t| t.anthropic_index).collect();
+        let mut open_indices: Vec<i64> = self.tools.values().map(|t| t.anthropic_index).collect();
         open_indices.sort_unstable();
         for idx in open_indices {
             events.push(build_claude_event(
