@@ -47,6 +47,7 @@
 | [config-operation-fields-split.md](./patterns/config-operation-fields-split.md) | 表单只改操作字段，覆写时 merge 快照，TOML 用 AST 局部更新 |
 | [models-probe-auth-url-candidates.md](./patterns/models-probe-auth-url-candidates.md) | 先轮换鉴权头，再剥离兼容子路径试候选 URL |
 | [upstream-ua-client-restriction.md](./patterns/upstream-ua-client-restriction.md) | 按协议类型用全局 CLI UA；空串才透传客户端 |
+| [circuit-breaker.md](./patterns/circuit-breaker.md) | 每端点三态熔断：连续失败/错误率 trip，冷却后惰性半开探测 |
 
 ## pitfalls
 
@@ -74,4 +75,4 @@
 
 ---
 
-_索引最后更新：2026-08-10（新增 star-history sealed_token 条目）· 共 22 篇文档、23 条经验条目_
+_索引最后更新：2026-08-31（新增 circuit-breaker 设计梳理）· 共 23 篇文档、24 条经验条目_

@@ -50,36 +50,49 @@ CC Mesh 在多个上游之间轮换请求，并为每个端点配备独立熔断
 
 ## 熔断器三态
 
-每个端点独立三态（请求驱动，无后台轮询）：
+每个端点独立三态（请求驱动，无后台轮询）。Open 按 `OpenReason` 区分冷却时长：
 
 ```text
-        失败累计 / 错误率超阈值
- Closed ------------------------> Open
-   ^                              | 冷却 timeout 到期（惰性）
-   | 探测成功累计达标               v
-   +------------ HalfOpen <-------+
-                   |
-                   +-- 探测失败 → 立即重新 Open
+        5xx/网络 连续失败≥阈值 / 错误率超阈值           429 连续失败≥阈值 / 错误率超阈值
+ Closed ----------------------------------------> Open(Broken)   Open(RateLimited)
+   ^                                                | timeout 到期（惰性）        | Retry-After 或 rate_limit_timeout 到期（上限 max，惰性）
+   | 探测成功累计达标                                 v                            v
+   +-------------------------------------------- HalfOpen <----------------------+
+                                                   |
+                                                   +-- 探测失败 → 立即重新 Open（按失败原因记新冷却）
 ```
 
 - **Closed**：正常放行；记录成功 / 失败
-- **Open**：选路跳过；冷却到期前不放行
-- **HalfOpen**：冷却到期由下一个真实请求惰性进入；单许可只放行一个探测请求。成功累计达标 → Closed；失败 → 立即 Open
+- **Open(Broken)**：5xx/网络触发；选路跳过；冷却 `timeout` 到期前不放行
+- **Open(RateLimited)**：429 触发；选路跳过；冷却 `Retry-After`（缺省 `rate_limit_timeout`，上限 `max_rate_limit_timeout`）到期前不放行
+- **HalfOpen**：冷却到期由下一个真实请求惰性进入；单许可只放行一个探测请求。成功累计达标 → Closed；失败 → 立即 Open（按失败原因记新冷却）
 
 ## 默认熔断参数
 
-| 参数 | 默认值 | 含义 |
-|------|--------|------|
-| `failure_threshold` | 4 | 连续失败达此次数 → Open |
-| `success_threshold` | 2 | HalfOpen 成功达此次数 → Closed |
-| `timeout` | 60s | Open → HalfOpen 冷却时长 |
-| `error_rate_threshold` | 0.6 | 错误率阈值（0~1） |
-| `min_requests` | 10 | 计算错误率的最小样本数 |
+阈值按入站协议区分（对齐 cc-switch per-app）：Claude 入站（Claude Code）放宽，其余维持。
 
-触发 Open 的两条路径（满足其一即可）：
+| 参数 | Claude 入站 | OpenAI/Responses 入站 | 含义 |
+|------|------------|----------------------|------|
+| `failure_threshold` | 8 | 4 | 连续失败达此次数 → Open |
+| `success_threshold` | 3 | 2 | HalfOpen 成功达此次数 → Closed |
+| `timeout`（Broken 冷却） | 90s | 60s | Open(Broken) → HalfOpen 冷却时长 |
+| `error_rate_threshold` | 0.7 | 0.6 | 错误率阈值（0~1） |
+| `min_requests` | 15 | 10 | 计算错误率的最小样本数 |
+| `rate_limit_timeout` | 5s | 5s | Open(RateLimited) 缺省冷却（无 Retry-After 时） |
+| `max_rate_limit_timeout` | 60s | 60s | Retry-After 安全上限（防上游恶意长值锁死端点） |
+
+触发 Open 的两条路径（满足其一即可，阈值随当次请求入站协议而定）：
 
 1. 连续失败达到 `failure_threshold`
 2. 错误率在样本数 ≥ `min_requests` 时达到 `error_rate_threshold`
+
+## 429 限流降噪
+
+429（瞬时限流）与 5xx/网络（端点坏了）分开处理，避免限流突发把端点打进 60-90s 长冷却：
+
+- **429 触发 Open(RateLimited)**：冷却 = 上游 `Retry-After`（缺省 5s，上限 60s），远短于 Broken 的 60-90s。HalfOpen 探测再 429 也按短冷却重开。
+- **网关内退避**：候选端点全部因 429 被摘除时，代理在 5s 预算内 sleep 到最近一个限流端点冷却到期，重新选路（惰性转 HalfOpen）后转发，客户端无感。
+- **降级回 429**：退避预算耗尽仍全限流 → 回 `429 + Retry-After`（而非 502「无端点可用」），Claude Code 自然退避重试。被摘端点含 5xx-Broken → 仍回 502。
 
 ## 中性结果不污染熔断
 
@@ -88,7 +101,7 @@ CC Mesh 在多个上游之间轮换请求，并为每个端点配备独立熔断
 - 客户端错误：`400` / `401` / `405` / `406` / `413` / `414` / `415` / `422`
 - 未知入站 path 的 `404`（扫描或误配）；已知业务 path（如 `/v1/messages`）的 `404` 仍计失败
 
-**不含 `403`**：`403` 可重试下一个端点，并计入熔断失败。可重试故障（`403` / `5xx` / `429` / 网络错误等）才驱动熔断。
+**不含 `403`**：`403` 可重试下一个端点，并计入熔断失败（Broken）。可重试故障（`403` / `5xx` / 网络错误 → Broken；`429` → RateLimited）才驱动熔断。
 
 ## 健康状态
 
