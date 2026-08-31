@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use axum::body::{Body, Bytes};
 use axum::extract::State;
@@ -14,7 +14,9 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
 use crate::models::endpoint::Endpoint;
-use crate::modules::proxy::circuit_breaker::{self, BreakerRegistry};
+use crate::modules::proxy::circuit_breaker::{
+    self, BreakerRegistry, FailureKind, InboundKind,
+};
 use crate::modules::proxy::resolver;
 use crate::modules::proxy::rotation::{self, Rotation};
 use crate::modules::stats::aggregator::{RequestRecord, StatsAggregator};
@@ -179,6 +181,22 @@ fn json_error(status: StatusCode, message: &str) -> Response {
         .into_response()
 }
 
+/// 全候选端点因 429 限流被摘除时，回 429 + Retry-After（秒），让客户端自然退避重试。
+fn rate_limited_response(retry_after: Duration) -> Response {
+    let secs = retry_after.as_secs().max(1);
+    let body = axum::Json(serde_json::json!({
+        "error": { "type": "rate_limited", "message": "所有候选端点均被限流，请稍后重试" }
+    }));
+    (
+        StatusCode::TOO_MANY_REQUESTS,
+        [
+            (axum::http::header::RETRY_AFTER, HeaderValue::from(secs)),
+        ],
+        body,
+    )
+        .into_response()
+}
+
 fn truncate_error_body(text: &str) -> String {
     if text.len() <= MAX_ERROR_BODY_BYTES {
         return text.to_string();
@@ -196,6 +214,13 @@ fn error_body_from_bytes(bytes: &Bytes) -> Option<String> {
     }
     let text = String::from_utf8_lossy(bytes);
     Some(truncate_error_body(&text))
+}
+
+/// 解析上游 429 响应的 Retry-After（仅支持 delta-seconds；HTTP-date 暂不支持，ponytail: 上游少用且解析需额外依赖）。
+fn parse_retry_after(headers: &HeaderMap) -> Option<Duration> {
+    let v = headers.get(axum::http::header::RETRY_AFTER)?;
+    let s = v.to_str().ok()?;
+    s.trim().parse::<u64>().ok().map(Duration::from_secs)
 }
 
 fn empty_candidates_message(
@@ -369,6 +394,13 @@ pub async fn handle_proxy(
     } else {
         "claude"
     };
+    let inbound = if inbound_openai {
+        InboundKind::OpenAi
+    } else if inbound_responses {
+        InboundKind::Responses
+    } else {
+        InboundKind::Claude
+    };
     tracing::debug!(
         path = %path,
         inbound = inbound_label,
@@ -408,15 +440,36 @@ pub async fn handle_proxy(
     // 熔断选路：非显式端点时过滤掉未到期的 Open 端点（全 Open 则返回空，由下方守卫返回 502）。
     // 显式指定端点绕过熔断（用户意图优先），但结果仍计入熔断。
     let enabled_before_breaker = enabled.clone();
+    // 全 Open 且皆因 429 限流时，在 5s 预算内退避重试 select_candidates（冷却到期惰性转 HalfOpen），
+    // 避免限流瞬时报 502 给客户端；含 Broken-Open 或预算耗尽则放弃，走下方 502/429 分支。
+    let backoff_budget = Duration::from_secs(5);
+    let backoff_start = Instant::now();
     let (enabled, gate): (Vec<Endpoint>, bool) = if use_specific {
         (enabled, false)
     } else {
-        let cands = circuit_breaker::select_candidates(&enabled, &st.breakers, Instant::now());
-        // 候选变少 → 剔除了 Open，存在可用子集，需对候选取许可（半开单探测）；
-        // 数量不变 → 无 Open 或全 Open 兜底，均不 gate。
-        let gate = cands.len() < enabled.len();
-
-        // 熔断选路：正常流程不记录日志
+        let (cands, gate) = loop {
+            let cands =
+                circuit_breaker::select_candidates(&enabled_before_breaker, &st.breakers, inbound, Instant::now());
+            let gate = cands.len() < enabled_before_breaker.len();
+            let exhausted = !enabled_before_breaker.is_empty() && cands.is_empty();
+            if !cands.is_empty() || !exhausted {
+                break (cands, gate);
+            }
+            // 全 Open：仅当皆因限流才退避
+            let names: Vec<String> = enabled_before_breaker.iter().map(|e| e.name.clone()).collect();
+            let wait = match st.breakers.rate_limit_backoff(&names, inbound, Instant::now()) {
+                Some(w) => w,
+                None => break (cands, gate), // 含 Broken → 走 502
+            };
+            let elapsed = backoff_start.elapsed();
+            if elapsed >= backoff_budget {
+                break (cands, gate);
+            }
+            let sleep = wait.min(backoff_budget - elapsed);
+            if !sleep.is_zero() {
+                tokio::time::sleep(sleep).await;
+            }
+        };
         (cands, gate)
     };
     let breaker_exhausted =
@@ -469,6 +522,14 @@ pub async fn handle_proxy(
     };
     let n = enabled.len();
     if n == 0 {
+        // 全 Open 且皆因 429 限流（退避预算已耗尽）：回 429 + Retry-After，让客户端自然退避，
+        // 而非 502「无端点可用」噪音；含 Broken-Open 或模型不匹配仍走 502。
+        if breaker_exhausted && !use_specific {
+            let names: Vec<String> = enabled_before_breaker.iter().map(|e| e.name.clone()).collect();
+            if let Some(wait) = st.breakers.rate_limit_backoff(&names, inbound, Instant::now()) {
+                return rate_limited_response(wait);
+            }
+        }
         let msg = empty_candidates_message(model.as_deref(), breaker_exhausted, using_fast_queue);
         return json_error(StatusCode::BAD_GATEWAY, &msg);
     }
@@ -503,7 +564,7 @@ pub async fn handle_proxy(
 
         // 熔断许可：gate 时对候选取许可（半开同一时刻仅 1 个探测）；拒绝则跳到下一个端点。
         let used_permit = if gate {
-            let allow = st.breakers.allow_request(&ep.name, Instant::now());
+            let allow = st.breakers.allow_request(&ep.name, inbound, Instant::now());
             if !allow.allowed {
                 st.rotation.advance(n);
                 continue;
@@ -685,7 +746,7 @@ pub async fn handle_proxy(
                 };
                 if status == 200 {
                     // 成功：闭合熔断（半开恢复时回传许可）；转换则通知前端
-                    if st.breakers.record_success(&ep.name, used_permit) {
+                    if st.breakers.record_success(&ep.name, used_permit, inbound) {
                         st.stats.emit_health_changed();
                     }
                     // 真实 token 由各响应处理函数解析上游 usage 后记录
@@ -720,11 +781,21 @@ pub async fn handle_proxy(
                         st.breakers.record_neutral(&ep.name, used_permit)
                     }
                     rotation::Outcome::Retryable => {
+                        // 429 → 限流（短冷却，优先 Retry-After）；其余 → Broken（长冷却）
+                        let kind = if status == 429 {
+                            FailureKind::RateLimited {
+                                retry_after: parse_retry_after(resp.headers()),
+                            }
+                        } else {
+                            FailureKind::Broken
+                        };
                         if st.breakers.record_failure(
                             &ep.name,
                             used_permit,
                             Instant::now(),
                             &format!("HTTP {status}"),
+                            inbound,
+                            kind,
                         ) {
                             st.stats.emit_health_changed();
                         }
@@ -797,10 +868,17 @@ pub async fn handle_proxy(
             }
             Some(Err(e)) => {
                 let msg = e.to_string();
-                // 网络错误计入熔断（Retryable）；转换则通知前端
+                // 网络错误计入熔断（Retryable，Broken 长冷却）；转换则通知前端
                 if st
                     .breakers
-                    .record_failure(&ep.name, used_permit, Instant::now(), &msg)
+                    .record_failure(
+                        &ep.name,
+                        used_permit,
+                        Instant::now(),
+                        &msg,
+                        inbound,
+                        FailureKind::Broken,
+                    )
                 {
                     st.stats.emit_health_changed();
                 }
@@ -1113,8 +1191,9 @@ fn stream_transform_response(
 
 #[cfg(test)]
 mod tests {
-    use super::{empty_candidates_message, error_body_from_bytes, truncate_error_body};
+    use super::{empty_candidates_message, error_body_from_bytes, parse_retry_after, rate_limited_response, truncate_error_body};
     use axum::body::Bytes;
+    use axum::http::{HeaderMap, HeaderValue, StatusCode};
 
     #[test]
     fn empty_candidates_message_prefers_breaker_reason_over_model() {
@@ -1148,6 +1227,28 @@ mod tests {
         let body = truncate_error_body(&"测".repeat(2000));
         assert!(body.contains("已截断"));
         assert!(body.is_char_boundary(body.len()));
+    }
+
+    #[test]
+    fn parse_retry_after_reads_delta_seconds() {
+        let mut h = HeaderMap::new();
+        assert_eq!(parse_retry_after(&h), None);
+        h.insert(axum::http::header::RETRY_AFTER, HeaderValue::from_static("12"));
+        assert_eq!(parse_retry_after(&h), Some(std::time::Duration::from_secs(12)));
+        // 非数字 / HTTP-date 不解析 → None（ponytail: 暂不支持 HTTP-date）
+        let mut h2 = HeaderMap::new();
+        h2.insert(axum::http::header::RETRY_AFTER, HeaderValue::from_static("Wed, 21 Oct 2025 07:28:00 GMT"));
+        assert_eq!(parse_retry_after(&h2), None);
+    }
+
+    #[test]
+    fn rate_limited_response_is_429_with_retry_after() {
+        let resp = rate_limited_response(std::time::Duration::from_secs(7));
+        assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(
+            resp.headers().get(axum::http::header::RETRY_AFTER),
+            Some(&HeaderValue::from_static("7"))
+        );
     }
 }
 
