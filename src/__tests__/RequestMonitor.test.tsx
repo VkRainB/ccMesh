@@ -74,6 +74,28 @@ describe("RequestLogTable", () => {
     expect(screen.getAllByText("/v1/chat/completions")).toHaveLength(2);
   });
 
+  it("images 入站展示真实 path；旧行兜底 generations", () => {
+    const images: RequestLog = {
+      ...log,
+      id: 3,
+      inboundFormat: "images",
+      transformer: "openai",
+      inboundPath: "/v1/images/edits",
+      upstreamPath: "/v1/images/edits",
+    };
+    render(<RequestLogTable items={[images]} />);
+    expect(screen.getAllByText("/v1/images/edits")).toHaveLength(2);
+
+    const legacy: RequestLog = {
+      ...images,
+      id: 4,
+      inboundPath: "",
+      upstreamPath: "",
+    };
+    render(<RequestLogTable items={[legacy]} />);
+    expect(screen.getAllByText("/v1/images/generations").length).toBeGreaterThanOrEqual(2);
+  });
+
   it("成功行展示用时/首字", () => {
     render(<RequestLogTable items={[log]} />);
     expect(screen.getByText("0.12s")).toBeInTheDocument(); // 用时 120ms

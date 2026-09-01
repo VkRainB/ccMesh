@@ -11,7 +11,7 @@ meta:
 
 ## 入站路径与兼容矩阵
 
-网关按入站路径识别客户端协议：`/v1/messages` 为 Anthropic Messages，`/v1/chat/completions` 为 OpenAI Chat，`/v1/responses` 为 OpenAI Responses。
+网关按入站路径识别客户端协议：`/v1/messages` 为 Anthropic Messages，`/v1/chat/completions` 为 OpenAI Chat，`/v1/responses` 为 OpenAI Responses，`/v1/images/generations` 与 `/v1/images/edits` 为 OpenAI Images。
 
 ![API 格式转换矩阵](/screenshots/guide/07-api-matrix.png)
 
@@ -20,6 +20,8 @@ meta:
 | `/v1/messages` | Anthropic Messages | Claude Code、Claude CLI |
 | `/v1/chat/completions` | OpenAI Chat Completions | OpenAI SDK、OpenAI 兼容工具 |
 | `/v1/responses` | OpenAI Responses API | Codex CLI |
+| `/v1/images/generations` | OpenAI Images（文生图） | OpenAI SDK、兼容绘图工具 |
+| `/v1/images/edits` | OpenAI Images（图生图 / 蒙版） | OpenAI SDK、兼容绘图工具 |
 
 矩阵中的「不支持」不是静默失败：该类入站只在匹配的端点间选路，找不到匹配端点时直接返回 400。
 
@@ -28,6 +30,7 @@ meta:
 | Claude Code | √ 直通 | √ 转 Chat | √ 转 Responses | 全部启用 |
 | OpenAI 工具 | — | √ 直通 | — | 仅 OpenAI |
 | Codex CLI | — | √ 转 Chat | √ 直通 | Codex + OpenAI |
+| Images API | — | √ 直通 | √ 直通 | OpenAI + Codex |
 
 ## 转换时会发生什么
 

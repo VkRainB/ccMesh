@@ -209,12 +209,13 @@ function inferPath(format: string): string {
   if (format === "openai") return "/v1/chat/completions";
   if (format === "responses") return "/v1/responses";
   if (format === "claude") return "/v1/messages";
+  if (format === "images") return "/v1/images/generations";
   return "—";
 }
 
 /** 端点类型（transformer 优先，回退 inboundFormat）→ 品牌图标。
  *  transformer 值：claude / openai / openai_chat / openai2 / codex / openai_responses / openai-responses / ...
- *  inboundFormat 值：claude / openai / responses（旧行回退）。
+ *  inboundFormat 值：claude / openai / responses / images（旧行回退）。
  *  与端点卡片视觉一致：claude→Anthropic、openai 系→OpenAI、codex/responses 系→Codex。 */
 const ENDPOINT_ICON: Record<string, ComponentType<{ size?: number; className?: string }>> = {
   claude: Anthropic,
@@ -226,6 +227,7 @@ const ENDPOINT_ICON: Record<string, ComponentType<{ size?: number; className?: s
   responses: Codex.Color,
   "openai_responses": Codex.Color,
   "openai-responses": Codex.Color,
+  images: OpenAI,
 };
 const getEndpointIcon = (
   type: string | null | undefined,
