@@ -1,5 +1,6 @@
 pub mod claude;
 pub mod codex;
+pub mod zcode;
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -79,6 +80,16 @@ pub fn sync_all(conn: &Connection) -> UsageSyncResult {
     }
     for f in &codex_files {
         sync_file(conn, f, &mut result, |p| codex::parse_file(p));
+    }
+
+    // ZCode：~/.zcode/cli/db/db.sqlite（SQLite 单文件，不走 sync_file/mtime 增量）。
+    // 全量读 model_usage，按 record_key="zcode:<id>" 去重插入。
+    for rec in zcode::read_records(&zcode::default_db_path(&home)) {
+        match usage_repo::insert_record(conn, &rec) {
+            Ok(true) => result.imported += 1,
+            Ok(false) => {}
+            Err(_) => result.errors += 1,
+        }
     }
     result
 }

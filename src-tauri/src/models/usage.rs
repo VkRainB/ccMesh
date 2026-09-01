@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 /// 语义统一为「输入=非缓存提示 token，缓存读取/创建单列」，便于跨 app 汇总不重复计数。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct UsageRecord {
-    pub app_type: String,   // "claude" | "codex"
-    pub record_key: String, // 去重键（claude: message.id；codex: codex_session:<id>:<idx>）
+    pub app_type: String,   // "claude" | "codex" | "zcode"
+    pub record_key: String, // 去重键（claude: message.id；codex: codex_session:<id>:<idx>；zcode: zcode:<id>）
     pub date: String,       // YYYY-MM-DD（本地时区）
     pub ts: Option<i64>,    // 精确时间戳（Unix 毫秒）；源日志缺时间戳时为 None
     pub model: String,
