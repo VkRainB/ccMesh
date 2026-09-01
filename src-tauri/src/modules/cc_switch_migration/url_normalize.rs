@@ -13,6 +13,8 @@ fn strip_known_api_suffix(base: &str) -> &str {
         "/v1/chat/completions",
         "/v1/responses",
         "/v1/models",
+        "/v1/images/generations",
+        "/v1/images/edits",
     ];
     let lower = base.to_ascii_lowercase();
     for s in SUFFIXES {
@@ -110,6 +112,14 @@ mod tests {
         );
         assert_eq!(
             normalize_api_url_for_ccmesh("https://x.com/v1/models").unwrap(),
+            "https://x.com"
+        );
+        assert_eq!(
+            normalize_api_url_for_ccmesh("https://x.com/v1/images/generations").unwrap(),
+            "https://x.com"
+        );
+        assert_eq!(
+            normalize_api_url_for_ccmesh("https://x.com/v1/images/edits").unwrap(),
             "https://x.com"
         );
     }

@@ -78,6 +78,8 @@ fn is_known_business_path(path: &str) -> bool {
         "/v1/chat/completions",
         "/v1/responses",
         "/v1/models",
+        "/v1/images/generations",
+        "/v1/images/edits",
     ];
     // 代理根挂载：精确匹配即可；ends_with 会把 /evil/v1/messages 误判为已知。
     let lower = path.trim_end_matches('/').to_ascii_lowercase();
@@ -184,6 +186,18 @@ mod tests {
         );
         assert_eq!(categorize_status(404, "/v1/responses"), Outcome::Retryable);
         assert_eq!(categorize_status(404, "/v1/models"), Outcome::Retryable);
+        assert_eq!(
+            categorize_status(404, "/v1/images/generations"),
+            Outcome::Retryable
+        );
+        assert_eq!(
+            categorize_status(404, "/v1/images/edits"),
+            Outcome::Retryable
+        );
+        assert_eq!(
+            categorize_status(404, "/v1/images/variations"),
+            Outcome::NonRetryable
+        );
         // 尾斜杠 / 大小写仍视为已知
         assert_eq!(categorize_status(404, "/v1/messages/"), Outcome::Retryable);
         assert_eq!(categorize_status(404, "/V1/Messages"), Outcome::Retryable);
