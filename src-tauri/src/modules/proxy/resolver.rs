@@ -171,6 +171,23 @@ pub fn filter_by_model(enabled: &[Endpoint], model: Option<&str>) -> Vec<Endpoin
     }
 }
 
+/// 严格按模型过滤（不回退全量）：只保留声明该模型的端点。
+/// 返回 `Some(vec)` 表示已按模型过滤（vec 可能为空 = 无端点声明）；返回 `None` 表示无模型信号（调用方自行决定）。
+/// 供 Images 入站使用：避免把图片请求送到未声明该图片模型的不兼容端点。
+pub fn filter_by_model_strict(enabled: &[Endpoint], model: Option<&str>) -> Option<Vec<Endpoint>> {
+    let m = match model {
+        Some(m) if !m.trim().is_empty() => m.trim(),
+        _ => return None,
+    };
+    Some(
+        enabled
+            .iter()
+            .filter(|e| advertised_models(e).iter().any(|mm| mm.trim().eq_ignore_ascii_case(m)))
+            .cloned()
+            .collect(),
+    )
+}
+
 /// 跨端点聚合的对外公布模型去重（大小写不敏感，保留首次出现）。
 /// 入参 `(模型名, 端点名)`；多个端点公布同名模型时只保留首次出现项，
 /// 使 `/v1/models` 与对外可用模型列表口径一致。
@@ -331,6 +348,25 @@ mod tests {
         let eps = vec![ep_with_models("max", &["claude-opus-4-8"]), ep("bare")];
         assert_eq!(filter_by_model(&eps, None).len(), 2);
         assert_eq!(filter_by_model(&eps, Some("  ")).len(), 2);
+    }
+
+    #[test]
+    fn filter_by_model_strict_no_fallback_no_signal() {
+        let eps = vec![
+            ep_with_models("cc", &["mimo-v2.5-pro"]),
+            ep_with_models("img", &["gpt-image-2"]),
+            ep("bare"),
+        ];
+        // 有声明端点 → 只留声明者，不回退全量
+        let got = filter_by_model_strict(&eps, Some("gpt-image-2")).unwrap();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].name, "img");
+        // 无端点声明 → 空 vec（调用方据此 400），不回退全量
+        let got = filter_by_model_strict(&eps, Some("unknown")).unwrap();
+        assert!(got.is_empty());
+        // 无模型信号 → None（调用方自行决定）
+        assert!(filter_by_model_strict(&eps, None).is_none());
+        assert!(filter_by_model_strict(&eps, Some("  ")).is_none());
     }
 
     fn ep_mapped(name: &str, models: &[&str], mappings: &[(&str, &str)]) -> Endpoint {

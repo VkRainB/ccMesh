@@ -14,7 +14,8 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
 use crate::models::endpoint::Endpoint;
-use crate::modules::proxy::circuit_breaker::{self, BreakerRegistry, FailureKind, InboundKind};
+use crate::modules::proxy::circuit_breaker::{self, BreakerRegistry, FailureKind};
+use crate::modules::proxy::inbound::InboundProtocol;
 use crate::modules::proxy::resolver;
 use crate::modules::proxy::rotation::{self, Rotation};
 use crate::modules::stats::aggregator::{RequestRecord, StatsAggregator};
@@ -269,6 +270,41 @@ fn urldecode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+/// 从 multipart/form-data body 只读抽取 `name="model"` 文本字段的值，用于路由过滤与日志。
+/// body 仍原字节转发，不解析也不改动任何 part。ponytail: 按 Content-Type 的 boundary 切分，
+/// 只匹配 header 含 `name="model"` 且不含 `filename=` 的文本 part；不引入 multipart 依赖。
+/// 升级路径：换 multer / axum-multipart 做完整 form 解析。
+fn extract_multipart_model(content_type: Option<&str>, body: &Bytes) -> Option<String> {
+    let boundary = content_type?
+        .split(';')
+        .map(str::trim)
+        .find_map(|p| p.strip_prefix("boundary=").map(|b| b.trim_matches('"')))
+        .filter(|b| !b.is_empty())?;
+    let delim = format!("--{boundary}");
+    let needle = delim.as_bytes();
+    let mut rest = body.as_ref();
+    while let Some(idx) = rest.windows(needle.len()).position(|w| w == needle) {
+        rest = &rest[idx + needle.len()..];
+        if rest.starts_with(b"--") {
+            break; // 结束边界 --boundary--
+        }
+        let part = rest.strip_prefix(b"\r\n").unwrap_or(rest);
+        let sep = part.windows(4).position(|w| w == b"\r\n\r\n")?;
+        let headers = &part[..sep];
+        let value = &part[sep + 4..];
+        let end = value.windows(2).position(|w| w == b"\r\n").unwrap_or(value.len());
+        let headers = std::str::from_utf8(headers).ok()?;
+        // 文本 part：含 name="model" 且非文件
+        if headers.contains("name=\"model\"") && !headers.contains("filename=") {
+            return std::str::from_utf8(&value[..end])
+                .ok()
+                .map(|s| s.trim().to_string());
+        }
+        rest = &part[end..];
+    }
+    None
+}
+
 /// 主代理处理器：解析端点 → 轮换/故障转移重试 → 转发上游 → 直通响应。
 pub async fn handle_proxy(
     State(st): State<Arc<ProxyState>>,
@@ -284,7 +320,14 @@ pub async fn handle_proxy(
     let mut body_json: Option<Value> = serde_json::from_slice(&body).ok();
     let model: Option<String> = body_json
         .as_ref()
-        .and_then(|v| v.get("model").and_then(|m| m.as_str()).map(String::from));
+        .and_then(|v| v.get("model").and_then(|m| m.as_str()).map(String::from))
+        .or_else(|| {
+            // 非 JSON（如 Images 的 multipart/form-data）：从 form 字段只读抽 model 供路由/日志，body 原样转发。
+            extract_multipart_model(
+                headers.get("content-type").and_then(|v| v.to_str().ok()),
+                &body,
+            )
+        });
     let client_wants_stream = body_json
         .as_ref()
         .and_then(|v| v.get("stream").and_then(|s| s.as_bool()))
@@ -340,63 +383,14 @@ pub async fn handle_proxy(
         return json_error(StatusCode::SERVICE_UNAVAILABLE, "没有启用的端点");
     }
 
-    // 入站格式识别：/v1/chat/completions = OpenAI Chat 入站；/v1/responses = Responses 入站（codex）。
-    let inbound_openai = path.contains("/chat/completions");
-    let inbound_responses = path.contains("/responses");
-    let enabled: Vec<Endpoint> = if inbound_openai {
-        // OpenAI Chat 入站只透传到 OpenAI 端点，故候选过滤为 transformer=openai；为空则 400。
-        let filtered: Vec<Endpoint> = enabled
-            .into_iter()
-            .filter(|e| {
-                matches!(
-                    UpstreamFormat::from_transformer_name(&e.transformer),
-                    UpstreamFormat::OpenAiChat
-                )
-            })
-            .collect();
-        if filtered.is_empty() {
-            return json_error(
-                StatusCode::BAD_REQUEST,
-                "OpenAI 入站(/v1/chat/completions)无可用的 OpenAI 端点",
-            );
-        }
-        filtered
-    } else if inbound_responses {
-        // Responses 入站：codex 端点透传、openai 端点转 Chat。候选 = codex + openai，为空则 400。
-        let filtered: Vec<Endpoint> = enabled
-            .into_iter()
-            .filter(|e| {
-                matches!(
-                    UpstreamFormat::from_transformer_name(&e.transformer),
-                    UpstreamFormat::OpenAiResponses | UpstreamFormat::OpenAiChat
-                )
-            })
-            .collect();
-        if filtered.is_empty() {
-            return json_error(
-                StatusCode::BAD_REQUEST,
-                "Responses 入站(/v1/responses)无可用的 codex/openai 端点",
-            );
-        }
-        filtered
-    } else {
-        enabled
+    // 入站协议：path 启发式。Chat / Responses / Images 各自过滤候选；其余当 Claude。
+    let protocol = InboundProtocol::detect(&path);
+    let enabled: Vec<Endpoint> = match protocol.filter_candidates(enabled) {
+        Ok(list) => list,
+        Err(msg) => return json_error(StatusCode::BAD_REQUEST, msg),
     };
-
-    let inbound_label = if inbound_openai {
-        "openai"
-    } else if inbound_responses {
-        "responses"
-    } else {
-        "claude"
-    };
-    let inbound = if inbound_openai {
-        InboundKind::OpenAi
-    } else if inbound_responses {
-        InboundKind::Responses
-    } else {
-        InboundKind::Claude
-    };
+    let inbound_label = protocol.label();
+    let inbound = protocol.kind();
     tracing::debug!(
         path = %path,
         inbound = inbound_label,
@@ -416,6 +410,19 @@ pub async fn handle_proxy(
     // 无任一端点声明该模型则回退全量（向后兼容）。显式指定端点遵从用户意图，不过滤。
     let enabled: Vec<Endpoint> = if use_specific {
         enabled
+    } else if protocol.is_images() {
+        // Images 入站严格按模型过滤：无端点声明该图片模型时不回退全量，直接 400，
+        // 避免把图片请求送到不支持图片的端点（如仅 chat 模型的 openai 兼容端点）。
+        match resolver::filter_by_model_strict(&enabled, model.as_deref()) {
+            Some(declared) if !declared.is_empty() => declared,
+            Some(_) => {
+                return json_error(
+                    StatusCode::BAD_REQUEST,
+                    "没有端点声明支持该图片模型，请在端点模型清单中配置该模型",
+                );
+            }
+            None => enabled, // multipart 抽取失败等无模型信号：按现有行为全量候选
+        }
     } else {
         let filtered = resolver::filter_by_model(&enabled, model.as_deref());
 
@@ -590,14 +597,12 @@ pub async fn handle_proxy(
         // 出站模型解析：入站名命中映射 → 出站名；否则锁定 model；否则透传（空串）。
         let outbound_model = resolver::resolve_outbound(&ep, model.as_deref()).unwrap_or_default();
         // 转换场景（互斥）：Claude 入站+OpenAI 端点 → Claude↔Chat；Claude 入站+codex 端点 → Claude↔Responses；
-        // Responses 入站+OpenAI 端点 → Responses↔Chat；Responses 入站+codex 端点 → 透传（仅改 model）；
-        // 其余（OpenAI 入站透传、Claude 直通）不转换。
-        let needs_transform =
-            !inbound_openai && !inbound_responses && matches!(format, UpstreamFormat::OpenAiChat);
-        let claude_to_responses = !inbound_openai
-            && !inbound_responses
-            && matches!(format, UpstreamFormat::OpenAiResponses);
-        let responses_to_chat = inbound_responses && matches!(format, UpstreamFormat::OpenAiChat);
+        // Responses 入站+OpenAI 端点 → Responses↔Chat；其余（含 Images 入站、Chat 直通、Claude 直通）passthrough。
+        let needs_transform = protocol.is_claude() && matches!(format, UpstreamFormat::OpenAiChat);
+        let claude_to_responses =
+            protocol.is_claude() && matches!(format, UpstreamFormat::OpenAiResponses);
+        let responses_to_chat =
+            protocol.is_responses() && matches!(format, UpstreamFormat::OpenAiChat);
         let attempt_body: Bytes = if needs_transform {
             // Claude → OpenAI（transform_request 内部按出站模型覆盖，空则透传客户端 model）
             match &body_json {
@@ -739,14 +744,7 @@ pub async fn handle_proxy(
                 let meta = RequestMeta {
                     endpoint: ep.name.clone(),
                     model: model.clone(),
-                    inbound_format: (if inbound_openai {
-                        "openai"
-                    } else if inbound_responses {
-                        "responses"
-                    } else {
-                        "claude"
-                    })
-                    .to_string(),
+                    inbound_format: inbound_label.to_string(),
                     transformer: Some(ep.transformer.clone()),
                     upstream_url: ep.api_url.clone(),
                     inbound_path: path.clone(),
@@ -1201,8 +1199,8 @@ fn stream_transform_response(
 #[cfg(test)]
 mod tests {
     use super::{
-        empty_candidates_message, error_body_from_bytes, parse_retry_after, rate_limited_response,
-        truncate_error_body,
+        empty_candidates_message, error_body_from_bytes, extract_multipart_model,
+        parse_retry_after, rate_limited_response, truncate_error_body,
     };
     use axum::body::Bytes;
     use axum::http::{HeaderMap, HeaderValue, StatusCode};
@@ -1270,6 +1268,35 @@ mod tests {
             resp.headers().get(axum::http::header::RETRY_AFTER),
             Some(&HeaderValue::from_static("7"))
         );
+    }
+
+    #[test]
+    fn extract_multipart_model_reads_model_field() {
+        let body = b"------WebKitFormBoundaryGr4eiRUHYpRjCgTK\r\n\
+Content-Disposition: form-data; name=\"model\"\r\n\
+\r\n\
+gpt-image-2\r\n\
+------WebKitFormBoundaryGr4eiRUHYpRjCgTK\r\n\
+Content-Disposition: form-data; name=\"prompt\"\r\n\
+\r\n\
+hello\r\n\
+------WebKitFormBoundaryGr4eiRUHYpRjCgTK\r\n\
+Content-Disposition: form-data; name=\"image\"; filename=\"reference-0.png\"\r\n\
+Content-Type: image/png\r\n\
+\r\n\
+\x89PNG\r\n\x1a\nbinary-not-model\r\n\
+------WebKitFormBoundaryGr4eiRUHYpRjCgTK--\r\n";
+        let ct = "multipart/form-data; boundary=----WebKitFormBoundaryGr4eiRUHYpRjCgTK";
+        assert_eq!(
+            extract_multipart_model(Some(ct), &Bytes::from_static(body)),
+            Some("gpt-image-2".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_multipart_model_returns_none_without_boundary_or_field() {
+        assert!(extract_multipart_model(Some("application/json"), &Bytes::from_static(b"{}")).is_none());
+        assert!(extract_multipart_model(None, &Bytes::from_static(b"")).is_none());
     }
 }
 
