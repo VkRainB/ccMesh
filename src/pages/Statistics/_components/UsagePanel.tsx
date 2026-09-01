@@ -18,6 +18,7 @@ const APP_TABS: { key: UsageAppFilter; label: string }[] = [
   { key: "all", label: "全部" },
   { key: "claude", label: "Claude Code" },
   { key: "codex", label: "Codex" },
+  { key: "zcode", label: "ZCode" },
 ];
 
 const fmt = (n: number) => n.toLocaleString();
@@ -25,6 +26,7 @@ const fmt = (n: number) => n.toLocaleString();
 function appLabel(app: string): string {
   if (app === "claude") return "Claude Code";
   if (app === "codex") return "Codex";
+  if (app === "zcode") return "ZCode";
   return app;
 }
 
