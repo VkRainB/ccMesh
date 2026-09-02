@@ -1,6 +1,6 @@
 [package]
 name = "ccmesh"
-version = "0.2.5"
+version = "0.2.6"
 description = "LLM Desktop Gateway"
 authors = ["vkRain"]
 edition = "2021"
