@@ -51,6 +51,7 @@ import {
   endpointApi,
   outboundModels,
   type Endpoint,
+  type EndpointTestResult,
 } from "@/services/modules/endpoint";
 import { circuitBadgeLabel, type EndpointHealth } from "@/services/modules/health";
 import type { EndpointView } from "@/stores";
@@ -58,6 +59,70 @@ import { ModelMappingDialog } from "./ModelMappingDialog";
 import { TestBadge } from "./TestBadge";
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+function formatTestDetail(detail: string): string {
+  try {
+    return JSON.stringify(JSON.parse(detail), null, 2);
+  } catch {
+    return detail;
+  }
+}
+
+function TestResultDialog({
+  name,
+  result,
+  onClose,
+}: {
+  name: string;
+  result: EndpointTestResult | null;
+  onClose: () => void;
+}) {
+  const detail = result?.detail?.trim() ?? "";
+  const formatted = detail ? formatTestDetail(detail) : "";
+  const copy = () =>
+    (navigator.clipboard?.writeText(formatted) ?? Promise.reject())
+      .then(() => toast.success("已复制"))
+      .catch(() => toast.error("复制失败"));
+
+  return (
+    <Dialog open={result != null} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle>连通性测试</DialogTitle>
+        </DialogHeader>
+        {result ? (
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              <TestBadge status={result.status} />
+              {result.httpStatus != null ? (
+                <span className="tabular-nums text-ink-secondary">
+                  HTTP {result.httpStatus}
+                </span>
+              ) : null}
+              <span className="tabular-nums text-ink-secondary">{result.latencyMs}ms</span>
+            </div>
+            <p className={result.success ? "text-sm" : "text-sm text-destructive"}>
+              {name}：{result.message}
+            </p>
+            {formatted ? (
+              <pre className="scrollbar-none max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md border border-edge-subtle p-3 font-mono text-xs text-ink-secondary">
+                {formatted}
+              </pre>
+            ) : null}
+          </div>
+        ) : null}
+        <DialogFooter>
+          {formatted ? (
+            <Button variant="outline" onClick={copy}>
+              复制原文
+            </Button>
+          ) : null}
+          <Button onClick={onClose}>关闭</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 /** 端点 transformer 类型 → 品牌图标（claude→Anthropic、openai→OpenAI、codex→Codex）。OpenAI 无 Color 用默认 Mono，其余用彩色。 */
 const TRANSFORMER_ICON: Record<string, ComponentType<{ size?: number; className?: string }>> = {
@@ -149,6 +214,7 @@ export function EndpointCard({
   );
   const TransformerIcon = getTransformerIcon(endpoint.transformer);
   const [testOpen, setTestOpen] = useState(false);
+  const [testResult, setTestResult] = useState<EndpointTestResult | null>(null);
   const [mapOpen, setMapOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   // 布局切换后等一帧再启用 transition，避免切换瞬间因 group-hover 触发过渡动画。
@@ -178,13 +244,11 @@ export function EndpointCard({
   const test = useMutation({
     mutationFn: (model?: string) => endpointApi.test(endpoint.id, model),
     onSuccess: (r) => {
+      setTestResult(r);
       if (r.success) {
-        toast.success(`${endpoint.name}：${r.message} (${r.latencyMs}ms)`);
         // 测试成功：主动失效健康态，让卡片即时显示可用、熔断 Badge 消失
         // （后端也会 emit endpoint-health-changed；此处覆盖代理未运行、靠 test_status 回退的场景）
         qc.invalidateQueries({ queryKey: ["endpoint-health"] });
-      } else {
-        toast.error(`${endpoint.name}：${r.message}`);
       }
       invalidate();
     },
@@ -380,6 +444,11 @@ export function EndpointCard({
       </IconAction>
       {moreMenu}
       <ModelMappingDialog open={mapOpen} onOpenChange={setMapOpen} endpoint={endpoint} />
+      <TestResultDialog
+        name={endpoint.name}
+        result={testResult}
+        onClose={() => setTestResult(null)}
+      />
     </div>
   );
 

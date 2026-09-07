@@ -111,6 +111,8 @@ export interface EndpointTestResult {
   status: string;
   latencyMs: number;
   message: string;
+  httpStatus?: number | null;
+  detail?: string;
 }
 
 export const endpointApi = {
