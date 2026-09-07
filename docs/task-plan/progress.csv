@@ -168,3 +168,4 @@ Phase2,会话管理,2029.4,验收 check 与自修,fullstack,2029.3,会话管理,
 规划,Images入站直转发,2033.2,rotation KNOWN+url_normalize SUFFIXES+单测,后端,2033.1,7,完成,claude,2026-09-01,2026-09-01,
 规划,Images入站直转发,2033.3,RequestMonitor inferPath/图标+协议文档矩阵,前端,2033.1,6,完成,claude,2026-09-01,2026-09-01,
 规划,Images入站直转发,2033.4,回归cargo test+Chat/Responses不被破坏,全栈,2033.1;2033.2;2033.3,1;2;3,完成,claude,2026-09-01,2026-09-01,
+修复,,2034,流式请求300s截断修复(issue#13),后端,,issue#13,完成,claude,2026-09-07,2026-09-07,去掉client总超时+空闲超时+错误传播+失败标记+测试
