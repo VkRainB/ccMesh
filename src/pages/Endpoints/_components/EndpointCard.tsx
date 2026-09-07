@@ -44,6 +44,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
+import { TabularText } from "@/components/ui";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useEndpointHealth } from "@/hooks/useEndpointHealth";
 import { getModelIcon } from "@/lib/model-icons";
@@ -77,15 +78,20 @@ function testReplyText(result: EndpointTestResult): string {
   return extractTestError(result.detail) ?? fallback;
 }
 
+function testStatusCode(result: EndpointTestResult): string {
+  return result.httpStatus != null ? `HTTP ${result.httpStatus}` : "—";
+}
+
 function formatTestLog(
   name: string,
   model: string,
   result: EndpointTestResult,
 ): string {
   return [
-    `开始测试账号：${name}`,
+    `测试端点：${name}`,
     `使用模型：${model}`,
     `发送测试消息："${ENDPOINT_TEST_MESSAGE}"`,
+    `响应码：${testStatusCode(result)}`,
     "响应：",
     testReplyText(result),
     result.success ? "✓ 测试完成！" : "✗ 测试失败",
@@ -118,7 +124,7 @@ function TestResultDialog({
           <DialogTitle>连通性测试</DialogTitle>
         </DialogHeader>
         {result ? (
-          <div className="relative rounded-md bg-surface-raised p-4 font-mono text-[13px] leading-7">
+          <div className="relative rounded-lg border border-edge-subtle bg-surface-raised p-4 text-sm leading-6">
             <Button
               size="icon"
               variant="ghost"
@@ -129,17 +135,26 @@ function TestResultDialog({
               <CopyIcon className="size-3.5" />
             </Button>
             <p>
-              <span className="text-info">开始测试账号：</span>
-              <span className="text-info">{name}</span>
+              <span className="text-ink-secondary">测试端点：</span>
+              <span className="text-ink-primary">{name}</span>
             </p>
             <p>
-              <span className="text-ink-mute">使用模型：</span>
-              <span className="text-info">{model}</span>
+              <span className="text-ink-secondary">使用模型：</span>
+              <span className="text-ink-primary">{model}</span>
             </p>
-            <p className="text-ink-mute">
-              发送测试消息："{ENDPOINT_TEST_MESSAGE}"
+            <p>
+              <span className="text-ink-secondary">发送测试消息：</span>
+              <span className="text-ink-primary">"{ENDPOINT_TEST_MESSAGE}"</span>
             </p>
-            <p className="text-warning">响应：</p>
+            <p>
+              <span className="text-ink-secondary">响应码：</span>
+              <TabularText className="text-ink-primary">
+                {testStatusCode(result)}
+              </TabularText>
+            </p>
+            <p>
+              <span className="text-ink-secondary">响应：</span>
+            </p>
             <p
               className={
                 result.success
@@ -149,11 +164,11 @@ function TestResultDialog({
             >
               {testReplyText(result)}
             </p>
-            <div className="mt-3 flex items-center gap-1.5 border-t border-edge-subtle pt-3">
+            <div className="mt-3 flex items-center gap-1.5 border-t border-edge pt-3">
               {result.success ? (
                 <>
                   <CheckIcon className="size-3.5 text-success" />
-                  <span className="text-success">测试完成！</span>
+                  <span className="text-success">测试完成</span>
                 </>
               ) : (
                 <>
@@ -161,7 +176,7 @@ function TestResultDialog({
                   <span className="text-destructive">测试失败</span>
                 </>
               )}
-              <span className="tabular-nums text-ink-mute">{result.latencyMs}ms</span>
+              <TabularText className="text-ink-mute">{result.latencyMs}ms</TabularText>
             </div>
           </div>
         ) : null}
