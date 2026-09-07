@@ -116,7 +116,7 @@ export interface EndpointTestResult {
 }
 
 /** 探测请求固定文案，与后端 test_endpoint payload 一致。 */
-export const ENDPOINT_TEST_MESSAGE = "ping";
+export const ENDPOINT_TEST_MESSAGE = "hi";
 
 function nonempty(v: unknown): string | undefined {
   return typeof v === "string" && v.trim() ? v : undefined;
@@ -125,45 +125,79 @@ function nonempty(v: unknown): string | undefined {
 function joinTextParts(parts: unknown): string | undefined {
   if (!Array.isArray(parts)) return undefined;
   const t = parts
-    .map((p) =>
-      p && typeof p === "object" && "text" in p
-        ? nonempty((p as { text: unknown }).text)
-        : undefined,
-    )
+    .map((p) => {
+      if (typeof p === "string") return nonempty(p);
+      if (p && typeof p === "object" && "text" in p) {
+        return nonempty((p as { text: unknown }).text);
+      }
+      return undefined;
+    })
     .filter((s): s is string => !!s)
     .join("");
   return t || undefined;
 }
 
+function extractFromJson(v: Record<string, unknown>): string | undefined {
+  const choice = Array.isArray(v.choices) ? v.choices[0] : undefined;
+  if (choice && typeof choice === "object") {
+    const c = choice as {
+      message?: { content?: unknown; reasoning_content?: unknown };
+      text?: unknown;
+      delta?: { content?: unknown };
+    };
+    const s =
+      nonempty(c.message?.content) ??
+      joinTextParts(c.message?.content) ??
+      nonempty(c.text) ??
+      nonempty(c.delta?.content) ??
+      nonempty(c.message?.reasoning_content);
+    if (s) return s;
+  }
+  const claude = joinTextParts(v.content);
+  if (claude) return claude;
+  const outputText = nonempty(v.output_text);
+  if (outputText) return outputText;
+  if (Array.isArray(v.output)) {
+    const chunks: string[] = [];
+    for (const item of v.output) {
+      if (!item || typeof item !== "object") continue;
+      const content = (item as { content?: unknown }).content;
+      const s = nonempty(content) ?? joinTextParts(content);
+      if (s) chunks.push(s);
+    }
+    if (chunks.length) return chunks.join("");
+  }
+  return undefined;
+}
+
+function extractFromSse(detail: string): string | undefined {
+  const chunks: string[] = [];
+  for (const line of detail.split(/\r?\n/)) {
+    const data = line.startsWith("data:") ? line.slice(5).trim() : "";
+    if (!data || data === "[DONE]") continue;
+    try {
+      const v = JSON.parse(data) as Record<string, unknown>;
+      const s = extractFromJson(v);
+      if (s) chunks.push(s);
+    } catch {
+      /* 单行坏 JSON 跳过 */
+    }
+  }
+  return chunks.length ? chunks.join("") : undefined;
+}
+
 /** 从探测正文抽出助手回复文本，不保留 JSON 结构。 */
 export function extractTestReply(detail?: string | null): string | undefined {
   if (!detail?.trim()) return undefined;
+  const trimmed = detail.trim();
+  if (/(?:^|\n)data:/.test(trimmed)) {
+    const sse = extractFromSse(trimmed);
+    if (sse) return sse;
+  }
   try {
-    const v = JSON.parse(detail) as Record<string, unknown>;
-    const choice = Array.isArray(v.choices) ? v.choices[0] : undefined;
-    if (choice && typeof choice === "object") {
-      const content = (choice as { message?: { content?: unknown } }).message
-        ?.content;
-      const s = nonempty(content) ?? joinTextParts(content);
-      if (s) return s;
-    }
-    const claude = joinTextParts(v.content);
-    if (claude) return claude;
-    const outputText = nonempty(v.output_text);
-    if (outputText) return outputText;
-    if (Array.isArray(v.output)) {
-      const chunks: string[] = [];
-      for (const item of v.output) {
-        if (!item || typeof item !== "object") continue;
-        const content = (item as { content?: unknown }).content;
-        const s = nonempty(content) ?? joinTextParts(content);
-        if (s) chunks.push(s);
-      }
-      if (chunks.length) return chunks.join("");
-    }
-    return undefined;
+    return extractFromJson(JSON.parse(trimmed) as Record<string, unknown>);
   } catch {
-    return detail.length <= 400 ? detail : undefined;
+    return trimmed.length <= 400 ? trimmed : undefined;
   }
 }
 

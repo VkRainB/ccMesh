@@ -128,6 +128,26 @@ describe("extractTestReply 只取回复文本", () => {
   it("非 JSON 短正文原样返回", () => {
     expect(extractTestReply("plain pong")).toBe("plain pong");
   });
+
+  it("SSE delta 拼接，与对话抽法一致", () => {
+    expect(
+      extractTestReply(
+        'data: {"choices":[{"delta":{"content":"Hi"}}]}\n\ndata: {"choices":[{"delta":{"content":"!"}}]}\n\ndata: [DONE]\n',
+      ),
+    ).toBe("Hi!");
+  });
+
+  it("content 为空时回退 reasoning_content", () => {
+    expect(
+      extractTestReply(
+        JSON.stringify({
+          choices: [
+            { message: { content: "", reasoning_content: "thinking only" } },
+          ],
+        }),
+      ),
+    ).toBe("thinking only");
+  });
 });
 
 describe("extractTestError", () => {

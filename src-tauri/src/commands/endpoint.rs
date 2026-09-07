@@ -228,31 +228,39 @@ pub async fn test_endpoint(
     });
     let model = model_str.as_str();
 
+    // 与对话页同一条「hi」；max_tokens 过小（如 16）时推理模型会把额度吃完，content 为空。
+    const TEST_PROMPT: &str = "hi";
     let (url, body) = match format {
         UpstreamFormat::OpenAiChat => (
             join_upstream_url(&ep.api_url, "/v1/chat/completions"),
             json!({
-                "model": model, "max_tokens": 16,
-                "messages": [{ "role": "user", "content": "ping" }]
+                "model": model,
+                "max_tokens": 1024,
+                "stream": false,
+                "messages": [{ "role": "user", "content": TEST_PROMPT }]
             }),
         ),
         UpstreamFormat::OpenAiResponses => (
             join_upstream_url(&ep.api_url, "/v1/responses"),
             json!({
-                "model": model, "max_output_tokens": 16,
-                "input": "ping"
+                "model": model,
+                "max_output_tokens": 1024,
+                "input": TEST_PROMPT
             }),
         ),
         UpstreamFormat::Claude => (
             join_upstream_url(&ep.api_url, "/v1/messages"),
             json!({
-                "model": model, "max_tokens": 16,
-                "messages": [{ "role": "user", "content": "ping" }]
+                "model": model,
+                "max_tokens": 1024,
+                "stream": false,
+                "messages": [{ "role": "user", "content": TEST_PROMPT }]
             }),
         ),
     };
     let builder = ProbeAuth::primary_for(&ep.transformer)
         .apply(client.post(&url), &ep.api_key)
+        .header("accept", "application/json")
         .json(&body);
 
     let start = Instant::now();

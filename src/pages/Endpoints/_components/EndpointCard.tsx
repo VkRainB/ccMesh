@@ -1,15 +1,18 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   ActivityIcon,
   ArchiveIcon,
   CheckIcon,
+  ChevronDownIcon,
   CopyIcon,
   EllipsisVerticalIcon,
   GripVerticalIcon,
   PencilIcon,
+  SearchIcon,
   Trash2Icon,
+  TriangleAlertIcon,
   WaypointsIcon,
   XIcon,
 } from "lucide-react";
@@ -79,7 +82,11 @@ function testReplyText(result: EndpointTestResult): string {
 }
 
 function testStatusCode(result: EndpointTestResult): string {
-  return result.httpStatus != null ? `HTTP ${result.httpStatus}` : "—";
+  return result.httpStatus != null ? `HTTP ${result.httpStatus}` : "";
+}
+
+function formatTestSeconds(ms: number): string {
+  return `${(ms / 1000).toFixed(1)}s`;
 }
 
 function formatTestLog(
@@ -90,25 +97,147 @@ function formatTestLog(
   return [
     `测试端点：${name}`,
     `使用模型：${model}`,
-    `发送测试消息："${ENDPOINT_TEST_MESSAGE}"`,
+    `发送消息："${ENDPOINT_TEST_MESSAGE}"`,
     `响应码：${testStatusCode(result)}`,
-    "响应：",
     testReplyText(result),
     result.success ? "✓ 测试完成！" : "✗ 测试失败",
   ].join("\n");
 }
 
+function useTypedFill(full: string, token: string) {
+  const [shown, setShown] = useState("");
+  useEffect(() => {
+    setShown("");
+    if (!full) return;
+    let i = 0;
+    const step = Math.max(1, Math.ceil(full.length / 72));
+    const id = window.setInterval(() => {
+      i = Math.min(full.length, i + step);
+      setShown(full.slice(0, i));
+      if (i >= full.length) window.clearInterval(id);
+    }, 20);
+    return () => window.clearInterval(id);
+  }, [full, token]);
+  return shown;
+}
+
+function TestModelPicker({
+  value,
+  options,
+  disabled,
+  onChange,
+}: {
+  value: string;
+  options: string[];
+  disabled?: boolean;
+  onChange: (v: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDocDown = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDocDown);
+    return () => document.removeEventListener("mousedown", onDocDown);
+  }, [open]);
+  const q = query.trim().toLowerCase();
+  const list = q ? options.filter((o) => o.toLowerCase().includes(q)) : options;
+
+  return (
+    <div ref={rootRef} className="relative">
+      <p className="mb-1.5 text-sm text-ink-secondary">选择测试模型</p>
+      <button
+        type="button"
+        disabled={disabled || options.length === 0}
+        onClick={() => {
+          setQuery("");
+          setOpen((o) => !o);
+        }}
+        className="flex h-9 w-full items-center justify-between rounded-lg border border-primary/40 bg-background px-3 text-left text-sm text-ink-primary disabled:opacity-50"
+      >
+        <span className="truncate">{value || "选择模型"}</span>
+        <ChevronDownIcon
+          className={cn("size-4 shrink-0 text-ink-mute", open && "rotate-180")}
+        />
+      </button>
+      {open ? (
+        <div className="absolute z-50 mt-1 w-full overflow-hidden rounded-lg border border-edge bg-popover shadow-md">
+          <div className="flex items-center gap-1.5 border-b border-edge px-2.5 py-1.5">
+            <SearchIcon className="size-3.5 shrink-0 text-ink-mute" />
+            <input
+              autoFocus
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="搜索..."
+              className="w-full bg-transparent text-sm text-ink-primary outline-none placeholder:text-ink-mute"
+            />
+          </div>
+          <ul className="max-h-48 overflow-auto py-1">
+            {list.length === 0 ? (
+              <li className="px-3 py-2 text-center text-xs text-ink-mute">
+                无匹配模型
+              </li>
+            ) : (
+              list.map((opt) => (
+                <li key={opt}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onChange(opt);
+                      setOpen(false);
+                    }}
+                    className={cn(
+                      "flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-sm hover:bg-surface-hover",
+                      opt === value
+                        ? "bg-surface-hover text-ink-primary"
+                        : "text-ink-secondary",
+                    )}
+                  >
+                    <span className="truncate">{opt}</span>
+                    {opt === value ? (
+                      <CheckIcon className="size-3.5 shrink-0 text-primary" />
+                    ) : null}
+                  </button>
+                </li>
+              ))
+            )}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function TestResultDialog({
+  open,
   name,
   model,
+  models,
   result,
+  pending,
+  onSelectModel,
+  onRetry,
   onClose,
 }: {
+  open: boolean;
   name: string;
   model: string;
+  models: string[];
   result: EndpointTestResult | null;
+  pending: boolean;
+  onSelectModel: (model: string) => void;
+  onRetry: () => void;
   onClose: () => void;
 }) {
+  const full = result && !pending ? testReplyText(result) : "";
+  const token = result && !pending ? `${result.latencyMs}:${full}` : "pending";
+  const typed = useTypedFill(full, token);
+
   const copy = () => {
     if (!result) return;
     const text = formatTestLog(name, model, result);
@@ -118,70 +247,95 @@ function TestResultDialog({
   };
 
   return (
-    <Dialog open={result != null} onOpenChange={(open) => { if (!open) onClose(); }}>
+    <Dialog open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>连通性测试</DialogTitle>
         </DialogHeader>
-        {result ? (
-          <div className="relative rounded-lg border border-edge-subtle bg-surface-raised p-4 text-sm leading-6">
-            <Button
-              size="icon"
-              variant="ghost"
-              aria-label="复制摘要"
-              className="absolute top-2 right-2 size-7 text-ink-mute"
-              onClick={copy}
-            >
-              <CopyIcon className="size-3.5" />
-            </Button>
-            <p>
-              <span className="text-ink-secondary">测试端点：</span>
-              <span className="text-ink-primary">{name}</span>
-            </p>
-            <p>
-              <span className="text-ink-secondary">使用模型：</span>
-              <span className="text-ink-primary">{model}</span>
-            </p>
-            <p>
-              <span className="text-ink-secondary">发送测试消息：</span>
-              <span className="text-ink-primary">"{ENDPOINT_TEST_MESSAGE}"</span>
-            </p>
-            <p>
-              <span className="text-ink-secondary">响应码：</span>
-              <TabularText className="text-ink-primary">
-                {testStatusCode(result)}
-              </TabularText>
-            </p>
-            <p>
-              <span className="text-ink-secondary">响应：</span>
-            </p>
-            <p
+        <TestModelPicker
+          value={model}
+          options={models}
+          onChange={(v) => {
+            if (v !== model) onSelectModel(v);
+          }}
+        />
+        <div className="relative rounded-lg border border-edge-subtle bg-surface-raised p-4 text-sm leading-6">
+          <Button
+            size="icon"
+            variant="ghost"
+            aria-label="复制摘要"
+            className="absolute top-2 right-2 size-7 text-ink-mute"
+            onClick={copy}
+            disabled={!result}
+          >
+            <CopyIcon className="size-3.5" />
+          </Button>
+          <p>
+            <span className="text-ink-secondary">测试端点：</span>
+            <span className="text-ink-primary">{name}</span>
+          </p>
+          <p>
+            <span className="text-ink-secondary">发送消息：</span>
+            <span className="text-ink-primary">"{ENDPOINT_TEST_MESSAGE}"</span>
+          </p>
+          <p>
+            <span className="text-ink-secondary">响应码：</span>
+            <TabularText
               className={
-                result.success
-                  ? "whitespace-pre-wrap break-words text-success"
-                  : "whitespace-pre-wrap break-words text-destructive"
+                !pending && result && !result.success
+                  ? "text-destructive"
+                  : "text-primary"
               }
             >
-              {testReplyText(result)}
-            </p>
-            <div className="mt-3 flex items-center gap-1.5 border-t border-edge pt-3">
-              {result.success ? (
-                <>
-                  <CheckIcon className="size-3.5 text-success" />
-                  <span className="text-success">测试完成</span>
-                </>
-              ) : (
-                <>
-                  <XIcon className="size-3.5 text-destructive" />
-                  <span className="text-destructive">测试失败</span>
-                </>
-              )}
-              <TabularText className="text-ink-mute">{result.latencyMs}ms</TabularText>
+              {!pending && result ? testStatusCode(result) : ""}
+            </TabularText>
+          </p>
+          {!pending && result && !result.success ? (
+            <div className="mt-1 rounded-sm border border-destructive/30 bg-destructive/12 px-3 py-2">
+              <p className="mb-1 flex items-center gap-1.5 text-xs text-destructive">
+                <TriangleAlertIcon className="size-3.5 shrink-0" />
+                上游报错
+              </p>
+              <p className="scrollbar-none max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-sm leading-6 text-destructive">
+                {testReplyText(result)}
+              </p>
             </div>
+          ) : (
+            <textarea
+              readOnly
+              value={pending ? "" : typed}
+              placeholder={pending ? "正在生成…" : "（无文本回复）"}
+              className="scrollbar-none mt-1 min-h-20 w-full resize-y overflow-y-auto rounded-sm border border-edge bg-background px-3 py-2 text-sm leading-6 text-ink-primary outline-none placeholder:text-ink-mute"
+            />
+          )}
+          <div className="mt-3 flex items-center gap-1.5 border-t border-edge pt-3">
+            {pending ? (
+              <span className="text-ink-secondary">测试中…</span>
+            ) : result?.success ? (
+              <>
+                <CheckIcon className="size-3.5 text-ink-secondary" />
+                <span className="text-ink-secondary">测试完成</span>
+              </>
+            ) : (
+              <>
+                <XIcon className="size-3.5 text-ink-secondary" />
+                <span className="text-ink-secondary">测试失败</span>
+              </>
+            )}
+            {!pending && result ? (
+              <TabularText className="text-ink-mute">
+                {formatTestSeconds(result.latencyMs)}
+              </TabularText>
+            ) : null}
           </div>
-        ) : null}
-        <DialogFooter>
-          <Button onClick={onClose}>关闭</Button>
+        </div>
+        <DialogFooter className="flex-row justify-between sm:justify-between">
+          <Button onClick={onRetry} disabled={pending}>
+            重试
+          </Button>
+          <Button variant="outline" onClick={onClose}>
+            关闭
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -278,6 +432,7 @@ export function EndpointCard({
   );
   const TransformerIcon = getTransformerIcon(endpoint.transformer);
   const [testOpen, setTestOpen] = useState(false);
+  const [testDialogOpen, setTestDialogOpen] = useState(false);
   const [testResult, setTestResult] = useState<EndpointTestResult | null>(null);
   const [testModel, setTestModel] = useState<string>("");
   const [mapOpen, setMapOpen] = useState(false);
@@ -379,6 +534,13 @@ export function EndpointCard({
     openUrl(endpoint.apiUrl).catch((err) => toast.error(errMsg(err)));
   };
 
+  const startTest = (model?: string) => {
+    setTestModel(model || endpoint.model);
+    setTestResult(null);
+    setTestDialogOpen(true);
+    test.mutate(model);
+  };
+
   // 测试连通性用出站(真实)模型：test 直连上游、不经网关，入站映射名上游不认。
   const testModels = outboundModels(endpoint);
   // 可用性展示用公布集合：出站模型并入映射入站名。
@@ -415,7 +577,7 @@ export function EndpointCard({
                   className="flex min-w-0 cursor-pointer items-center gap-1.5 rounded px-2 py-1 text-left text-xs hover:bg-surface-hover"
                   onClick={() => {
                     setTestOpen(false);
-                    test.mutate(m);
+                    startTest(m);
                   }}
                 >
                   <ModelIcon size={14} className="shrink-0" />
@@ -429,7 +591,7 @@ export function EndpointCard({
     ) : (
       <IconAction
         label="测试连通性"
-        onClick={() => test.mutate(testModels[0])}
+        onClick={() => startTest(testModels[0])}
         disabled={test.isPending}
       >
         <ActivityIcon className="size-4" />
@@ -511,10 +673,18 @@ export function EndpointCard({
       {moreMenu}
       <ModelMappingDialog open={mapOpen} onOpenChange={setMapOpen} endpoint={endpoint} />
       <TestResultDialog
+        open={testDialogOpen}
         name={endpoint.name}
         model={testModel || endpoint.model || "（默认）"}
+        models={testModels}
         result={testResult}
-        onClose={() => setTestResult(null)}
+        pending={test.isPending}
+        onSelectModel={setTestModel}
+        onRetry={() => startTest(testModel || testModels[0])}
+        onClose={() => {
+          setTestDialogOpen(false);
+          setTestResult(null);
+        }}
       />
     </div>
   );
