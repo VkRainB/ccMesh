@@ -182,7 +182,11 @@ pub fn filter_by_model_strict(enabled: &[Endpoint], model: Option<&str>) -> Opti
     Some(
         enabled
             .iter()
-            .filter(|e| advertised_models(e).iter().any(|mm| mm.trim().eq_ignore_ascii_case(m)))
+            .filter(|e| {
+                advertised_models(e)
+                    .iter()
+                    .any(|mm| mm.trim().eq_ignore_ascii_case(m))
+            })
             .cloned()
             .collect(),
     )

@@ -91,10 +91,7 @@ mod tests {
             drop(sock);
         });
         let client = build_client(false, "", Duration::from_millis(200)).unwrap();
-        let result = client
-            .get(format!("http://127.0.0.1:{port}/"))
-            .send()
-            .await;
+        let result = client.get(format!("http://127.0.0.1:{port}/")).send().await;
         let err = result.expect_err("静默上游应触发 read_timeout");
         assert!(err.is_timeout(), "应为超时错误: {err}");
     }

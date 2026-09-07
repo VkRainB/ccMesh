@@ -54,7 +54,15 @@ fn read_from_conn(conn: &Connection) -> Vec<UsageRecord> {
         let output: i64 = r.get(4)?;
         let cache_create: i64 = r.get(5)?;
         let cache_read: i64 = r.get(6)?;
-        Ok((id, model, started_at, input, output, cache_create, cache_read))
+        Ok((
+            id,
+            model,
+            started_at,
+            input,
+            output,
+            cache_create,
+            cache_read,
+        ))
     }) {
         Ok(rows) => rows,
         Err(e) => {
@@ -147,9 +155,6 @@ mod tests {
     #[test]
     fn default_db_path_joins_home() {
         let p = default_db_path(Path::new("/home/me"));
-        assert_eq!(
-            p,
-            Path::new("/home/me/.zcode/cli/db/db.sqlite")
-        );
+        assert_eq!(p, Path::new("/home/me/.zcode/cli/db/db.sqlite"));
     }
 }

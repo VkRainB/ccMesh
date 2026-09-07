@@ -306,7 +306,10 @@ fn extract_multipart_model(content_type: Option<&str>, body: &Bytes) -> Option<S
         let sep = part.windows(4).position(|w| w == b"\r\n\r\n")?;
         let headers = &part[..sep];
         let value = &part[sep + 4..];
-        let end = value.windows(2).position(|w| w == b"\r\n").unwrap_or(value.len());
+        let end = value
+            .windows(2)
+            .position(|w| w == b"\r\n")
+            .unwrap_or(value.len());
         let headers = std::str::from_utf8(headers).ok()?;
         // 文本 part：含 name="model" 且非文件
         if headers.contains("name=\"model\"") && !headers.contains("filename=") {
@@ -1342,7 +1345,9 @@ Content-Type: image/png\r\n\
 
     #[test]
     fn extract_multipart_model_returns_none_without_boundary_or_field() {
-        assert!(extract_multipart_model(Some("application/json"), &Bytes::from_static(b"{}")).is_none());
+        assert!(
+            extract_multipart_model(Some("application/json"), &Bytes::from_static(b"{}")).is_none()
+        );
         assert!(extract_multipart_model(None, &Bytes::from_static(b"")).is_none());
     }
 }
