@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   advertisedModels,
-  authTypeLabel,
   extractTestError,
   extractTestReply,
   litOutboundModels,
@@ -138,11 +137,5 @@ describe("extractTestError", () => {
         JSON.stringify({ error: { message: "model not found" } }),
       ),
     ).toBe("model not found");
-  });
-});
-
-describe("authTypeLabel", () => {
-  it("api_key 显示为 apikey", () => {
-    expect(authTypeLabel("api_key")).toBe("apikey");
   });
 });

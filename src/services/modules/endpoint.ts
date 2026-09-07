@@ -189,10 +189,6 @@ export function extractTestError(detail?: string | null): string | undefined {
   }
 }
 
-export function authTypeLabel(mode: string): string {
-  return mode === "api_key" || !mode ? "apikey" : mode;
-}
-
 export const endpointApi = {
   list: () => request<Endpoint[]>("list_endpoints"),
   create: (req: CreateEndpointRequest) =>

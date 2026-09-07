@@ -50,7 +50,6 @@ import { getModelIcon } from "@/lib/model-icons";
 import { cn } from "@/lib/utils";
 import {
   advertisedModels,
-  authTypeLabel,
   ENDPOINT_TEST_MESSAGE,
   endpointApi,
   extractTestError,
@@ -80,15 +79,11 @@ function testReplyText(result: EndpointTestResult): string {
 
 function formatTestLog(
   name: string,
-  authMode: string,
   model: string,
   result: EndpointTestResult,
 ): string {
-  const connected = result.httpStatus != null;
   return [
     `开始测试账号：${name}`,
-    `账号类型：${authTypeLabel(authMode)}`,
-    connected ? "已连接到 API" : "无法连接到 API",
     `使用模型：${model}`,
     `发送测试消息："${ENDPOINT_TEST_MESSAGE}"`,
     "响应：",
@@ -99,20 +94,18 @@ function formatTestLog(
 
 function TestResultDialog({
   name,
-  authMode,
   model,
   result,
   onClose,
 }: {
   name: string;
-  authMode: string;
   model: string;
   result: EndpointTestResult | null;
   onClose: () => void;
 }) {
   const copy = () => {
     if (!result) return;
-    const text = formatTestLog(name, authMode, model, result);
+    const text = formatTestLog(name, model, result);
     (navigator.clipboard?.writeText(text) ?? Promise.reject())
       .then(() => toast.success("已复制"))
       .catch(() => toast.error("复制失败"));
@@ -138,10 +131,6 @@ function TestResultDialog({
             <p>
               <span className="text-info">开始测试账号：</span>
               <span className="text-info">{name}</span>
-            </p>
-            <p className="text-ink-mute">账号类型：{authTypeLabel(authMode)}</p>
-            <p className={result.httpStatus != null ? "text-success" : "text-destructive"}>
-              {result.httpStatus != null ? "已连接到 API" : "无法连接到 API"}
             </p>
             <p>
               <span className="text-ink-mute">使用模型：</span>
@@ -508,7 +497,6 @@ export function EndpointCard({
       <ModelMappingDialog open={mapOpen} onOpenChange={setMapOpen} endpoint={endpoint} />
       <TestResultDialog
         name={endpoint.name}
-        authMode={endpoint.authMode}
         model={testModel || endpoint.model || "（默认）"}
         result={testResult}
         onClose={() => setTestResult(null)}
