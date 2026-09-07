@@ -155,6 +155,42 @@ pub struct TestResult {
     pub status: String, // available / unavailable
     pub latency_ms: u64,
     pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub http_status: Option<u16>,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub detail: String,
+}
+
+/// ponytail: 8KiB 截断即可诊断；要完整错误页再改落盘。
+const TEST_BODY_LIMIT: usize = 8 * 1024;
+
+fn truncate_bytes(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        return s.to_string();
+    }
+    let mut end = max;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}…", &s[..end])
+}
+
+/// 从上游 JSON 抽出人类可读报错；非 JSON 或无已知字段则 None。
+fn extract_upstream_message(body: &str) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_str(body.trim()).ok()?;
+    for pointer in ["/error/message", "/error/error/message", "/message"] {
+        if let Some(s) = v
+            .pointer(pointer)
+            .and_then(|x| x.as_str())
+            .filter(|s| !s.is_empty())
+        {
+            return Some(s.to_string());
+        }
+    }
+    v.pointer("/error")
+        .and_then(|x| x.as_str())
+        .filter(|s| !s.is_empty())
+        .map(ToString::to_string)
 }
 
 /// 探测端点连通性：发送最小请求，200 即可用；持久化 test_status。
@@ -223,18 +259,36 @@ pub async fn test_endpoint(
     let result = builder.send().await;
     let latency_ms = start.elapsed().as_millis() as u64;
 
-    let (success, status, message) = match result {
+    let (success, status, message, http_status, detail) = match result {
         Ok(resp) => {
             let code = resp.status().as_u16();
-            if code == 200 {
-                (true, "available", "连接成功".to_string())
-            } else if code == 401 || code == 403 {
-                (false, "unavailable", format!("鉴权失败（HTTP {code}）"))
+            let body = resp.text().await.unwrap_or_default();
+            let detail = truncate_bytes(&body, TEST_BODY_LIMIT);
+            let extracted = extract_upstream_message(&body);
+            let success = code == 200;
+            let status = if success { "available" } else { "unavailable" };
+            let message = if success {
+                "连接成功".to_string()
             } else {
-                (false, "unavailable", format!("HTTP {code}"))
-            }
+                let head = if code == 401 || code == 403 {
+                    format!("鉴权失败（HTTP {code}）")
+                } else {
+                    format!("HTTP {code}")
+                };
+                match extracted {
+                    Some(m) => format!("{head}：{m}"),
+                    None => head,
+                }
+            };
+            (success, status, message, Some(code), detail)
         }
-        Err(e) => (false, "unavailable", format!("请求失败: {e}")),
+        Err(e) => (
+            false,
+            "unavailable",
+            format!("请求失败: {e}"),
+            None,
+            String::new(),
+        ),
     };
 
     {
@@ -262,6 +316,8 @@ pub async fn test_endpoint(
         status: status.to_string(),
         latency_ms,
         message,
+        http_status,
+        detail,
     })
 }
 
@@ -278,6 +334,8 @@ pub async fn test_proxy(url: String) -> AppResult<TestResult> {
             status: "unavailable".to_string(),
             latency_ms: 0,
             message: "未填写代理地址".to_string(),
+            http_status: None,
+            detail: String::new(),
         });
     }
     let proxy =
@@ -309,5 +367,63 @@ pub async fn test_proxy(url: String) -> AppResult<TestResult> {
         status: status.to_string(),
         latency_ms,
         message,
+        http_status: None,
+        detail: String::new(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_openai_error_message() {
+        let body = r#"{"error":{"message":"model not found","type":"invalid_request_error"}}"#;
+        assert_eq!(
+            extract_upstream_message(body).as_deref(),
+            Some("model not found")
+        );
+    }
+
+    #[test]
+    fn extract_nested_error_error_message() {
+        let body = r#"{"error":{"error":{"message":"quota exceeded"}}}"#;
+        assert_eq!(
+            extract_upstream_message(body).as_deref(),
+            Some("quota exceeded")
+        );
+    }
+
+    #[test]
+    fn extract_top_level_message() {
+        let body = r#"{"message":"channel restricted"}"#;
+        assert_eq!(
+            extract_upstream_message(body).as_deref(),
+            Some("channel restricted")
+        );
+    }
+
+    #[test]
+    fn extract_string_error() {
+        let body = r#"{"error":"upstream forbidden"}"#;
+        assert_eq!(
+            extract_upstream_message(body).as_deref(),
+            Some("upstream forbidden")
+        );
+    }
+
+    #[test]
+    fn extract_non_json_is_none() {
+        assert_eq!(extract_upstream_message("plain 502 html"), None);
+        assert_eq!(extract_upstream_message("{}"), None);
+    }
+
+    #[test]
+    fn truncate_keeps_char_boundary() {
+        let s = "一二三四五"; // each CJK char is 3 bytes
+        let out = truncate_bytes(s, 5);
+        assert!(out.ends_with('…'));
+        assert!(out.chars().all(|c| c == '…' || !c.is_control()));
+        assert!(!out.contains('\u{fffd}'));
+    }
 }
