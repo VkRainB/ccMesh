@@ -23,6 +23,12 @@ use crate::modules::stats::aggregator::StatsAggregator;
 use crate::modules::storage::{config_repo, db::DbPool, endpoint_repo};
 use crate::modules::transform::thinking_rectifier::RectifierConfig;
 
+/// 上游空闲读超时：相邻两次读（响应头 / 每个 chunk）之间的最大间隔。
+/// ponytail: `read_timeout` 是每次读重置的空闲超时，覆盖等响应头 + 逐 chunk 读体，
+/// 不会像 `.timeout()` 那样按总时长截断长流式任务（issue #13）。300s 对齐 Codex `stream_idle_timeout_ms` 默认值。
+/// 升级路径：改为可配置（app_config.streamIdleTimeoutSecs）。
+const UPSTREAM_READ_TIMEOUT: Duration = Duration::from_secs(300);
+
 /// 代理运行句柄，存于 `AppState.proxy`。持有关停信号、任务句柄与共享状态。
 pub struct ProxyHandle {
     pub port: u16,
@@ -82,15 +88,13 @@ pub async fn start_proxy(
     port: u16,
     stats: Arc<StatsAggregator>,
 ) -> AppResult<ProxyHandle> {
-    // ponytail: 不设 client 级总超时——reqwest 的 .timeout() 覆盖整个请求生命周期含响应体读取，
-    // 会截断超过该时长的流式 SSE 响应（issue #13：300s 硬截断长推理任务）。
-    // 流式空闲超时在 forward.rs 的读取循环里用 tokio::time::timeout 按 chunk 控制；
-    // 非流式缓冲响应在 forward.rs 用 tokio::time::timeout 包裹 bytes()/text() 兜底。
-    // 升级路径：把空闲/总超时做成可配置（app_config.streamIdleTimeoutSecs / requestTimeoutSecs）。
+    // ponytail: `read_timeout` 是每次读重置的空闲超时，覆盖等响应头 + 逐 chunk 读体，
+    // 不会像 `.timeout()` 那样按总时长截断长流式任务（issue #13）。
     let client = reqwest::Client::builder()
         .pool_max_idle_per_host(10)
         .pool_idle_timeout(Duration::from_secs(90))
         .connect_timeout(Duration::from_secs(30))
+        .read_timeout(UPSTREAM_READ_TIMEOUT)
         .no_proxy()
         .build()
         .map_err(|e| AppError::Proxy(format!("构建 HTTP 客户端失败: {e}")))?;
@@ -108,6 +112,7 @@ pub async fn start_proxy(
                 .pool_max_idle_per_host(10)
                 .pool_idle_timeout(Duration::from_secs(90))
                 .connect_timeout(Duration::from_secs(30))
+                .read_timeout(UPSTREAM_READ_TIMEOUT)
                 .proxy(proxy)
                 .build()
                 .ok(),
