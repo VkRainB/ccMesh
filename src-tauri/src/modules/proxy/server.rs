@@ -82,10 +82,14 @@ pub async fn start_proxy(
     port: u16,
     stats: Arc<StatsAggregator>,
 ) -> AppResult<ProxyHandle> {
+    // ponytail: 不设 client 级总超时——reqwest 的 .timeout() 覆盖整个请求生命周期含响应体读取，
+    // 会截断超过该时长的流式 SSE 响应（issue #13：300s 硬截断长推理任务）。
+    // 流式空闲超时在 forward.rs 的读取循环里用 tokio::time::timeout 按 chunk 控制；
+    // 非流式缓冲响应在 forward.rs 用 tokio::time::timeout 包裹 bytes()/text() 兜底。
+    // 升级路径：把空闲/总超时做成可配置（app_config.streamIdleTimeoutSecs / requestTimeoutSecs）。
     let client = reqwest::Client::builder()
         .pool_max_idle_per_host(10)
         .pool_idle_timeout(Duration::from_secs(90))
-        .timeout(Duration::from_secs(300))
         .connect_timeout(Duration::from_secs(30))
         .no_proxy()
         .build()
@@ -103,7 +107,6 @@ pub async fn start_proxy(
             Ok(proxy) => reqwest::Client::builder()
                 .pool_max_idle_per_host(10)
                 .pool_idle_timeout(Duration::from_secs(90))
-                .timeout(Duration::from_secs(300))
                 .connect_timeout(Duration::from_secs(30))
                 .proxy(proxy)
                 .build()

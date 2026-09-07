@@ -403,4 +403,23 @@ mod tests {
             tu(0, 5, 0, 20)
         );
     }
+
+    // issue #13：流式超时导致 response.completed 未到达 → usage 保持 0（output 无最终事件）。
+    // 这正是 ccMesh 在 300s 截断后记录 0 token 的下游机制；forward.rs 侧已把断流标 is_error=true。
+    #[test]
+    fn responses_sse_incomplete_stream_yields_zero_when_completed_event_missing() {
+        let mut acc = UsageAccumulator::new(UpstreamFormat::OpenAiResponses);
+        // 只收到中间事件（无 response.usage / 顶层 usage），流被截断
+        acc.feed(b"data: {\"type\":\"response.created\"}\n\n");
+        acc.feed(b"data: {\"type\":\"response.output_text.delta\",\"delta\":\"hi\"}\n\n");
+        assert_eq!(acc.finish(), tu(0, 0, 0, 0));
+    }
+
+    // 对照：response.completed 事件到达时 usage 正常解析。
+    #[test]
+    fn responses_sse_completed_event_provides_usage() {
+        let mut acc = UsageAccumulator::new(UpstreamFormat::OpenAiResponses);
+        acc.feed(b"data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":100,\"output_tokens\":50}}}\n\n");
+        assert_eq!(acc.finish(), tu(100, 50, 0, 0));
+    }
 }

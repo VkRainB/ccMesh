@@ -42,6 +42,16 @@ use crate::utils::upstream_url::join_upstream_url;
 
 const MAX_ERROR_BODY_BYTES: usize = 4096;
 
+/// 流式响应空闲读取超时：两个相邻 chunk 之间允许的最大间隔。
+/// ponytail: 常量先硬编码——SSE 持续有事件（含 thinking）不会长时间静默，180s 无新数据基本判定连接已断。
+/// 升级路径：改为可配置（app_config.streamIdleTimeoutSecs）。
+/// 非流式缓冲响应的总超时由 [`BUFFERED_READ_TIMEOUT`] 兜底。
+const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(180);
+
+/// 非流式缓冲响应读取总超时：兜底防止去掉 client 级总超时后无限挂起（issue #13）。
+/// ponytail: 常量先硬编码，非流式 AI 响应通常远小于 10 分钟；升级路径同上可配置。
+const BUFFERED_READ_TIMEOUT: Duration = Duration::from_secs(600);
+
 /// 每端点在途请求计数 + 取消令牌（手动切换时中止在途请求）。
 #[derive(Default)]
 pub struct ActiveRequests {
@@ -1052,9 +1062,10 @@ async fn relay_buffered_response(
 ) -> Response {
     let status = StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
     let out = copy_response_headers(&resp);
-    let bytes = match resp.bytes().await {
-        Ok(b) => b,
-        Err(e) => return json_error(StatusCode::BAD_GATEWAY, &format!("读取上游响应失败: {e}")),
+    let bytes = match tokio::time::timeout(BUFFERED_READ_TIMEOUT, resp.bytes()).await {
+        Ok(Ok(b)) => b,
+        Ok(Err(e)) => return json_error(StatusCode::BAD_GATEWAY, &format!("读取上游响应失败: {e}")),
+        Err(_) => return json_error(StatusCode::BAD_GATEWAY, "读取上游响应超时"),
     };
     let tu = serde_json::from_slice::<Value>(&bytes)
         .map(|j| usage::from_response(&j, format))
@@ -1081,10 +1092,36 @@ fn relay_stream_response(
         let mut acc = usage::UsageAccumulator::new(format);
         let mut stream = resp.bytes_stream();
         let mut first = true;
-        while let Some(item) = stream.next().await {
+        let mut stream_error = false;
+        loop {
+            // 空闲读取超时：两个相邻 chunk 间隔超过 STREAM_IDLE_TIMEOUT 视为连接断开（issue #13）
+            let item = match tokio::time::timeout(STREAM_IDLE_TIMEOUT, stream.next()).await {
+                Ok(Some(item)) => item,
+                Ok(None) => break, // 流正常结束
+                Err(_) => {
+                    stream_error = true;
+                    let _ = tx
+                        .send(Err(std::io::Error::new(
+                            std::io::ErrorKind::TimedOut,
+                            "流式响应空闲超时",
+                        )))
+                        .await;
+                    break;
+                }
+            };
             let chunk = match item {
                 Ok(c) => c,
-                Err(_) => break,
+                Err(e) => {
+                    // 不静默吞掉读取错误：向下游传播并标记失败（issue #13）
+                    stream_error = true;
+                    let _ = tx
+                        .send(Err(std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("上游流式响应读取失败: {e}"),
+                        )))
+                        .await;
+                    break;
+                }
             };
             if first {
                 // 首个内容分片到达 → 更精确的首字延迟，覆盖响应头时刻。
@@ -1097,7 +1134,16 @@ fn relay_stream_response(
             }
         }
         let tu = acc.finish();
-        stats.record(meta.into_record(Some(status.as_u16() as i64), false, tu));
+        if stream_error {
+            stats.record(meta.into_record_with_error_body(
+                Some(status.as_u16() as i64),
+                true,
+                tu,
+                Some("流式响应中断".to_string()),
+            ));
+        } else {
+            stats.record(meta.into_record(Some(status.as_u16() as i64), false, tu));
+        }
     });
     let body = Body::from_stream(ReceiverStream::new(rx));
     let mut response = Response::new(body);
@@ -1112,20 +1158,22 @@ async fn transform_buffered_response(
     stats: Arc<StatsAggregator>,
     meta: RequestMeta,
 ) -> Response {
-    match resp.text().await {
-        Ok(text) => match serde_json::from_str::<Value>(&text) {
-            Ok(openai) => {
-                let tu = usage::from_response(&openai, UpstreamFormat::OpenAiChat);
-                stats.record(meta.into_record(Some(200), false, tu));
-                (
-                    StatusCode::OK,
-                    axum::Json(openai_response_to_claude(&openai)),
-                )
-                    .into_response()
-            }
-            Err(_) => json_error(StatusCode::BAD_GATEWAY, "上游响应解析失败"),
-        },
-        Err(e) => json_error(StatusCode::BAD_GATEWAY, &format!("读取上游响应失败: {e}")),
+    let text = match tokio::time::timeout(BUFFERED_READ_TIMEOUT, resp.text()).await {
+        Ok(Ok(t)) => t,
+        Ok(Err(e)) => return json_error(StatusCode::BAD_GATEWAY, &format!("读取上游响应失败: {e}")),
+        Err(_) => return json_error(StatusCode::BAD_GATEWAY, "读取上游响应超时"),
+    };
+    match serde_json::from_str::<Value>(&text) {
+        Ok(openai) => {
+            let tu = usage::from_response(&openai, UpstreamFormat::OpenAiChat);
+            stats.record(meta.into_record(Some(200), false, tu));
+            (
+                StatusCode::OK,
+                axum::Json(openai_response_to_claude(&openai)),
+            )
+                .into_response()
+        }
+        Err(_) => json_error(StatusCode::BAD_GATEWAY, "上游响应解析失败"),
     }
 }
 
@@ -1142,10 +1190,34 @@ fn stream_transform_response(
         let mut stream = resp.bytes_stream();
         let mut buf = String::new();
         let mut first = true;
-        while let Some(item) = stream.next().await {
+        let mut stream_error = false;
+        loop {
+            let item = match tokio::time::timeout(STREAM_IDLE_TIMEOUT, stream.next()).await {
+                Ok(Some(item)) => item,
+                Ok(None) => break,
+                Err(_) => {
+                    stream_error = true;
+                    let _ = tx
+                        .send(Err(std::io::Error::new(
+                            std::io::ErrorKind::TimedOut,
+                            "流式响应空闲超时",
+                        )))
+                        .await;
+                    break;
+                }
+            };
             let chunk = match item {
                 Ok(c) => c,
-                Err(_) => break,
+                Err(e) => {
+                    stream_error = true;
+                    let _ = tx
+                        .send(Err(std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("上游流式响应读取失败: {e}"),
+                        )))
+                        .await;
+                    break;
+                }
             };
             if first {
                 meta.first_byte_ms = Some(chrono::Utc::now().timestamp_millis() - meta.started_ms);
@@ -1184,7 +1256,16 @@ fn stream_transform_response(
             cache_creation,
             cache_read,
         };
-        stats.record(meta.into_record(Some(200), false, tu));
+        if stream_error {
+            stats.record(meta.into_record_with_error_body(
+                Some(200),
+                true,
+                tu,
+                Some("流式响应中断".to_string()),
+            ));
+        } else {
+            stats.record(meta.into_record(Some(200), false, tu));
+        }
     });
 
     let body = Body::from_stream(ReceiverStream::new(rx));
@@ -1200,7 +1281,8 @@ fn stream_transform_response(
 mod tests {
     use super::{
         empty_candidates_message, error_body_from_bytes, extract_multipart_model,
-        parse_retry_after, rate_limited_response, truncate_error_body,
+        parse_retry_after, rate_limited_response, truncate_error_body, BUFFERED_READ_TIMEOUT,
+        STREAM_IDLE_TIMEOUT,
     };
     use axum::body::Bytes;
     use axum::http::{HeaderMap, HeaderValue, StatusCode};
@@ -1298,6 +1380,21 @@ Content-Type: image/png\r\n\
         assert!(extract_multipart_model(Some("application/json"), &Bytes::from_static(b"{}")).is_none());
         assert!(extract_multipart_model(None, &Bytes::from_static(b"")).is_none());
     }
+
+    // issue #13：流式转发不再用 300s 总超时。STREAM_IDLE_TIMEOUT 是相邻 chunk 间隔超时，
+    // 太短会误杀深度思考（thinking 持续输出但可能有间隔），太长则连接真断时检测过慢。
+    #[test]
+    fn stream_idle_timeout_within_reasonable_range() {
+        let s = STREAM_IDLE_TIMEOUT.as_secs();
+        assert!(s >= 60 && s <= 600, "空闲超时应在 60-600s 区间，当前 {s}s");
+    }
+
+    // issue #13：去掉 client 级总超时后，非流式缓冲读取用 BUFFERED_READ_TIMEOUT 兜底防无限挂起。
+    #[test]
+    fn buffered_read_timeout_is_nonzero_and_above_old_total() {
+        let s = BUFFERED_READ_TIMEOUT.as_secs();
+        assert!(s > 300, "缓冲读取超时应大于原 300s 总超时，当前 {s}s");
+    }
 }
 
 /// 非流式（Claude 入站 + codex 端点）：出站已强制流式，缓冲全部 SSE 后取最终
@@ -1307,9 +1404,10 @@ async fn buffered_claude_from_responses(
     stats: Arc<StatsAggregator>,
     meta: RequestMeta,
 ) -> Response {
-    let text = match resp.text().await {
-        Ok(t) => t,
-        Err(e) => return json_error(StatusCode::BAD_GATEWAY, &format!("读取上游响应失败: {e}")),
+    let text = match tokio::time::timeout(BUFFERED_READ_TIMEOUT, resp.text()).await {
+        Ok(Ok(t)) => t,
+        Ok(Err(e)) => return json_error(StatusCode::BAD_GATEWAY, &format!("读取上游响应失败: {e}")),
+        Err(_) => return json_error(StatusCode::BAD_GATEWAY, "读取上游响应超时"),
     };
     let final_resp = serde_json::from_str::<Value>(&text)
         .ok()
@@ -1355,10 +1453,34 @@ fn stream_claude_from_responses(
         let mut stream = resp.bytes_stream();
         let mut buf = String::new();
         let mut first = true;
-        while let Some(item) = stream.next().await {
+        let mut stream_error = false;
+        loop {
+            let item = match tokio::time::timeout(STREAM_IDLE_TIMEOUT, stream.next()).await {
+                Ok(Some(item)) => item,
+                Ok(None) => break,
+                Err(_) => {
+                    stream_error = true;
+                    let _ = tx
+                        .send(Err(std::io::Error::new(
+                            std::io::ErrorKind::TimedOut,
+                            "流式响应空闲超时",
+                        )))
+                        .await;
+                    break;
+                }
+            };
             let chunk = match item {
                 Ok(c) => c,
-                Err(_) => break,
+                Err(e) => {
+                    stream_error = true;
+                    let _ = tx
+                        .send(Err(std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("上游流式响应读取失败: {e}"),
+                        )))
+                        .await;
+                    break;
+                }
             };
             if first {
                 meta.first_byte_ms = Some(chrono::Utc::now().timestamp_millis() - meta.started_ms);
@@ -1395,7 +1517,15 @@ fn stream_claude_from_responses(
             cache_read,
         };
         // 与 buffered_claude_from_responses 对齐：上游 SSE 失败不当成功。
-        if let Some(msg) = converter.error_message() {
+        // 优先判定网络层中断（超时/读取错误），再判定上游 SSE 失败事件，最后才算成功。
+        if stream_error {
+            stats.record(meta.into_record_with_error_body(
+                Some(502),
+                true,
+                tu,
+                Some("流式响应中断".to_string()),
+            ));
+        } else if let Some(msg) = converter.error_message() {
             stats.record(meta.into_record_with_error_body(
                 Some(502),
                 true,
@@ -1422,21 +1552,23 @@ async fn buffered_responses_from_chat(
     stats: Arc<StatsAggregator>,
     meta: RequestMeta,
 ) -> Response {
-    match resp.text().await {
-        Ok(text) => match serde_json::from_str::<Value>(&text) {
-            Ok(chat) => {
-                let model = meta.model.clone().unwrap_or_default();
-                let tu = usage::from_response(&chat, UpstreamFormat::OpenAiChat);
-                stats.record(meta.into_record(Some(200), false, tu));
-                (
-                    StatusCode::OK,
-                    axum::Json(chat_response_to_responses(&chat, &model)),
-                )
-                    .into_response()
-            }
-            Err(_) => json_error(StatusCode::BAD_GATEWAY, "上游响应解析失败"),
-        },
-        Err(e) => json_error(StatusCode::BAD_GATEWAY, &format!("读取上游响应失败: {e}")),
+    let text = match tokio::time::timeout(BUFFERED_READ_TIMEOUT, resp.text()).await {
+        Ok(Ok(t)) => t,
+        Ok(Err(e)) => return json_error(StatusCode::BAD_GATEWAY, &format!("读取上游响应失败: {e}")),
+        Err(_) => return json_error(StatusCode::BAD_GATEWAY, "读取上游响应超时"),
+    };
+    match serde_json::from_str::<Value>(&text) {
+        Ok(chat) => {
+            let model = meta.model.clone().unwrap_or_default();
+            let tu = usage::from_response(&chat, UpstreamFormat::OpenAiChat);
+            stats.record(meta.into_record(Some(200), false, tu));
+            (
+                StatusCode::OK,
+                axum::Json(chat_response_to_responses(&chat, &model)),
+            )
+                .into_response()
+        }
+        Err(_) => json_error(StatusCode::BAD_GATEWAY, "上游响应解析失败"),
     }
 }
 
@@ -1454,10 +1586,34 @@ fn stream_responses_from_chat(
         let mut stream = resp.bytes_stream();
         let mut buf = String::new();
         let mut first = true;
-        while let Some(item) = stream.next().await {
+        let mut stream_error = false;
+        loop {
+            let item = match tokio::time::timeout(STREAM_IDLE_TIMEOUT, stream.next()).await {
+                Ok(Some(item)) => item,
+                Ok(None) => break,
+                Err(_) => {
+                    stream_error = true;
+                    let _ = tx
+                        .send(Err(std::io::Error::new(
+                            std::io::ErrorKind::TimedOut,
+                            "流式响应空闲超时",
+                        )))
+                        .await;
+                    break;
+                }
+            };
             let chunk = match item {
                 Ok(c) => c,
-                Err(_) => break,
+                Err(e) => {
+                    stream_error = true;
+                    let _ = tx
+                        .send(Err(std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("上游流式响应读取失败: {e}"),
+                        )))
+                        .await;
+                    break;
+                }
             };
             if first {
                 meta.first_byte_ms = Some(chrono::Utc::now().timestamp_millis() - meta.started_ms);
@@ -1496,7 +1652,16 @@ fn stream_responses_from_chat(
             cache_creation,
             cache_read,
         };
-        stats.record(meta.into_record(Some(200), false, tu));
+        if stream_error {
+            stats.record(meta.into_record_with_error_body(
+                Some(200),
+                true,
+                tu,
+                Some("流式响应中断".to_string()),
+            ));
+        } else {
+            stats.record(meta.into_record(Some(200), false, tu));
+        }
     });
 
     let body = Body::from_stream(ReceiverStream::new(rx));
