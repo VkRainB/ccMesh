@@ -4,12 +4,14 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   ActivityIcon,
   ArchiveIcon,
+  CheckIcon,
   CopyIcon,
   EllipsisVerticalIcon,
   GripVerticalIcon,
   PencilIcon,
   Trash2Icon,
   WaypointsIcon,
+  XIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Anthropic, Codex, OpenAI } from "@lobehub/icons";
@@ -48,7 +50,11 @@ import { getModelIcon } from "@/lib/model-icons";
 import { cn } from "@/lib/utils";
 import {
   advertisedModels,
+  authTypeLabel,
+  ENDPOINT_TEST_MESSAGE,
   endpointApi,
+  extractTestError,
+  extractTestReply,
   outboundModels,
   type Endpoint,
   type EndpointTestResult,
@@ -60,63 +66,117 @@ import { TestBadge } from "./TestBadge";
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-function formatTestDetail(detail: string): string {
-  try {
-    return JSON.stringify(JSON.parse(detail), null, 2);
-  } catch {
-    return detail;
+function testReplyText(result: EndpointTestResult): string {
+  if (result.success) {
+    return extractTestReply(result.detail) ?? "（无文本回复）";
   }
+  const fallback =
+    result.message.replace(
+      /^(?:鉴权失败（HTTP \d+）|HTTP \d+|请求失败)[:：]?\s*/,
+      "",
+    ) || result.message;
+  return extractTestError(result.detail) ?? fallback;
+}
+
+function formatTestLog(
+  name: string,
+  authMode: string,
+  model: string,
+  result: EndpointTestResult,
+): string {
+  const connected = result.httpStatus != null;
+  return [
+    `开始测试账号：${name}`,
+    `账号类型：${authTypeLabel(authMode)}`,
+    connected ? "已连接到 API" : "无法连接到 API",
+    `使用模型：${model}`,
+    `发送测试消息："${ENDPOINT_TEST_MESSAGE}"`,
+    "响应：",
+    testReplyText(result),
+    result.success ? "✓ 测试完成！" : "✗ 测试失败",
+  ].join("\n");
 }
 
 function TestResultDialog({
   name,
+  authMode,
+  model,
   result,
   onClose,
 }: {
   name: string;
+  authMode: string;
+  model: string;
   result: EndpointTestResult | null;
   onClose: () => void;
 }) {
-  const detail = result?.detail?.trim() ?? "";
-  const formatted = detail ? formatTestDetail(detail) : "";
-  const copy = () =>
-    (navigator.clipboard?.writeText(formatted) ?? Promise.reject())
+  const copy = () => {
+    if (!result) return;
+    const text = formatTestLog(name, authMode, model, result);
+    (navigator.clipboard?.writeText(text) ?? Promise.reject())
       .then(() => toast.success("已复制"))
       .catch(() => toast.error("复制失败"));
+  };
 
   return (
     <Dialog open={result != null} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>连通性测试</DialogTitle>
         </DialogHeader>
         {result ? (
-          <div className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-center gap-2 text-sm">
-              <TestBadge status={result.status} />
-              {result.httpStatus != null ? (
-                <span className="tabular-nums text-ink-secondary">
-                  HTTP {result.httpStatus}
-                </span>
-              ) : null}
-              <span className="tabular-nums text-ink-secondary">{result.latencyMs}ms</span>
-            </div>
-            <p className={result.success ? "text-sm" : "text-sm text-destructive"}>
-              {name}：{result.message}
+          <div className="relative rounded-md bg-surface-raised p-4 font-mono text-[13px] leading-7">
+            <Button
+              size="icon"
+              variant="ghost"
+              aria-label="复制摘要"
+              className="absolute top-2 right-2 size-7 text-ink-mute"
+              onClick={copy}
+            >
+              <CopyIcon className="size-3.5" />
+            </Button>
+            <p>
+              <span className="text-info">开始测试账号：</span>
+              <span className="text-info">{name}</span>
             </p>
-            {formatted ? (
-              <pre className="scrollbar-none max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md border border-edge-subtle p-3 font-mono text-xs text-ink-secondary">
-                {formatted}
-              </pre>
-            ) : null}
+            <p className="text-ink-mute">账号类型：{authTypeLabel(authMode)}</p>
+            <p className={result.httpStatus != null ? "text-success" : "text-destructive"}>
+              {result.httpStatus != null ? "已连接到 API" : "无法连接到 API"}
+            </p>
+            <p>
+              <span className="text-ink-mute">使用模型：</span>
+              <span className="text-info">{model}</span>
+            </p>
+            <p className="text-ink-mute">
+              发送测试消息："{ENDPOINT_TEST_MESSAGE}"
+            </p>
+            <p className="text-warning">响应：</p>
+            <p
+              className={
+                result.success
+                  ? "whitespace-pre-wrap break-words text-success"
+                  : "whitespace-pre-wrap break-words text-destructive"
+              }
+            >
+              {testReplyText(result)}
+            </p>
+            <div className="mt-3 flex items-center gap-1.5 border-t border-edge-subtle pt-3">
+              {result.success ? (
+                <>
+                  <CheckIcon className="size-3.5 text-success" />
+                  <span className="text-success">测试完成！</span>
+                </>
+              ) : (
+                <>
+                  <XIcon className="size-3.5 text-destructive" />
+                  <span className="text-destructive">测试失败</span>
+                </>
+              )}
+              <span className="tabular-nums text-ink-mute">{result.latencyMs}ms</span>
+            </div>
           </div>
         ) : null}
         <DialogFooter>
-          {formatted ? (
-            <Button variant="outline" onClick={copy}>
-              复制原文
-            </Button>
-          ) : null}
           <Button onClick={onClose}>关闭</Button>
         </DialogFooter>
       </DialogContent>
@@ -215,6 +275,7 @@ export function EndpointCard({
   const TransformerIcon = getTransformerIcon(endpoint.transformer);
   const [testOpen, setTestOpen] = useState(false);
   const [testResult, setTestResult] = useState<EndpointTestResult | null>(null);
+  const [testModel, setTestModel] = useState<string>("");
   const [mapOpen, setMapOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   // 布局切换后等一帧再启用 transition，避免切换瞬间因 group-hover 触发过渡动画。
@@ -243,8 +304,9 @@ export function EndpointCard({
   });
   const test = useMutation({
     mutationFn: (model?: string) => endpointApi.test(endpoint.id, model),
-    onSuccess: (r) => {
+    onSuccess: (r, model) => {
       setTestResult(r);
+      setTestModel(model || endpoint.model);
       if (r.success) {
         // 测试成功：主动失效健康态，让卡片即时显示可用、熔断 Badge 消失
         // （后端也会 emit endpoint-health-changed；此处覆盖代理未运行、靠 test_status 回退的场景）
@@ -446,6 +508,8 @@ export function EndpointCard({
       <ModelMappingDialog open={mapOpen} onOpenChange={setMapOpen} endpoint={endpoint} />
       <TestResultDialog
         name={endpoint.name}
+        authMode={endpoint.authMode}
+        model={testModel || endpoint.model || "（默认）"}
         result={testResult}
         onClose={() => setTestResult(null)}
       />

@@ -115,6 +115,84 @@ export interface EndpointTestResult {
   detail?: string;
 }
 
+/** 探测请求固定文案，与后端 test_endpoint payload 一致。 */
+export const ENDPOINT_TEST_MESSAGE = "ping";
+
+function nonempty(v: unknown): string | undefined {
+  return typeof v === "string" && v.trim() ? v : undefined;
+}
+
+function joinTextParts(parts: unknown): string | undefined {
+  if (!Array.isArray(parts)) return undefined;
+  const t = parts
+    .map((p) =>
+      p && typeof p === "object" && "text" in p
+        ? nonempty((p as { text: unknown }).text)
+        : undefined,
+    )
+    .filter((s): s is string => !!s)
+    .join("");
+  return t || undefined;
+}
+
+/** 从探测正文抽出助手回复文本，不保留 JSON 结构。 */
+export function extractTestReply(detail?: string | null): string | undefined {
+  if (!detail?.trim()) return undefined;
+  try {
+    const v = JSON.parse(detail) as Record<string, unknown>;
+    const choice = Array.isArray(v.choices) ? v.choices[0] : undefined;
+    if (choice && typeof choice === "object") {
+      const content = (choice as { message?: { content?: unknown } }).message
+        ?.content;
+      const s = nonempty(content) ?? joinTextParts(content);
+      if (s) return s;
+    }
+    const claude = joinTextParts(v.content);
+    if (claude) return claude;
+    const outputText = nonempty(v.output_text);
+    if (outputText) return outputText;
+    if (Array.isArray(v.output)) {
+      const chunks: string[] = [];
+      for (const item of v.output) {
+        if (!item || typeof item !== "object") continue;
+        const content = (item as { content?: unknown }).content;
+        const s = nonempty(content) ?? joinTextParts(content);
+        if (s) chunks.push(s);
+      }
+      if (chunks.length) return chunks.join("");
+    }
+    return undefined;
+  } catch {
+    return detail.length <= 400 ? detail : undefined;
+  }
+}
+
+/** 从探测正文抽出上游报错文案。 */
+export function extractTestError(detail?: string | null): string | undefined {
+  if (!detail?.trim()) return undefined;
+  try {
+    const v = JSON.parse(detail) as Record<string, unknown>;
+    const err = v.error;
+    if (err && typeof err === "object") {
+      const o = err as Record<string, unknown>;
+      const m = nonempty(o.message);
+      if (m) return m;
+      if (o.error && typeof o.error === "object") {
+        const nested = nonempty((o.error as { message?: unknown }).message);
+        if (nested) return nested;
+      }
+    }
+    if (typeof err === "string" && err.trim()) return err;
+    return nonempty(v.message);
+  } catch {
+    return detail.length <= 400 ? detail : undefined;
+  }
+}
+
+export function authTypeLabel(mode: string): string {
+  return mode === "api_key" || !mode ? "apikey" : mode;
+}
+
 export const endpointApi = {
   list: () => request<Endpoint[]>("list_endpoints"),
   create: (req: CreateEndpointRequest) =>

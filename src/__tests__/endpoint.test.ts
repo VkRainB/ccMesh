@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   advertisedModels,
+  authTypeLabel,
+  extractTestError,
+  extractTestReply,
   litOutboundModels,
   outboundModels,
 } from "@/services/modules/endpoint";
@@ -99,5 +102,47 @@ describe("litOutboundModels 按点亮过滤（模型映射出站候选）", () =
     expect(
       litOutboundModels(ep({ model: "locked", models: ["a", "b"], activeModels: ["a"] })),
     ).toEqual(["locked"]);
+  });
+});
+
+describe("extractTestReply 只取回复文本", () => {
+  it("OpenAI chat content 字符串", () => {
+    expect(
+      extractTestReply(
+        JSON.stringify({ choices: [{ message: { content: "Hi there" } }] }),
+      ),
+    ).toBe("Hi there");
+  });
+
+  it("Claude content[].text", () => {
+    expect(
+      extractTestReply(
+        JSON.stringify({ content: [{ type: "text", text: "pong" }] }),
+      ),
+    ).toBe("pong");
+  });
+
+  it("Responses output_text", () => {
+    expect(extractTestReply(JSON.stringify({ output_text: "ok" }))).toBe("ok");
+  });
+
+  it("非 JSON 短正文原样返回", () => {
+    expect(extractTestReply("plain pong")).toBe("plain pong");
+  });
+});
+
+describe("extractTestError", () => {
+  it("抽出 error.message", () => {
+    expect(
+      extractTestError(
+        JSON.stringify({ error: { message: "model not found" } }),
+      ),
+    ).toBe("model not found");
+  });
+});
+
+describe("authTypeLabel", () => {
+  it("api_key 显示为 apikey", () => {
+    expect(authTypeLabel("api_key")).toBe("apikey");
   });
 });
