@@ -245,6 +245,18 @@ Kimi、Kimi For Coding、GLM/Zhipu、ModelScope、Novita、Nvidia Kimi、Silicon
 
 不建议直接引入 `Ultracode -> 某个 effort` 的隐式规则。应先定义它在本项目里的语义：例如等价 `max`、等价 `xhigh`，还是表示 workflow/agent 数量级别而非模型推理强度。当前 cc-switch 源码没有提供这个答案。
 
+## ccMesh 映射级覆盖（2026-09）
+
+ccMesh 在端点「模型映射」每条映射上增加了可选的出站推理强度 `ModelMapping.reasoningEffort`，语义与上述 cc-switch 入站解析不同：
+
+- **优先级**：映射覆盖 > 客户端入站 effort。映射命中且有值时，在协议转换之后按上游形态写出站字段，覆盖转换层按入站 effort 写出的值。
+- **空 = 跟随请求**：映射未配置 effort 时，行为与未引入该字段前完全一致（透传客户端 effort 经 `gpt_reasoning_effort` 的 4/6 档钳位）。
+- **档位**：`low / medium / high / xhigh / max`（无 `ultra`），所有出站模型同一组选项，不在 UI 钳位。
+- **写出站形态**：OpenAI Chat → 顶层 `reasoning_effort`；OpenAI Responses → `reasoning.effort`；Claude 直通 → `output_config.effort`，Claude 不认 `xhigh`，钳为 `high`。
+- **降级协同**：`EFFORT_LADDER` 补 `max`（`max→xhigh→high→medium→low`）。上游拒 effort 时优先降映射覆盖值（就地降一级，不重算，避免盖回原值空转）；无覆盖值时退回 Responses→Chat 的 `body_json` 降级。
+
+落点：`src-tauri/src/modules/proxy/resolver.rs`（`mapping_reasoning_effort`）、`src-tauri/src/modules/proxy/forward.rs`（`apply_effort_override` + 降级重试）、`src-tauri/src/modules/transform/reasoning_effort.rs`（`next_lower_effort`）。
+
 ## 主要源码锚点
 
 - `E:/myCode/cc-switch/src-tauri/src/proxy/providers/transform.rs:56`：OpenAI reasoning 模型识别。
