@@ -675,6 +675,7 @@ mod tests {
         r.model_mappings = vec![ModelMapping {
             from: "gpt-5".into(),
             to: "claude-opus-4-8".into(),
+            ..Default::default()
         }];
         let created = create(&c, &r).unwrap();
         assert_eq!(created.model_mappings.len(), 1);
@@ -696,10 +697,12 @@ mod tests {
                     ModelMapping {
                         from: "a".into(),
                         to: "claude-opus-4-8".into(),
+                        ..Default::default()
                     },
                     ModelMapping {
                         from: "b".into(),
                         to: "claude-opus-4-8".into(),
+                        ..Default::default()
                     },
                 ]),
                 model_mappings_enabled: Some(false),
@@ -710,6 +713,33 @@ mod tests {
         let got = get_by_id(&c, created.id).unwrap().unwrap();
         assert_eq!(got.model_mappings.len(), 2);
         assert!(!got.model_mappings_enabled);
+    }
+
+    #[test]
+    fn model_mappings_roundtrip_with_reasoning_effort() {
+        use crate::models::endpoint::ModelMapping;
+        let c = db();
+        let mut r = req("eff");
+        r.models = vec!["gpt-5.6-sol".into()];
+        r.model_mappings = vec![ModelMapping {
+            from: "gpt-5.5".into(),
+            to: "gpt-5.6-sol".into(),
+            reasoning_effort: Some("xhigh".into()),
+            ..Default::default()
+        }];
+        let created = create(&c, &r).unwrap();
+        let got = get_by_id(&c, created.id).unwrap().unwrap();
+        assert_eq!(got.model_mappings.len(), 1);
+        assert_eq!(
+            got.model_mappings[0].reasoning_effort.as_deref(),
+            Some("xhigh")
+        );
+
+        // 旧 JSON（无 reasoning_effort）反序列化为 None，行为不变
+        let legacy: Vec<ModelMapping> =
+            serde_json::from_str(r#"[{"from":"gpt-5","to":"claude-opus-4-8"}]"#).unwrap();
+        assert_eq!(legacy.len(), 1);
+        assert!(legacy[0].reasoning_effort.is_none());
     }
 
     #[test]

@@ -1,11 +1,14 @@
 use serde::{Deserialize, Serialize};
 
 /// 单条模型映射：入站模型名 `from` → 出站（上游真实）模型名 `to`。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// `reasoning_effort` 非空时，转发按上游形态覆盖出站推理强度（空=跟随客户端请求）。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelMapping {
     pub from: String,
     pub to: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
 }
 
 /// 单条请求头覆写：转发前用 `value` 覆盖同名请求头（名称不区分大小写）。
