@@ -11,10 +11,12 @@
 - 端点管理：连通性测试结束后弹窗展示日志式摘要（端点、测试消息、响应码、抽出的回复或上游报错），支持复制。失败优先展示 `error.message` 一类文案，传输层错误原文可见；不再只用 toast 显示 HTTP 码或整段 JSON
 - 端点管理：新增请求头覆写。表单开关与名称/值列表，转发前用配置覆盖同名出站头（不区分大小写）；认证头（authorization、x-api-key）与连接控制头不允许覆写。备份 / WebDAV 同步带上该字段
 - 代理：请求 `https://opencode.ai` 且为 api_key 时自动带 `x-opencode-session`（客户端已有则透传，否则生成 UUID），盖过账号级同名覆写。连通性测试、内置对话流式与摘要同样注入；仅官方域名，不泄露到其他上游
+- 端点管理：模型映射弹层加宽，每条映射可配置出站推理强度（`low` / `medium` / `high` / `xhigh` / `max`）。空为跟随客户端请求；有值则覆盖客户端，按上游形态写出站字段（Chat `reasoning_effort`、Responses `reasoning.effort`、Claude `output_config.effort`）
 
 ### 修复
 
 - 流式代理：上游 HTTP 客户端改用 `read_timeout`（空闲超时）替代总时长 `timeout`。长对话不再在约 300 秒被强制截断并记 0 token；读超时 / 断流统一回 502
+- 代理：推理强度降级阶梯补上 `max`（`max → xhigh → high → medium → low`）。映射覆盖值被上游拒绝时就地降一级重试，不再盖回原值空转
 
 ## [0.2.6]
 
