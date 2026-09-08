@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::models::endpoint::Endpoint;
+use crate::models::endpoint::{Endpoint, ModelMapping};
 
 /// 端点指定头部（项目决策：`X-CCmomo-Endpoint`），及兼容别名。
 pub const ENDPOINT_HEADER: &str = "x-ccmomo-endpoint";
@@ -127,24 +127,38 @@ pub fn advertised_models(ep: &Endpoint) -> Vec<String> {
 /// 解析转发上游应使用的出站模型：① 映射开启且入站名命中 → 映射出站名；② 否则锁定 `model` 非空 → 锁定模型；
 /// ③ 否则 `None`（透传客户端原始 model）。大小写不敏感匹配入站名。
 pub fn resolve_outbound(ep: &Endpoint, inbound: Option<&str>) -> Option<String> {
-    if ep.model_mappings_enabled {
-        if let Some(m) = inbound {
-            let m = m.trim();
-            if !m.is_empty() {
-                if let Some(map) = ep
-                    .model_mappings
-                    .iter()
-                    .find(|mm| mm.from.trim().eq_ignore_ascii_case(m) && !mm.to.trim().is_empty())
-                {
-                    return Some(map.to.clone());
-                }
-            }
-        }
+    if let Some(map) = matched_mapping(ep, inbound) {
+        return Some(map.to.clone());
     }
     if !ep.model.trim().is_empty() {
         return Some(ep.model.clone());
     }
     None
+}
+
+/// 命中的映射条目：映射开启 + 入站名大小写不敏感命中 + 出站名非空。供 `resolve_outbound` 与
+/// `mapping_reasoning_effort` 共用，避免两处重复同一谓词扫描。
+pub fn matched_mapping<'a>(ep: &'a Endpoint, inbound: Option<&str>) -> Option<&'a ModelMapping> {
+    if !ep.model_mappings_enabled {
+        return None;
+    }
+    let m = inbound?.trim();
+    if m.is_empty() {
+        return None;
+    }
+    ep.model_mappings
+        .iter()
+        .find(|mm| mm.from.trim().eq_ignore_ascii_case(m) && !mm.to.trim().is_empty())
+}
+
+/// 映射条目上配置的出站推理强度（trim 后非空才返回）。空=跟随客户端请求，有值=覆盖客户端。
+pub fn mapping_reasoning_effort(ep: &Endpoint, inbound: Option<&str>) -> Option<String> {
+    let effort = matched_mapping(ep, inbound)?.reasoning_effort.as_deref()?;
+    let trimmed = effort.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(trimmed.to_string())
 }
 
 /// 按请求模型过滤候选端点（轮换/熔断前）：
@@ -382,6 +396,7 @@ mod tests {
                 .map(|(f, t)| crate::models::endpoint::ModelMapping {
                     from: f.to_string(),
                     to: t.to_string(),
+                    ..Default::default()
                 })
                 .collect(),
             ..ep_with_models(name, models)
@@ -517,5 +532,51 @@ mod tests {
         let eps = vec![off.clone(), ep_with_models("cc", &["mimo"])];
         let got = filter_by_model(&eps, Some("gpt-5"));
         assert_eq!(got.len(), 2);
+    }
+
+    fn ep_mapped_effort(name: &str, mappings: &[(&str, &str, Option<&str>)]) -> Endpoint {
+        Endpoint {
+            model_mappings: mappings
+                .iter()
+                .map(|(f, t, e)| crate::models::endpoint::ModelMapping {
+                    from: f.to_string(),
+                    to: t.to_string(),
+                    reasoning_effort: e.map(|s| s.to_string()),
+                    ..Default::default()
+                })
+                .collect(),
+            ..ep(name)
+        }
+    }
+
+    #[test]
+    fn mapping_reasoning_effort_returns_value_when_hit() {
+        let e = ep_mapped_effort("e", &[("gpt-5", "gpt-5.6-sol", Some("xhigh"))]);
+        assert_eq!(
+            mapping_reasoning_effort(&e, Some("GPT-5")).as_deref(),
+            Some("xhigh")
+        );
+    }
+
+    #[test]
+    fn mapping_reasoning_effort_none_when_disabled_or_miss_or_empty() {
+        // 关闭映射
+        let off = Endpoint {
+            model_mappings_enabled: false,
+            ..ep_mapped_effort("e", &[("gpt-5", "gpt-5.6-sol", Some("xhigh"))])
+        };
+        assert_eq!(mapping_reasoning_effort(&off, Some("gpt-5")), None);
+        // 未命中
+        let e = ep_mapped_effort("e", &[("gpt-5", "gpt-5.6-sol", Some("xhigh"))]);
+        assert_eq!(mapping_reasoning_effort(&e, Some("other")), None);
+        // 字段为空串
+        let e = ep_mapped_effort("e", &[("gpt-5", "gpt-5.6-sol", Some("   "))]);
+        assert_eq!(mapping_reasoning_effort(&e, Some("gpt-5")), None);
+        // 字段缺失
+        let e = ep_mapped_effort("e", &[("gpt-5", "gpt-5.6-sol", None)]);
+        assert_eq!(mapping_reasoning_effort(&e, Some("gpt-5")), None);
+        // 无入站
+        let e = ep_mapped_effort("e", &[("gpt-5", "gpt-5.6-sol", Some("xhigh"))]);
+        assert_eq!(mapping_reasoning_effort(&e, None), None);
     }
 }

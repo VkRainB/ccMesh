@@ -6,8 +6,9 @@
 
 use serde_json::{json, Value};
 
-/// 从高到低的推理强度阶梯（仅包含已知等级）。
-const EFFORT_LADDER: &[&str] = &["xhigh", "high", "medium", "low"];
+/// 从高到低的推理强度阶梯（仅包含已知等级）。`max` 补入后，客户端自带或映射覆盖的
+/// `max` 被上游拒时也能降级（此前 `max` 不在阶梯内会直接失败）。
+const EFFORT_LADDER: &[&str] = &["max", "xhigh", "high", "medium", "low"];
 
 /// 检测上游错误是否因 reasoning_effort 不被接受（如 xhigh 仅部分上游支持）。
 pub fn is_unsupported_reasoning_effort_error(error_message: &str) -> bool {
@@ -23,7 +24,15 @@ pub fn is_unsupported_reasoning_effort_error(error_message: &str) -> bool {
         || lower.contains("unknown")
 }
 
-/// 将 Responses 请求体中的 `reasoning.effort` 降一级（xhigh→high→medium→low）。
+/// 将当前 effort 降一级（按 `EFFORT_LADDER` 从高到低）。已是 `low` 或未知等级返回 `None`。
+/// 供 Responses→Chat 降级与映射覆盖值降级共用，避免两处各写一份阶梯扫描。
+pub fn next_lower_effort(current: &str) -> Option<&'static str> {
+    let cur = current.trim().to_ascii_lowercase();
+    let idx = EFFORT_LADDER.iter().position(|e| *e == cur.as_str())?;
+    Some(*EFFORT_LADDER.get(idx + 1)?)
+}
+
+/// 将 Responses 请求体中的 `reasoning.effort` 降一级（max→xhigh→high→medium→low）。
 /// 成功降级返回 `true`；已是 `low` 或未知等级则返回 `false`。
 pub fn downgrade_reasoning_effort_in_responses(body: &mut Value) -> bool {
     let current = body
@@ -36,14 +45,10 @@ pub fn downgrade_reasoning_effort_in_responses(body: &mut Value) -> bool {
         None => return false,
     };
 
-    let idx = match EFFORT_LADDER.iter().position(|e| *e == current.as_str()) {
-        Some(i) => i,
+    let next = match next_lower_effort(&current) {
+        Some(n) => n,
         None => return false,
     };
-    if idx + 1 >= EFFORT_LADDER.len() {
-        return false;
-    }
-    let next = EFFORT_LADDER[idx + 1];
 
     if let Some(reasoning) = body.get_mut("reasoning").and_then(|r| r.as_object_mut()) {
         reasoning.insert("effort".into(), json!(next));
@@ -93,5 +98,22 @@ mod tests {
         let mut body = json!({ "reasoning": { "effort": "XHIGH" } });
         assert!(downgrade_reasoning_effort_in_responses(&mut body));
         assert_eq!(body["reasoning"]["effort"], json!("high"));
+    }
+
+    #[test]
+    fn next_lower_effort_max_to_xhigh() {
+        assert_eq!(next_lower_effort("max"), Some("xhigh"));
+        assert_eq!(next_lower_effort("Max"), Some("xhigh"));
+        assert_eq!(next_lower_effort("  xhigh "), Some("high"));
+        assert_eq!(next_lower_effort("low"), None);
+        assert_eq!(next_lower_effort("unknown"), None);
+        assert_eq!(next_lower_effort(""), None);
+    }
+
+    #[test]
+    fn downgrades_max_to_xhigh() {
+        let mut body = json!({ "reasoning": { "effort": "max" } });
+        assert!(downgrade_reasoning_effort_in_responses(&mut body));
+        assert_eq!(body["reasoning"]["effort"], json!("xhigh"));
     }
 }

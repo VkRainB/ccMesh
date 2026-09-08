@@ -8,11 +8,11 @@ use crate::error::{AppError, AppResult};
 use crate::models::endpoint::Endpoint;
 use crate::modules::models_probe::ProbeAuth;
 use crate::modules::proxy::client::{build_client, should_use_proxy};
-use crate::utils::opencode_session::with_opencode_session;
 use crate::modules::proxy::resolver::resolve_outbound;
 use crate::modules::storage::chat_repo;
 use crate::modules::storage::db::DbPool;
 use crate::modules::transform::transformer::UpstreamFormat;
+use crate::utils::opencode_session::with_opencode_session;
 use tokio_util::sync::CancellationToken;
 
 const TRIGGER_RATIO: f64 = 0.8;

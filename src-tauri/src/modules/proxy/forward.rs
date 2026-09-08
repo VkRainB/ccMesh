@@ -27,6 +27,7 @@ use crate::modules::transform::claude_responses::{
 };
 use crate::modules::transform::reasoning_effort::{
     downgrade_reasoning_effort_in_responses, is_unsupported_reasoning_effort_error,
+    next_lower_effort,
 };
 use crate::modules::transform::responses_chat::{
     chat_response_to_responses, responses_request_to_chat, ResponsesStreamConverter,
@@ -587,6 +588,9 @@ pub async fn handle_proxy(
     let mut last_transformer: Option<String> = None;
     // thinking 签名整流一次性标志：命中后清洗重试，仅一次，防死循环。
     let mut sig_rectified = false;
+    // 映射覆盖的出站推理强度：按端点计算，端点名变化时重算；降级重试时就地降一级（不重算，避免盖回原值空转）。
+    let mut effort_override: Option<String> = None;
+    let mut effort_override_ep: Option<String> = None;
 
     for _ in 0..max {
         let ep: Endpoint = if let Some(ref e) = resolution.endpoint {
@@ -614,6 +618,11 @@ pub async fn handle_proxy(
         let format = UpstreamFormat::from_transformer_name(&ep.transformer);
         // 出站模型解析：入站名命中映射 → 出站名；否则锁定 model；否则透传（空串）。
         let outbound_model = resolver::resolve_outbound(&ep, model.as_deref()).unwrap_or_default();
+        // 映射覆盖的推理强度：端点切换时重算；降级重试（同端点 continue）时保留已降级值，不重算。
+        if effort_override_ep.as_deref() != Some(ep.name.as_str()) {
+            effort_override = resolver::mapping_reasoning_effort(&ep, model.as_deref());
+            effort_override_ep = Some(ep.name.clone());
+        }
         // 转换场景（互斥）：Claude 入站+OpenAI 端点 → Claude↔Chat；Claude 入站+codex 端点 → Claude↔Responses；
         // Responses 入站+OpenAI 端点 → Responses↔Chat；其余（含 Images 入站、Chat 直通、Claude 直通）passthrough。
         let needs_transform = protocol.is_claude() && matches!(format, UpstreamFormat::OpenAiChat);
@@ -621,51 +630,46 @@ pub async fn handle_proxy(
             protocol.is_claude() && matches!(format, UpstreamFormat::OpenAiResponses);
         let responses_to_chat =
             protocol.is_responses() && matches!(format, UpstreamFormat::OpenAiChat);
-        let attempt_body: Bytes = if needs_transform {
+        // 转换/直通改写后得到出站 Value；映射覆盖的 effort 在此统一写入，避免四个分支各写一份指针。
+        let transformed: Option<Value> = if needs_transform {
             // Claude → OpenAI（transform_request 内部按出站模型覆盖，空则透传客户端 model）
-            match &body_json {
-                Some(cj) => get_transformer(format)
+            body_json.as_ref().and_then(|cj| {
+                get_transformer(format)
                     .transform_request(cj, Some(&outbound_model))
                     .ok()
-                    .and_then(|v| serde_json::to_vec(&v).ok())
-                    .map(Bytes::from)
-                    .unwrap_or_else(|| body.clone()),
-                None => body.clone(),
-            }
+            })
         } else if claude_to_responses {
             // Claude → Responses（出站强制 stream:true，客户端非流式时聚合回 Claude JSON）
-            match &body_json {
-                Some(cj) => {
-                    serde_json::to_vec(&claude_request_to_responses(cj, Some(&outbound_model)))
-                        .map(Bytes::from)
-                        .unwrap_or_else(|_| body.clone())
-                }
-                None => body.clone(),
-            }
+            body_json
+                .as_ref()
+                .map(|cj| claude_request_to_responses(cj, Some(&outbound_model)))
         } else if responses_to_chat {
             // Responses → Chat（responses_request_to_chat 内部按出站模型覆盖，空则透传客户端 model）
-            match &body_json {
-                Some(cj) => {
-                    serde_json::to_vec(&responses_request_to_chat(cj, Some(&outbound_model)))
-                        .map(Bytes::from)
-                        .unwrap_or_else(|_| body.clone())
-                }
-                None => body.clone(),
-            }
+            body_json
+                .as_ref()
+                .map(|cj| responses_request_to_chat(cj, Some(&outbound_model)))
         } else if !outbound_model.is_empty() {
-            // 直通场景：映射/锁定的出站模型覆盖请求体 model 后重新序列化
-            match &body_json {
-                Some(cj) => {
-                    let mut v = cj.clone();
-                    if let Some(o) = v.as_object_mut() {
-                        o.insert("model".to_string(), Value::String(outbound_model.clone()));
-                    }
-                    serde_json::to_vec(&v)
-                        .map(Bytes::from)
-                        .unwrap_or_else(|_| body.clone())
+            // 直通场景：映射/锁定的出站模型覆盖请求体 model
+            body_json.as_ref().map(|cj| {
+                let mut v = cj.clone();
+                if let Some(o) = v.as_object_mut() {
+                    o.insert("model".to_string(), Value::String(outbound_model.clone()));
                 }
-                None => body.clone(),
+                v
+            })
+        } else {
+            None
+        };
+        let attempt_body: Bytes = if let Some(mut v) = transformed {
+            // 映射覆盖优先于转换层按入站 effort 写出的值；Images 入站不写 effort。
+            if let Some(eff) = effort_override.as_deref() {
+                if !protocol.is_images() {
+                    apply_effort_override(&mut v, format, eff);
+                }
             }
+            serde_json::to_vec(&v)
+                .map(Bytes::from)
+                .unwrap_or_else(|_| body.clone())
         } else if sig_rectified {
             // 已签名整流：从整流后的 body_json 重新序列化（直通空 model 分支否则会回退用原始未整流字节）
             match &body_json {
@@ -709,6 +713,7 @@ pub async fn handle_proxy(
             transformer = %ep.transformer,
             mode = route_mode,
             outbound_model = %outbound_model,
+            effort_override = ?effort_override,
             upstream_path,
             model_declared,
             "转发上游"
@@ -830,8 +835,8 @@ pub async fn handle_proxy(
                     }
                 }
                 if !rotation::should_retry_status(status) {
-                    // 读错误体：Responses→Chat reasoning_effort 降级 / thinking 签名整流（透明重试）。
-                    let may_downgrade_effort = responses_to_chat;
+                    // 读错误体：推理强度降级（Responses→Chat 或映射覆盖值不被接受）/ thinking 签名整流（透明重试）。
+                    let may_downgrade_effort = responses_to_chat || effort_override.is_some();
                     let may_rectify_sig = st.rectifier_config.enabled && !sig_rectified;
                     let resp_headers = copy_response_headers(&resp);
                     let err_bytes = resp.bytes().await.unwrap_or_default();
@@ -840,7 +845,20 @@ pub async fn handle_proxy(
                     if may_downgrade_effort || may_rectify_sig {
                         if may_downgrade_effort && is_unsupported_reasoning_effort_error(&err_text)
                         {
-                            if let Some(cj) = body_json.as_mut() {
+                            // 优先降映射覆盖值：下一轮继续用覆盖值写出站（不盖回原值，避免空转）。
+                            if let Some(cur) = effort_override.as_deref() {
+                                if let Some(lower) = next_lower_effort(cur) {
+                                    tracing::info!(
+                                        endpoint = %ep.name,
+                                        from = cur,
+                                        to = lower,
+                                        "映射推理强度不被上游接受，降级重试"
+                                    );
+                                    effort_override = Some(lower.to_string());
+                                    continue;
+                                }
+                                // 覆盖值已到底仍被拒：落入下方普通错误回传
+                            } else if let Some(cj) = body_json.as_mut() {
                                 if downgrade_reasoning_effort_in_responses(cj) {
                                     tracing::info!(
                                         endpoint = %ep.name,
@@ -961,6 +979,51 @@ fn effective_header_overrides(ep: &Endpoint) -> HashMap<String, String> {
         map.insert(name, item.value.clone());
     }
     map
+}
+
+/// 按上游协议形态把映射覆盖的推理强度写进出站请求体：
+/// - OpenAI Chat → 顶层 `reasoning_effort`
+/// - OpenAI Responses → `reasoning.effort`（`reasoning` 不存在则建对象）
+/// - Claude → `output_config.effort`；Claude 不认 `xhigh`，钳为 `high`
+///   ponytail: 上限是 Claude 的 4 档（low/medium/high/max），若未来 Anthropic 支持 xhigh 再放开此 match。
+fn apply_effort_override(body: &mut Value, format: UpstreamFormat, effort: &str) {
+    let wire = match format {
+        UpstreamFormat::OpenAiChat => {
+            if let Some(o) = body.as_object_mut() {
+                o.insert("reasoning_effort".into(), Value::String(effort.to_string()));
+            }
+            return;
+        }
+        UpstreamFormat::OpenAiResponses => {
+            let o = match body.as_object_mut() {
+                Some(o) => o,
+                None => return,
+            };
+            let reasoning = o
+                .entry("reasoning".to_string())
+                .or_insert_with(|| Value::Object(serde_json::Map::new()));
+            if let Some(ro) = reasoning.as_object_mut() {
+                ro.insert("effort".into(), Value::String(effort.to_string()));
+            }
+            return;
+        }
+        UpstreamFormat::Claude => {
+            // Claude 不认 xhigh：钳为 high，避免上游 400。
+            if effort.eq_ignore_ascii_case("xhigh") {
+                "high"
+            } else {
+                effort
+            }
+        }
+    };
+    if let Some(o) = body.as_object_mut() {
+        let oc = o
+            .entry("output_config".to_string())
+            .or_insert_with(|| Value::Object(serde_json::Map::new()));
+        if let Some(oco) = oc.as_object_mut() {
+            oco.insert("effort".into(), Value::String(wire.to_string()));
+        }
+    }
 }
 
 async fn send_upstream(
@@ -1438,6 +1501,47 @@ Content-Type: image/png\r\n\
         assert_eq!(map.get("user-agent").map(String::as_str), Some("ccmesh"));
         assert_eq!(map.get("x-foo").map(String::as_str), Some("bar"));
         assert!(!map.contains_key("x-custom"));
+    }
+
+    #[test]
+    fn apply_effort_override_writes_chat_top_level() {
+        let mut body = serde_json::json!({ "model": "gpt-5.6-sol" });
+        super::apply_effort_override(
+            &mut body,
+            crate::modules::transform::transformer::UpstreamFormat::OpenAiChat,
+            "xhigh",
+        );
+        assert_eq!(body["reasoning_effort"], serde_json::json!("xhigh"));
+    }
+
+    #[test]
+    fn apply_effort_override_writes_responses_reasoning_effort() {
+        let mut body = serde_json::json!({ "model": "gpt-5.6-sol" });
+        super::apply_effort_override(
+            &mut body,
+            crate::modules::transform::transformer::UpstreamFormat::OpenAiResponses,
+            "max",
+        );
+        assert_eq!(body["reasoning"]["effort"], serde_json::json!("max"));
+    }
+
+    #[test]
+    fn apply_effort_override_clamps_xhigh_to_high_for_claude() {
+        let mut body = serde_json::json!({ "model": "claude-opus-5" });
+        super::apply_effort_override(
+            &mut body,
+            crate::modules::transform::transformer::UpstreamFormat::Claude,
+            "xhigh",
+        );
+        assert_eq!(body["output_config"]["effort"], serde_json::json!("high"));
+
+        let mut body2 = serde_json::json!({});
+        super::apply_effort_override(
+            &mut body2,
+            crate::modules::transform::transformer::UpstreamFormat::Claude,
+            "max",
+        );
+        assert_eq!(body2["output_config"]["effort"], serde_json::json!("max"));
     }
 }
 
