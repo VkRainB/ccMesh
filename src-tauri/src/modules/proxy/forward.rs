@@ -946,6 +946,32 @@ pub async fn handle_proxy(
     )
 }
 
+/// 最终 HTTPS 目标是否恰为 `https://opencode.ai`（不含子域、相似域、显式非默认端口、http）。
+fn is_opencode_target(url: &str) -> bool {
+    let Ok(parsed) = reqwest::Url::parse(url) else {
+        return false;
+    };
+    parsed.scheme() == "https"
+        && parsed.host_str() == Some("opencode.ai")
+        && parsed.port().is_none()
+}
+
+/// 开关开启且 value 非空的覆写项；名称小写。后写覆盖先写。
+fn effective_header_overrides(ep: &Endpoint) -> HashMap<String, String> {
+    if !ep.header_overrides_enabled {
+        return HashMap::new();
+    }
+    let mut map = HashMap::new();
+    for item in &ep.header_overrides {
+        let name = item.name.trim().to_ascii_lowercase();
+        if name.is_empty() || item.value.is_empty() {
+            continue;
+        }
+        map.insert(name, item.value.clone());
+    }
+    map
+}
+
 async fn send_upstream(
     st: &ProxyState,
     ep: &Endpoint,
@@ -955,6 +981,13 @@ async fn send_upstream(
     body: &Bytes,
 ) -> reqwest::Result<reqwest::Response> {
     let url = join_upstream_url(&ep.api_url, upstream_path);
+    let mut overrides = effective_header_overrides(ep);
+    let forward_session = ep.auth_mode == "api_key" && is_opencode_target(&url);
+    let client_session = headers
+        .get("x-opencode-session")
+        .and_then(|v| v.to_str().ok())
+        .filter(|v| !v.is_empty())
+        .map(str::to_string);
     let rmethod =
         reqwest::Method::from_bytes(method.as_str().as_bytes()).unwrap_or(reqwest::Method::POST);
 
@@ -987,8 +1020,8 @@ async fn send_upstream(
         && ua_override.starts_with(ua::CODEX_ORIGINATOR)
         && !headers.contains_key("originator");
 
-    // 复制客户端头部（剔除 Host / Content-Length / Accept-Encoding / 客户端凭证 / 控制头；
-    // 仅在配置了伪装 UA 时剔除客户端 user-agent，否则原样透传客户端 UA）
+    // 复制客户端头部（剔除 Host / Content-Length / Accept-Encoding / 客户端凭证 / 控制头 /
+    // x-opencode-session / 将被覆写的头；仅在配置了伪装 UA 时剔除客户端 user-agent）
     for (k, v) in headers.iter() {
         let kn = k.as_str().to_ascii_lowercase();
         if kn == "host"
@@ -996,9 +1029,11 @@ async fn send_upstream(
             || kn == "accept-encoding"
             || kn == "authorization"
             || kn == "x-api-key"
+            || kn == "x-opencode-session"
             || kn == resolver::ENDPOINT_HEADER
             || kn == resolver::ENDPOINT_HEADER_ALT
             || (override_ua && kn == "user-agent")
+            || overrides.contains_key(&kn)
         {
             continue;
         }
@@ -1013,6 +1048,17 @@ async fn send_upstream(
     }
     if add_codex_originator {
         rb = rb.header("originator", ua::CODEX_ORIGINATOR);
+    }
+
+    // 客户端会话头优先于账号级覆写，避免固定值把多会话压成一个。
+    if forward_session && client_session.is_some() {
+        overrides.remove("x-opencode-session");
+    }
+    for (k, v) in &overrides {
+        rb = rb.header(k, v);
+    }
+    if let (true, Some(val)) = (forward_session, client_session.as_deref()) {
+        rb = rb.header("x-opencode-session", val);
     }
 
     // 附加鉴权头（按 transformer / auth_mode）
@@ -1249,11 +1295,47 @@ fn stream_transform_response(
 #[cfg(test)]
 mod tests {
     use super::{
-        empty_candidates_message, error_body_from_bytes, extract_multipart_model,
-        parse_retry_after, rate_limited_response, truncate_error_body,
+        effective_header_overrides, empty_candidates_message, error_body_from_bytes,
+        extract_multipart_model, is_opencode_target, parse_retry_after, rate_limited_response,
+        truncate_error_body,
     };
+    use crate::models::endpoint::{Endpoint, HeaderOverride};
     use axum::body::Bytes;
     use axum::http::{HeaderMap, HeaderValue, StatusCode};
+
+    fn test_ep(enabled: bool, items: &[(&str, &str)]) -> Endpoint {
+        Endpoint {
+            id: 1,
+            name: "t".into(),
+            api_url: "https://x".into(),
+            api_key: String::new(),
+            auth_mode: "api_key".into(),
+            enabled: true,
+            use_proxy: false,
+            transformer: "openai".into(),
+            model: String::new(),
+            models: Vec::new(),
+            active_models: Vec::new(),
+            model_mappings: Vec::new(),
+            model_mappings_enabled: true,
+            header_overrides: items
+                .iter()
+                .map(|(n, v)| HeaderOverride {
+                    name: (*n).into(),
+                    value: (*v).into(),
+                })
+                .collect(),
+            header_overrides_enabled: enabled,
+            remark: String::new(),
+            sort_order: 0,
+            fast: false,
+            fast_sort_order: 0,
+            test_status: "unknown".into(),
+            created_at: String::new(),
+            updated_at: String::new(),
+            archived: false,
+        }
+    }
 
     #[test]
     fn empty_candidates_message_prefers_breaker_reason_over_model() {
@@ -1349,6 +1431,38 @@ Content-Type: image/png\r\n\
             extract_multipart_model(Some("application/json"), &Bytes::from_static(b"{}")).is_none()
         );
         assert!(extract_multipart_model(None, &Bytes::from_static(b"")).is_none());
+    }
+
+    #[test]
+    fn is_opencode_target_exact_https_host() {
+        assert!(is_opencode_target(
+            "https://opencode.ai/zen/v1/chat/completions"
+        ));
+        assert!(is_opencode_target("https://opencode.ai"));
+        assert!(!is_opencode_target("https://api.opencode.ai"));
+        assert!(!is_opencode_target("https://opencode.ai.evil.com"));
+        assert!(!is_opencode_target("http://opencode.ai"));
+        assert!(!is_opencode_target("https://opencode.ai:8443/v1"));
+        assert!(!is_opencode_target("not a url"));
+    }
+
+    #[test]
+    fn effective_header_overrides_skips_disabled_and_empty() {
+        let off = test_ep(false, &[("User-Agent", "x")]);
+        assert!(effective_header_overrides(&off).is_empty());
+
+        let on = test_ep(
+            true,
+            &[
+                (" User-Agent ", "ccmesh"),
+                ("x-custom", ""),
+                ("X-Foo", "bar"),
+            ],
+        );
+        let map = effective_header_overrides(&on);
+        assert_eq!(map.get("user-agent").map(String::as_str), Some("ccmesh"));
+        assert_eq!(map.get("x-foo").map(String::as_str), Some("bar"));
+        assert!(!map.contains_key("x-custom"));
     }
 }
 
