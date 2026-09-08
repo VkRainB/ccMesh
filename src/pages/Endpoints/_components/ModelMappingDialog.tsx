@@ -32,6 +32,11 @@ import { MODEL_MAPPING_PRESETS } from "./modelMappingPresets";
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
+/** 出站推理强度档位：空（跟随请求）+ 5 档。所有出站模型同一组选项，不随模型钳位。 */
+const REASONING_EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
+/** Radix Select 空值哨兵：onValueChange 时转回 undefined。 */
+const EFFORT_NONE = "__none__";
+
 interface Props {
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -62,6 +67,14 @@ export function ModelMappingDialog({ open, onOpenChange, endpoint }: Props) {
     setRows((r) => r.map((row, idx) => (idx === i ? { ...row, from: v } : row)));
   const setTo = (i: number, v: string) =>
     setRows((r) => r.map((row, idx) => (idx === i ? { ...row, to: v } : row)));
+  const setEffort = (i: number, v: string) =>
+    setRows((r) =>
+      r.map((row, idx) =>
+        idx === i
+          ? { ...row, reasoningEffort: v === EFFORT_NONE ? undefined : v }
+          : row,
+      ),
+    );
   const hasFrom = (from: string) =>
     rows.some((r) => r.from.trim().toLowerCase() === from.trim().toLowerCase());
   /** 快捷添加：入站用预设 from，出站默认第一个可用模型；关闭映射或已存在同名入站则忽略。 */
@@ -83,7 +96,15 @@ export function ModelMappingDialog({ open, onOpenChange, endpoint }: Props) {
   const save = useMutation({
     mutationFn: () => {
       const cleaned = rows
-        .map((r) => ({ from: r.from.trim(), to: r.to.trim() }))
+        .map((r) => ({
+          from: r.from.trim(),
+          to: r.to.trim(),
+          // 仅在有值时带上 reasoningEffort，不落空串
+          reasoningEffort:
+            r.reasoningEffort && r.reasoningEffort.trim()
+              ? r.reasoningEffort.trim()
+              : undefined,
+        }))
         .filter((r) => r.from && r.to);
       return endpointApi.update(endpoint.id, { modelMappings: cleaned });
     },
@@ -103,7 +124,7 @@ export function ModelMappingDialog({ open, onOpenChange, endpoint }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-2xl sm:max-w-2xl">
         <DialogHeader>
           <div className="flex items-center justify-between gap-3 pr-6">
             <DialogTitle>模型映射 · {endpoint.name}</DialogTitle>
@@ -122,7 +143,7 @@ export function ModelMappingDialog({ open, onOpenChange, endpoint }: Props) {
         <div className="rounded-md border border-edge bg-surface-raised px-3 py-2.5 text-xs leading-relaxed text-ink-secondary">
           <p>「入站模型」请求时改写为「出站模型」转发上游；关闭则不生效</p>
           <p className="mt-1 pl-1.5 font-mono text-ink-mute">
-            例：客户端 gpt-5.5 → 上游 claude-opus-5
+            例：客户端 gpt-5.5 → 上游 gpt-5.6-sol · 推理 xhigh
           </p>
         </div>
 
@@ -146,6 +167,17 @@ export function ModelMappingDialog({ open, onOpenChange, endpoint }: Props) {
                     <InfoIcon className="size-3.5 cursor-help text-ink-disabled" />
                   </TooltipTrigger>
                   <TooltipContent>仅该端点点亮模型，未点亮则全部</TooltipContent>
+                </Tooltip>
+              </span>
+              <span className="flex w-36 items-center gap-1.5">
+                推理强度
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <InfoIcon className="size-3.5 cursor-help text-ink-disabled" />
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    覆盖客户端请求的推理强度；跟随请求=不改写
+                  </TooltipContent>
                 </Tooltip>
               </span>
               <span className="w-8" />
@@ -179,6 +211,24 @@ export function ModelMappingDialog({ open, onOpenChange, endpoint }: Props) {
                             {outbound.map((m) => (
                               <SelectItem key={m} value={m} className="font-mono text-xs">
                                 {m}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="w-36 shrink-0">
+                        <Select
+                          value={row.reasoningEffort || EFFORT_NONE}
+                          onValueChange={(v) => setEffort(i, v)}
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="跟随请求" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={EFFORT_NONE}>跟随请求</SelectItem>
+                            {REASONING_EFFORT_LEVELS.map((lv) => (
+                              <SelectItem key={lv} value={lv} className="font-mono text-xs">
+                                {lv}
                               </SelectItem>
                             ))}
                           </SelectContent>
