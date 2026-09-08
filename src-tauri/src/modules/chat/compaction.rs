@@ -8,6 +8,7 @@ use crate::error::{AppError, AppResult};
 use crate::models::endpoint::Endpoint;
 use crate::modules::models_probe::ProbeAuth;
 use crate::modules::proxy::client::{build_client, should_use_proxy};
+use crate::utils::opencode_session::with_opencode_session;
 use crate::modules::proxy::resolver::resolve_outbound;
 use crate::modules::storage::chat_repo;
 use crate::modules::storage::db::DbPool;
@@ -150,6 +151,7 @@ pub async fn maybe_compact_history(
         proxy_url,
         &transcript,
         token,
+        topic_id,
     )
     .await
     {
@@ -177,6 +179,7 @@ async fn summarize(
     proxy_url: &str,
     transcript: &str,
     token: &CancellationToken,
+    topic_id: &str,
 ) -> AppResult<String> {
     let model = outbound_model(ep, inbound_model);
     let format = UpstreamFormat::from_transformer_name(&ep.transformer);
@@ -212,9 +215,14 @@ async fn summarize(
             }),
         ),
     };
-    let req = ProbeAuth::primary_for(&ep.transformer)
-        .apply(client.post(&url), &ep.api_key)
-        .json(&body);
+    let req = with_opencode_session(
+        ProbeAuth::primary_for(&ep.transformer)
+            .apply(client.post(&url), &ep.api_key)
+            .json(&body),
+        &url,
+        &ep.auth_mode,
+        Some(topic_id),
+    );
     let resp = tokio::select! {
         _ = token.cancelled() => return Err(AppError::InvalidArgument("已取消".into())),
         send_result = req.send() => send_result

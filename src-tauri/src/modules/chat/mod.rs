@@ -21,6 +21,7 @@ use crate::modules::proxy::resolver::resolve_outbound;
 use crate::modules::storage::db::DbPool;
 use crate::modules::storage::{chat_repo, config_repo, endpoint_repo};
 use crate::modules::transform::transformer::UpstreamFormat;
+use crate::utils::opencode_session::with_opencode_session;
 
 static ACTIVE_TOPICS: Lazy<Mutex<HashSet<String>>> = Lazy::new(|| Mutex::new(HashSet::new()));
 static CANCEL_TOKENS: Lazy<Mutex<HashMap<String, CancellationToken>>> =
@@ -276,17 +277,22 @@ async fn run_stream_inner(
         chat_repo::update_message_content(&conn, assistant_id, "", "streaming")?;
     }
 
-    let req = ProbeAuth::primary_for(&ep.transformer)
-        .apply(client.post(&url), &ep.api_key)
-        .header(
-            "accept",
-            if stream {
-                "text/event-stream"
-            } else {
-                "application/json"
-            },
-        )
-        .json(&body);
+    let req = with_opencode_session(
+        ProbeAuth::primary_for(&ep.transformer)
+            .apply(client.post(&url), &ep.api_key)
+            .header(
+                "accept",
+                if stream {
+                    "text/event-stream"
+                } else {
+                    "application/json"
+                },
+            )
+            .json(&body),
+        &url,
+        &ep.auth_mode,
+        Some(topic_id),
+    );
 
     if token.is_cancelled() {
         return persist_and_emit_done(app, db, topic_id, assistant_id, "");
