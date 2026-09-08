@@ -11,6 +11,7 @@ use crate::modules::proxy::client::{build_client, should_use_proxy};
 use crate::modules::storage::{config_repo, endpoint_repo};
 use crate::modules::transform::transformer::UpstreamFormat;
 use crate::state::AppState;
+use crate::utils::opencode_session::with_opencode_session;
 use crate::utils::upstream_url::join_upstream_url;
 
 /// 端点配置/测试状态变更事件（payload 为空，前端收到后全量重拉相关查询）。
@@ -260,10 +261,15 @@ pub async fn test_endpoint(
             }),
         ),
     };
-    let builder = ProbeAuth::primary_for(&ep.transformer)
-        .apply(client.post(&url), &ep.api_key)
-        .header("accept", "application/json")
-        .json(&body);
+    let builder = with_opencode_session(
+        ProbeAuth::primary_for(&ep.transformer)
+            .apply(client.post(&url), &ep.api_key)
+            .header("accept", "application/json")
+            .json(&body),
+        &url,
+        &ep.auth_mode,
+        None,
+    );
 
     let start = Instant::now();
     let result = builder.send().await;
