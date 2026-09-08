@@ -3,9 +3,22 @@ use std::collections::HashSet;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
 use crate::error::{AppError, AppResult};
-use crate::models::endpoint::{CreateEndpointRequest, Endpoint, UpdateEndpointRequest};
+use crate::models::endpoint::{
+    CreateEndpointRequest, Endpoint, HeaderOverride, UpdateEndpointRequest,
+};
 
-const COLS: &str = "id, name, api_url, api_key, auth_mode, enabled, use_proxy, transformer, model, models, active_models, model_mappings, model_mappings_enabled, remark, sort_order, fast, fast_sort_order, test_status, created_at, updated_at, archived";
+const COLS: &str = "id, name, api_url, api_key, auth_mode, enabled, use_proxy, transformer, model, models, active_models, model_mappings, model_mappings_enabled, header_overrides, header_overrides_enabled, remark, sort_order, fast, fast_sort_order, test_status, created_at, updated_at, archived";
+
+/// 认证头与连接控制头不允许覆写（与转发层剔除口径对齐）。
+const FORBIDDEN_OVERRIDE_HEADERS: &[&str] = &[
+    "authorization",
+    "x-api-key",
+    "host",
+    "content-length",
+    "transfer-encoding",
+    "connection",
+    "accept-encoding",
+];
 
 fn row_to_endpoint(row: &Row) -> rusqlite::Result<Endpoint> {
     Ok(Endpoint {
@@ -31,6 +44,11 @@ fn row_to_endpoint(row: &Row) -> rusqlite::Result<Endpoint> {
             serde_json::from_str(&s).unwrap_or_default()
         },
         model_mappings_enabled: row.get::<_, i64>("model_mappings_enabled")? != 0,
+        header_overrides: {
+            let s: String = row.get("header_overrides")?;
+            serde_json::from_str(&s).unwrap_or_default()
+        },
+        header_overrides_enabled: row.get::<_, i64>("header_overrides_enabled")? != 0,
         remark: row.get("remark")?,
         sort_order: row.get("sort_order")?,
         fast: row.get::<_, i64>("fast")? != 0,
@@ -96,6 +114,30 @@ fn sanitize_active(models: &[String], active: &[String]) -> Vec<String> {
         .collect()
 }
 
+/// 规整请求头覆写：trim、名称小写；丢弃空名；非法名或禁用名报错。
+fn sanitize_header_overrides(items: &[HeaderOverride]) -> AppResult<Vec<HeaderOverride>> {
+    let mut out = Vec::with_capacity(items.len());
+    for item in items {
+        let name = item.name.trim().to_ascii_lowercase();
+        if name.is_empty() {
+            continue;
+        }
+        if axum::http::HeaderName::from_bytes(name.as_bytes()).is_err() {
+            return Err(AppError::InvalidArgument(format!("请求头名称无效: {name}")));
+        }
+        if FORBIDDEN_OVERRIDE_HEADERS.contains(&name.as_str()) {
+            return Err(AppError::InvalidArgument(format!(
+                "不允许覆写请求头: {name}"
+            )));
+        }
+        out.push(HeaderOverride {
+            name,
+            value: item.value.clone(),
+        });
+    }
+    Ok(out)
+}
+
 pub fn create(conn: &Connection, req: &CreateEndpointRequest) -> AppResult<Endpoint> {
     if req.name.trim().is_empty() {
         return Err(AppError::InvalidArgument("端点名称不能为空".into()));
@@ -118,10 +160,11 @@ pub fn create(conn: &Connection, req: &CreateEndpointRequest) -> AppResult<Endpo
 
     // 点亮子集规整为 models 的子集（去除已不存在的模型，避免脏数据）。
     let active = sanitize_active(&req.models, &req.active_models);
+    let header_overrides = sanitize_header_overrides(&req.header_overrides)?;
     conn.execute(
         "INSERT INTO endpoints
-            (name, api_url, api_key, auth_mode, enabled, use_proxy, transformer, model, models, active_models, model_mappings, model_mappings_enabled, remark, sort_order, fast, fast_sort_order)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+            (name, api_url, api_key, auth_mode, enabled, use_proxy, transformer, model, models, active_models, model_mappings, model_mappings_enabled, header_overrides, header_overrides_enabled, remark, sort_order, fast, fast_sort_order)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
         params![
             req.name,
             req.api_url,
@@ -135,6 +178,8 @@ pub fn create(conn: &Connection, req: &CreateEndpointRequest) -> AppResult<Endpo
             serde_json::to_string(&active).unwrap_or_else(|_| "[]".into()),
             serde_json::to_string(&req.model_mappings).unwrap_or_else(|_| "[]".into()),
             req.model_mappings_enabled as i64,
+            serde_json::to_string(&header_overrides).unwrap_or_else(|_| "[]".into()),
+            req.header_overrides_enabled as i64,
             req.remark,
             next_order,
             (req.enabled && req.fast) as i64,
@@ -191,6 +236,12 @@ pub fn update(conn: &Connection, id: i64, req: &UpdateEndpointRequest) -> AppRes
     if let Some(v) = req.model_mappings_enabled {
         e.model_mappings_enabled = v;
     }
+    if let Some(ref v) = req.header_overrides {
+        e.header_overrides = sanitize_header_overrides(v)?;
+    }
+    if let Some(v) = req.header_overrides_enabled {
+        e.header_overrides_enabled = v;
+    }
     if let Some(ref v) = req.remark {
         e.remark = v.clone();
     }
@@ -207,9 +258,10 @@ pub fn update(conn: &Connection, id: i64, req: &UpdateEndpointRequest) -> AppRes
         "UPDATE endpoints SET
             name = ?1, api_url = ?2, api_key = ?3, auth_mode = ?4, enabled = ?5,
             use_proxy = ?6, transformer = ?7, model = ?8, models = ?9, active_models = ?10,
-            model_mappings = ?11, model_mappings_enabled = ?12, remark = ?13, fast = ?14,
+            model_mappings = ?11, model_mappings_enabled = ?12,
+            header_overrides = ?13, header_overrides_enabled = ?14, remark = ?15, fast = ?16,
             updated_at = datetime('now')
-         WHERE id = ?15",
+         WHERE id = ?17",
         params![
             e.name,
             e.api_url,
@@ -223,6 +275,8 @@ pub fn update(conn: &Connection, id: i64, req: &UpdateEndpointRequest) -> AppRes
             serde_json::to_string(&e.active_models).unwrap_or_else(|_| "[]".into()),
             serde_json::to_string(&e.model_mappings).unwrap_or_else(|_| "[]".into()),
             e.model_mappings_enabled as i64,
+            serde_json::to_string(&e.header_overrides).unwrap_or_else(|_| "[]".into()),
+            e.header_overrides_enabled as i64,
             e.remark,
             e.fast as i64,
             id,
@@ -400,6 +454,8 @@ mod tests {
             active_models: Vec::new(),
             model_mappings: Vec::new(),
             model_mappings_enabled: true,
+            header_overrides: Vec::new(),
+            header_overrides_enabled: false,
             remark: String::new(),
             fast: false,
         }
@@ -654,6 +710,75 @@ mod tests {
         let got = get_by_id(&c, created.id).unwrap().unwrap();
         assert_eq!(got.model_mappings.len(), 2);
         assert!(!got.model_mappings_enabled);
+    }
+
+    #[test]
+    fn header_overrides_roundtrip_and_forbidden() {
+        let c = db();
+        let mut r = req("hdr");
+        r.header_overrides_enabled = true;
+        r.header_overrides = vec![HeaderOverride {
+            name: " User-Agent ".into(),
+            value: "ccmesh".into(),
+        }];
+        let created = create(&c, &r).unwrap();
+        assert!(created.header_overrides_enabled);
+        assert_eq!(created.header_overrides.len(), 1);
+        assert_eq!(created.header_overrides[0].name, "user-agent");
+        assert_eq!(created.header_overrides[0].value, "ccmesh");
+
+        let bare = create(&c, &req("bare-hdr")).unwrap();
+        assert!(bare.header_overrides.is_empty());
+        assert!(!bare.header_overrides_enabled);
+
+        update(
+            &c,
+            created.id,
+            &UpdateEndpointRequest {
+                header_overrides: Some(vec![
+                    HeaderOverride {
+                        name: "x-custom".into(),
+                        value: "a".into(),
+                    },
+                    HeaderOverride {
+                        name: "".into(),
+                        value: "drop-me".into(),
+                    },
+                ]),
+                header_overrides_enabled: Some(false),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let got = get_by_id(&c, created.id).unwrap().unwrap();
+        assert_eq!(got.header_overrides.len(), 1);
+        assert_eq!(got.header_overrides[0].name, "x-custom");
+        assert!(!got.header_overrides_enabled);
+
+        let denied = update(
+            &c,
+            created.id,
+            &UpdateEndpointRequest {
+                header_overrides: Some(vec![HeaderOverride {
+                    name: "Authorization".into(),
+                    value: "secret".into(),
+                }]),
+                ..Default::default()
+            },
+        );
+        assert!(denied.is_err());
+        let invalid = update(
+            &c,
+            created.id,
+            &UpdateEndpointRequest {
+                header_overrides: Some(vec![HeaderOverride {
+                    name: "bad name".into(),
+                    value: "x".into(),
+                }]),
+                ..Default::default()
+            },
+        );
+        assert!(invalid.is_err());
     }
 
     #[test]

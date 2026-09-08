@@ -131,6 +131,8 @@ pub async fn import(
             active_models: vec![],
             model_mappings: vec![],
             model_mappings_enabled: true,
+            header_overrides: vec![],
+            header_overrides_enabled: false,
             remark: p.remark.clone(),
             fast: false,
         };

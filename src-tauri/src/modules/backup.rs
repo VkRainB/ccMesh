@@ -63,6 +63,8 @@ pub fn build_config_bundle(conn: &Connection) -> AppResult<ConfigBundle> {
             active_models: e.active_models,
             model_mappings: e.model_mappings,
             model_mappings_enabled: e.model_mappings_enabled,
+            header_overrides: e.header_overrides,
+            header_overrides_enabled: e.header_overrides_enabled,
             remark: e.remark,
             sort_order: e.sort_order,
             credentials,
@@ -128,13 +130,16 @@ pub fn import_config_bundle(
         let active_json = serde_json::to_string(&active).unwrap_or_else(|_| "[]".to_string());
         let mappings_json =
             serde_json::to_string(&ep.model_mappings).unwrap_or_else(|_| "[]".to_string());
+        let headers_json =
+            serde_json::to_string(&ep.header_overrides).unwrap_or_else(|_| "[]".to_string());
         let id = match existing {
             Some(id) if overwrite => {
                 tx.execute(
                     "UPDATE endpoints SET api_url=?1, api_key=?2, auth_mode=?3, enabled=?4,
                         use_proxy=?5, transformer=?6, model=?7, models=?8, active_models=?9,
-                        model_mappings=?10, model_mappings_enabled=?11, remark=?12,
-                        sort_order=?13, updated_at=datetime('now') WHERE id=?14",
+                        model_mappings=?10, model_mappings_enabled=?11,
+                        header_overrides=?12, header_overrides_enabled=?13, remark=?14,
+                        sort_order=?15, updated_at=datetime('now') WHERE id=?16",
                     params![
                         ep.api_url,
                         ep.api_key,
@@ -147,6 +152,8 @@ pub fn import_config_bundle(
                         active_json,
                         mappings_json,
                         ep.model_mappings_enabled as i64,
+                        headers_json,
+                        ep.header_overrides_enabled as i64,
                         ep.remark,
                         ep.sort_order,
                         id,
@@ -167,8 +174,9 @@ pub fn import_config_bundle(
                 tx.execute(
                     "INSERT INTO endpoints
                         (name, api_url, api_key, auth_mode, enabled, use_proxy, transformer, model,
-                         models, active_models, model_mappings, model_mappings_enabled, remark, sort_order)
-                     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
+                         models, active_models, model_mappings, model_mappings_enabled,
+                         header_overrides, header_overrides_enabled, remark, sort_order)
+                     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",
                     params![
                         ep.name,
                         ep.api_url,
@@ -182,6 +190,8 @@ pub fn import_config_bundle(
                         active_json,
                         mappings_json,
                         ep.model_mappings_enabled as i64,
+                        headers_json,
+                        ep.header_overrides_enabled as i64,
                         ep.remark,
                         ep.sort_order,
                     ],

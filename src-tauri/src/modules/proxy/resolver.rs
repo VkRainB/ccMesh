@@ -221,6 +221,8 @@ mod tests {
             active_models: Vec::new(),
             model_mappings: Vec::new(),
             model_mappings_enabled: true,
+            header_overrides: Vec::new(),
+            header_overrides_enabled: false,
             remark: "".into(),
             sort_order: 0,
             fast: false,

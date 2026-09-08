@@ -114,6 +114,8 @@ pub fn clone_endpoint(state: State<AppState>, id: i64) -> AppResult<Endpoint> {
         active_models: src.active_models,
         model_mappings: src.model_mappings,
         model_mappings_enabled: src.model_mappings_enabled,
+        header_overrides: src.header_overrides,
+        header_overrides_enabled: src.header_overrides_enabled,
         remark: src.remark,
         fast: src.fast,
     };

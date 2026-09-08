@@ -64,10 +64,12 @@ pub fn merge_from_backup(
             &format!(
                 "INSERT {mode} INTO endpoints
                     (name, api_url, api_key, auth_mode, enabled, use_proxy, transformer,
-                     model, models, active_models, model_mappings, model_mappings_enabled, remark,
+                     model, models, active_models, model_mappings, model_mappings_enabled,
+                     header_overrides, header_overrides_enabled, remark,
                      sort_order, fast, fast_sort_order, test_status, archived)
                  SELECT name, api_url, api_key, auth_mode, enabled, use_proxy, transformer,
-                     model, models, active_models, model_mappings, model_mappings_enabled, remark,
+                     model, models, active_models, model_mappings, model_mappings_enabled,
+                     header_overrides, header_overrides_enabled, remark,
                      sort_order, fast, fast_sort_order, test_status, archived
                  FROM backup.endpoints"
             ),
@@ -115,10 +117,12 @@ mod tests {
         src.execute(
             "INSERT INTO endpoints
                 (name, api_url, api_key, auth_mode, enabled, use_proxy, transformer,
-                 model, models, active_models, model_mappings, model_mappings_enabled, remark,
+                 model, models, active_models, model_mappings, model_mappings_enabled,
+                 header_overrides, header_overrides_enabled, remark,
                  sort_order, fast, fast_sort_order, test_status, archived)
              VALUES ('ep','https://x','k','api_key',1,1,'claude',
-                 '','[\"a\",\"b\"]','[\"a\"]','[{\"from\":\"x\",\"to\":\"a\"}]',0,'r',
+                 '','[\"a\",\"b\"]','[\"a\"]','[{\"from\":\"x\",\"to\":\"a\"}]',0,
+                 '[{\"name\":\"user-agent\",\"value\":\"ccmesh\"}]',1,'r',
                  0,1,0,'ok',0)",
             [],
         )
@@ -164,25 +168,41 @@ mod tests {
 
         merge_from_backup(&mut tgt, &bk_path, true).unwrap();
 
-        let (models, active, mappings, mappings_enabled, use_proxy, fast): (
+        let (models, active, mappings, mappings_enabled, headers, headers_enabled, use_proxy, fast): (
             String,
             String,
+            String,
+            i64,
             String,
             i64,
             i64,
             i64,
         ) = tgt
             .query_row(
-                "SELECT models, active_models, model_mappings, model_mappings_enabled, use_proxy, fast
+                "SELECT models, active_models, model_mappings, model_mappings_enabled,
+                        header_overrides, header_overrides_enabled, use_proxy, fast
                  FROM endpoints WHERE name='ep'",
                 [],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
+                |r| {
+                    Ok((
+                        r.get(0)?,
+                        r.get(1)?,
+                        r.get(2)?,
+                        r.get(3)?,
+                        r.get(4)?,
+                        r.get(5)?,
+                        r.get(6)?,
+                        r.get(7)?,
+                    ))
+                },
             )
             .unwrap();
         assert_eq!(models, r#"["a","b"]"#);
         assert_eq!(active, r#"["a"]"#);
         assert!(mappings.contains("\"from\":\"x\""));
         assert_eq!(mappings_enabled, 0);
+        assert!(headers.contains("\"name\":\"user-agent\""));
+        assert_eq!(headers_enabled, 1);
         assert_eq!(use_proxy, 1);
         assert_eq!(fast, 1);
 

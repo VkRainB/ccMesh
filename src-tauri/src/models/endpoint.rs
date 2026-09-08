@@ -8,6 +8,14 @@ pub struct ModelMapping {
     pub to: String,
 }
 
+/// 单条请求头覆写：转发前用 `value` 覆盖同名请求头（名称不区分大小写）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HeaderOverride {
+    pub name: String,
+    pub value: String,
+}
+
 /// 端点（上游 API 提供方）。对应 `endpoints` 表。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -34,6 +42,10 @@ pub struct Endpoint {
     pub model_mappings: Vec<ModelMapping>,
     /// 是否启用模型映射。关闭时保留 `model_mappings` 配置，但不公布入站别名、不改写出站。
     pub model_mappings_enabled: bool,
+    /// 出站请求头覆写列表。关闭总开关时保留配置但不生效。
+    pub header_overrides: Vec<HeaderOverride>,
+    /// 是否启用请求头覆写。旧端点默认关闭。
+    pub header_overrides_enabled: bool,
     pub remark: String,
     pub sort_order: i64,
     /// 是否属于快速队列。仅启用端点可为 true；禁用端点保存时会被清除。
@@ -74,6 +86,10 @@ pub struct CreateEndpointRequest {
     #[serde(default = "default_true")]
     pub model_mappings_enabled: bool,
     #[serde(default)]
+    pub header_overrides: Vec<HeaderOverride>,
+    #[serde(default)]
+    pub header_overrides_enabled: bool,
+    #[serde(default)]
     pub remark: String,
     #[serde(default)]
     pub fast: bool,
@@ -94,6 +110,8 @@ pub struct UpdateEndpointRequest {
     pub active_models: Option<Vec<String>>,
     pub model_mappings: Option<Vec<ModelMapping>>,
     pub model_mappings_enabled: Option<bool>,
+    pub header_overrides: Option<Vec<HeaderOverride>>,
+    pub header_overrides_enabled: Option<bool>,
     pub remark: Option<String>,
     pub fast: Option<bool>,
 }
