@@ -37,6 +37,7 @@ use crate::modules::transform::thinking_rectifier::{
 };
 use crate::modules::transform::transformer::{get_transformer, UpstreamFormat};
 use crate::modules::usage;
+use crate::utils::opencode_session::opencode_session_header;
 use crate::utils::ua;
 use crate::utils::upstream_url::join_upstream_url;
 
@@ -946,16 +947,6 @@ pub async fn handle_proxy(
     )
 }
 
-/// 最终 HTTPS 目标是否恰为 `https://opencode.ai`（不含子域、相似域、显式非默认端口、http）。
-fn is_opencode_target(url: &str) -> bool {
-    let Ok(parsed) = reqwest::Url::parse(url) else {
-        return false;
-    };
-    parsed.scheme() == "https"
-        && parsed.host_str() == Some("opencode.ai")
-        && parsed.port().is_none()
-}
-
 /// 开关开启且 value 非空的覆写项；名称小写。后写覆盖先写。
 fn effective_header_overrides(ep: &Endpoint) -> HashMap<String, String> {
     if !ep.header_overrides_enabled {
@@ -982,12 +973,10 @@ async fn send_upstream(
 ) -> reqwest::Result<reqwest::Response> {
     let url = join_upstream_url(&ep.api_url, upstream_path);
     let mut overrides = effective_header_overrides(ep);
-    let forward_session = ep.auth_mode == "api_key" && is_opencode_target(&url);
     let client_session = headers
         .get("x-opencode-session")
-        .and_then(|v| v.to_str().ok())
-        .filter(|v| !v.is_empty())
-        .map(str::to_string);
+        .and_then(|v| v.to_str().ok());
+    let session = opencode_session_header(&url, &ep.auth_mode, client_session);
     let rmethod =
         reqwest::Method::from_bytes(method.as_str().as_bytes()).unwrap_or(reqwest::Method::POST);
 
@@ -1050,14 +1039,14 @@ async fn send_upstream(
         rb = rb.header("originator", ua::CODEX_ORIGINATOR);
     }
 
-    // 客户端会话头优先于账号级覆写，避免固定值把多会话压成一个。
-    if forward_session && client_session.is_some() {
+    // 官方域名上总会带会话头（客户端值或新 UUID），盖过账号级同名覆写。
+    if session.is_some() {
         overrides.remove("x-opencode-session");
     }
     for (k, v) in &overrides {
         rb = rb.header(k, v);
     }
-    if let (true, Some(val)) = (forward_session, client_session.as_deref()) {
+    if let Some(val) = session {
         rb = rb.header("x-opencode-session", val);
     }
 
@@ -1296,8 +1285,7 @@ fn stream_transform_response(
 mod tests {
     use super::{
         effective_header_overrides, empty_candidates_message, error_body_from_bytes,
-        extract_multipart_model, is_opencode_target, parse_retry_after, rate_limited_response,
-        truncate_error_body,
+        extract_multipart_model, parse_retry_after, rate_limited_response, truncate_error_body,
     };
     use crate::models::endpoint::{Endpoint, HeaderOverride};
     use axum::body::Bytes;
@@ -1431,19 +1419,6 @@ Content-Type: image/png\r\n\
             extract_multipart_model(Some("application/json"), &Bytes::from_static(b"{}")).is_none()
         );
         assert!(extract_multipart_model(None, &Bytes::from_static(b"")).is_none());
-    }
-
-    #[test]
-    fn is_opencode_target_exact_https_host() {
-        assert!(is_opencode_target(
-            "https://opencode.ai/zen/v1/chat/completions"
-        ));
-        assert!(is_opencode_target("https://opencode.ai"));
-        assert!(!is_opencode_target("https://api.opencode.ai"));
-        assert!(!is_opencode_target("https://opencode.ai.evil.com"));
-        assert!(!is_opencode_target("http://opencode.ai"));
-        assert!(!is_opencode_target("https://opencode.ai:8443/v1"));
-        assert!(!is_opencode_target("not a url"));
     }
 
     #[test]
