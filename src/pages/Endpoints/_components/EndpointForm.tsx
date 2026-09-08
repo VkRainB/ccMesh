@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { EyeIcon, EyeOffIcon, InfoIcon, PlusIcon, RefreshCwIcon, XIcon } from "lucide-react";
+import { EyeIcon, EyeOffIcon, InfoIcon, PlusIcon, RefreshCwIcon, Trash2Icon, XIcon } from "lucide-react";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
 
@@ -27,7 +27,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { getModelIcon } from "@/lib/model-icons";
 import { joinUpstreamUrl } from "@/lib/upstreamUrl";
-import { endpointApi, type Endpoint } from "@/services/modules/endpoint";
+import { endpointApi, type Endpoint, type HeaderOverride } from "@/services/modules/endpoint";
 
 const JsonEditor = lazy(() => import("@/components/common/JsonEditor"));
 
@@ -42,6 +42,8 @@ interface FormState {
   activeModels: string[];
   useProxy: boolean;
   fast: boolean;
+  headerOverrides: HeaderOverride[];
+  headerOverridesEnabled: boolean;
   remark: string;
 }
 
@@ -55,6 +57,8 @@ const EMPTY: FormState = {
   activeModels: [],
   useProxy: false,
   fast: false,
+  headerOverrides: [],
+  headerOverridesEnabled: false,
   remark: "",
 };
 
@@ -96,6 +100,8 @@ export function EndpointForm({ open, onOpenChange, editing }: Props) {
           activeModels: editing.activeModels ?? [],
           useProxy: editing.useProxy ?? false,
           fast: editing.fast ?? false,
+          headerOverrides: editing.headerOverrides ?? [],
+          headerOverridesEnabled: editing.headerOverridesEnabled ?? false,
           remark: editing.remark,
         }
       : EMPTY;
@@ -376,6 +382,93 @@ export function EndpointForm({ open, onOpenChange, editing }: Props) {
                 checked={form.useProxy}
                 onCheckedChange={(v) => update({ useProxy: v })}
               />
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex min-w-0 flex-col gap-0.5">
+                  <Label>请求头覆写</Label>
+                  <span className="text-xs text-ink-mute">
+                    转发时用配置值覆盖同名请求头（不区分大小写）
+                  </span>
+                </div>
+                <Switch
+                  checked={form.headerOverridesEnabled}
+                  onCheckedChange={(v) =>
+                    update({
+                      headerOverridesEnabled: v,
+                      ...(v && form.headerOverrides.length === 0
+                        ? { headerOverrides: [{ name: "", value: "" }] }
+                        : {}),
+                    })
+                  }
+                  aria-label="启用请求头覆写"
+                />
+              </div>
+              {form.headerOverridesEnabled ? (
+                <>
+                  <div className="flex gap-2 rounded-md border border-info/20 bg-info/10 px-3 py-2 text-xs leading-relaxed text-ink-secondary">
+                    <InfoIcon className="mt-0.5 size-3.5 shrink-0 text-info" />
+                    <p>
+                      仅对本端点的出站请求生效；配置的请求头会在转发前覆盖客户端/网关生成的同名头。认证头（authorization、x-api-key）与连接控制头不允许覆写。
+                    </p>
+                  </div>
+                  {form.headerOverrides.map((row, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <Input
+                        className="min-w-0 flex-1 font-mono text-xs"
+                        placeholder="请求头名称（如 user-agent）"
+                        value={row.name}
+                        onChange={(e) =>
+                          update({
+                            headerOverrides: form.headerOverrides.map((r, idx) =>
+                              idx === i ? { ...r, name: e.target.value } : r,
+                            ),
+                          })
+                        }
+                      />
+                      <Input
+                        className="min-w-0 flex-1 font-mono text-xs"
+                        placeholder="覆写值（留空表示不覆写）"
+                        value={row.value}
+                        onChange={(e) =>
+                          update({
+                            headerOverrides: form.headerOverrides.map((r, idx) =>
+                              idx === i ? { ...r, value: e.target.value } : r,
+                            ),
+                          })
+                        }
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="shrink-0 text-destructive hover:text-destructive"
+                        aria-label={`删除请求头 ${row.name || i + 1}`}
+                        onClick={() =>
+                          update({
+                            headerOverrides: form.headerOverrides.filter((_, idx) => idx !== i),
+                          })
+                        }
+                      >
+                        <Trash2Icon className="size-4" />
+                      </Button>
+                    </div>
+                  ))}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full border-dashed"
+                    onClick={() =>
+                      update({
+                        headerOverrides: [...form.headerOverrides, { name: "", value: "" }],
+                      })
+                    }
+                  >
+                    + 添加请求头
+                  </Button>
+                </>
+              ) : null}
             </div>
 
             {editing?.enabled ? (

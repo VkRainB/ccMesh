@@ -8,6 +8,12 @@ export interface ModelMapping {
   to: string;
 }
 
+/** 单条请求头覆写：转发前用 value 覆盖同名请求头（名称不区分大小写）。 */
+export interface HeaderOverride {
+  name: string;
+  value: string;
+}
+
 export interface Endpoint {
   id: number;
   name: string;
@@ -24,6 +30,9 @@ export interface Endpoint {
   modelMappings: ModelMapping[];
   /** 是否启用模型映射；关闭时保留配置但不公布入站别名、不改写出站。 */
   modelMappingsEnabled: boolean;
+  headerOverrides: HeaderOverride[];
+  /** 是否启用请求头覆写；关闭时保留配置但不生效。 */
+  headerOverridesEnabled: boolean;
   remark: string;
   sortOrder: number;
   fast: boolean;
@@ -47,6 +56,8 @@ export interface CreateEndpointRequest {
   activeModels?: string[];
   modelMappings?: ModelMapping[];
   modelMappingsEnabled?: boolean;
+  headerOverrides?: HeaderOverride[];
+  headerOverridesEnabled?: boolean;
   remark?: string;
   fast?: boolean;
 }
