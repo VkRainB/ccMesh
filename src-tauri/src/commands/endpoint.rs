@@ -119,6 +119,7 @@ pub fn clone_endpoint(state: State<AppState>, id: i64) -> AppResult<Endpoint> {
         header_overrides_enabled: src.header_overrides_enabled,
         remark: src.remark,
         fast: src.fast,
+        circuit_breaker_disabled: src.circuit_breaker_disabled,
     };
     endpoint_repo::create(&conn, &req)
 }

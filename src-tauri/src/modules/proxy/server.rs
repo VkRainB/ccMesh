@@ -134,7 +134,11 @@ pub async fn start_proxy(
         stats,
         current_endpoint: Mutex::new(None),
         proxy_enabled: cfg.proxy_enabled,
-        breakers: BreakerRegistry::new(),
+        breakers: BreakerRegistry::from_options(
+            cfg.circuit_breaker_enabled,
+            cfg.circuit_breaker_failure_threshold,
+            cfg.circuit_breaker_timeout,
+        ),
         rectifier_config: RectifierConfig::default(),
     });
 

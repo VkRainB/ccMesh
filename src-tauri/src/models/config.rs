@@ -61,6 +61,12 @@ pub struct AppConfig {
     pub openai_ua: String,
     /// 转发到 Claude 端点时覆盖 User-Agent（空=透传客户端）。
     pub claude_cli_ua: String,
+    /// 是否启用端点熔断保护（默认开）。
+    pub circuit_breaker_enabled: bool,
+    /// 熔断器连续失败触发阈值（次，默认 4）。
+    pub circuit_breaker_failure_threshold: u32,
+    /// 熔断器冷却时长（秒，默认 60）。
+    pub circuit_breaker_timeout: u64,
     pub update: UpdateSettings,
     pub webdav: WebDavConfig,
 }
@@ -84,6 +90,9 @@ impl Default for AppConfig {
             proxy_for_update: false,
             openai_ua: ua::codex_probe_ua(),
             claude_cli_ua: ua::CLAUDE_PROBE_UA.into(),
+            circuit_breaker_enabled: true,
+            circuit_breaker_failure_threshold: 4,
+            circuit_breaker_timeout: 60,
             update: UpdateSettings::default(),
             webdav: WebDavConfig::default(),
         }

@@ -55,6 +55,8 @@ pub struct Endpoint {
     pub fast: bool,
     /// 快速队列内独立排序，不影响全局 sort_order。
     pub fast_sort_order: i64,
+    /// 是否禁止该端点熔断保护（true 表示故障不跳闸，始终可路由）。
+    pub circuit_breaker_disabled: bool,
     /// 测试状态：unknown / available / unavailable。
     pub test_status: String,
     pub created_at: String,
@@ -96,6 +98,8 @@ pub struct CreateEndpointRequest {
     pub remark: String,
     #[serde(default)]
     pub fast: bool,
+    #[serde(default)]
+    pub circuit_breaker_disabled: bool,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -117,6 +121,7 @@ pub struct UpdateEndpointRequest {
     pub header_overrides_enabled: Option<bool>,
     pub remark: Option<String>,
     pub fast: Option<bool>,
+    pub circuit_breaker_disabled: Option<bool>,
 }
 
 fn default_true() -> bool {

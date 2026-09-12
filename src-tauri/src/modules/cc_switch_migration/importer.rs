@@ -135,6 +135,7 @@ pub async fn import(
             header_overrides_enabled: false,
             remark: p.remark.clone(),
             fast: false,
+            circuit_breaker_disabled: false,
         };
         endpoint_repo::create(conn, &req)?;
 

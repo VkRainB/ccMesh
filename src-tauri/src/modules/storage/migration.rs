@@ -168,6 +168,8 @@ const MIGRATIONS: &[&str] = &[
     // v18：端点出站请求头覆写（JSON 数组 [{name,value}]）+ 总开关。旧行默认关闭。
     "ALTER TABLE endpoints ADD COLUMN header_overrides TEXT NOT NULL DEFAULT '[]';
      ALTER TABLE endpoints ADD COLUMN header_overrides_enabled INTEGER NOT NULL DEFAULT 0;",
+    // v19：端点禁止熔断标记（默认 0，即允许熔断）。
+    "ALTER TABLE endpoints ADD COLUMN circuit_breaker_disabled INTEGER NOT NULL DEFAULT 0;",
 ];
 
 /// 幂等执行迁移：读取 `schema_version` 当前版本，仅应用尚未执行的脚本。
@@ -388,5 +390,17 @@ mod tests {
         };
         assert!(cols.contains(&"header_overrides".to_string()));
         assert!(cols.contains(&"header_overrides_enabled".to_string()));
+    }
+
+    #[test]
+    fn v19_adds_circuit_breaker_disabled_column() {
+        let c = Connection::open_in_memory().unwrap();
+        run_migrations(&c).unwrap();
+        let cols: Vec<String> = {
+            let mut stmt = c.prepare("PRAGMA table_info(endpoints)").unwrap();
+            let rows = stmt.query_map([], |r| r.get::<_, String>(1)).unwrap();
+            rows.filter_map(Result::ok).collect()
+        };
+        assert!(cols.contains(&"circuit_breaker_disabled".to_string()));
     }
 }

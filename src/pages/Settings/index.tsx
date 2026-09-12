@@ -7,6 +7,7 @@ import { SettingsGrid } from "@/components/settings";
 import { useAutostartEnabled } from "@/hooks/useAutostartEnabled";
 import { configApi } from "@/services/modules/config";
 import { AdvancedCard } from "./_components/AdvancedCard";
+import { CircuitBreakerCard } from "./_components/CircuitBreakerCard";
 import { GeneralCard } from "./_components/GeneralCard";
 import { PetCard } from "./_components/PetCard";
 import { ProxyCard } from "./_components/ProxyCard";
@@ -71,6 +72,7 @@ export function Settings() {
           toggleAutostart={toggleAutostart}
         />
         <AdvancedCard cfg={cfg} save={save} />
+        <CircuitBreakerCard cfg={cfg} save={save} />
         <ProxyCard
           cfg={cfg}
           save={save}

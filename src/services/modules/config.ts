@@ -32,6 +32,9 @@ export interface AppConfig {
   proxyForUpdate: boolean;
   openaiUa: string;
   claudeCliUa: string;
+  circuitBreakerEnabled: boolean;
+  circuitBreakerFailureThreshold: number;
+  circuitBreakerTimeout: number;
   update: UpdateSettings;
   webdav: WebDavConfig;
 }

@@ -15,16 +15,17 @@
 - **请求驱动**：没有后台健康探测线程。Open → HalfOpen 发生在下一次真实请求经过 `is_available` / `allow_request` 时（惰性）。
 - **运行期内存**：`BreakerRegistry` 挂在 `ProxyState` 上，代理启动时新建。停代理或重启进程即清空。
 - **每端点独立**：A 熔断不影响 B；轮换与熔断都先按模型过滤，避免无关端点被误伤。
-- **配置本期固定**：`CircuitBreakerConfig` 结构预留热更新，当前用默认常量。
+- **支持全局与端点级配置**：可在「设置」页自定义全局总开关、失败阈值与冷却时长（平滑重启代理生效）；可在端点编辑弹窗中单独开启「禁止熔断」豁免跳闸。
 
 实现入口：
 
 | 层 | 文件 | 职责 |
 |----|------|------|
-| 状态机 | `src-tauri/src/modules/proxy/circuit_breaker.rs` | 三态、许可、计数、选路过滤 |
+| 状态机 | `src-tauri/src/modules/proxy/circuit_breaker.rs` | 三态、许可、计数、选路过滤、自定义选项构造 |
 | 结果分类 | `src-tauri/src/modules/proxy/rotation.rs` | HTTP / 网络错误 → Retryable / NonRetryable |
-| 接入 | `src-tauri/src/modules/proxy/forward.rs` | 选路、gate、上报、发健康事件 |
+| 接入 | `src-tauri/src/modules/proxy/forward.rs` | 选路、gate、上报、发健康事件、单端点免熔断跳过 |
 | 手动恢复 | `src-tauri/src/commands/endpoint.rs` | 连通性测试成功 → `force_close` |
+| 配置设置 | `src/pages/Settings/_components/CircuitBreakerCard.tsx` + `EndpointForm.tsx` | 全局开关/阈值及单端点免熔断配置 |
 | 对外 | `src-tauri/src/commands/health.rs` + 前端 `useEndpointHealth` | 卡片 Badge / 仪表盘状态点 |
 
 ---

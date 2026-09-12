@@ -16,6 +16,14 @@ on:
       - 'package.json'
       - 'pnpm-lock.yaml'
       - '.github/workflows/ci.yml'
+  pull_request:
+    branches: [master]
+    paths:
+      - 'src-tauri/**'
+      - 'src/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/ci.yml'
   workflow_dispatch:
 
 permissions:
@@ -93,6 +101,12 @@ jobs:
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Run checks and tests
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          pnpm check
+          pnpm test
 
       # --no-bundle：只编译 Rust + 前端，跳过 msi/dmg/AppImage 打包，省时间；
       # 但所有依赖 crate 仍被完整编译，足以填满热缓存。

@@ -39,6 +39,8 @@ export interface Endpoint {
   sortOrder: number;
   fast: boolean;
   fastSortOrder: number;
+  /** 是否禁止该端点熔断保护；开启后故障不跳闸，始终保留在路由候选。 */
+  circuitBreakerDisabled: boolean;
   testStatus: string;
   createdAt: string;
   updatedAt: string;
@@ -62,6 +64,7 @@ export interface CreateEndpointRequest {
   headerOverridesEnabled?: boolean;
   remark?: string;
   fast?: boolean;
+  circuitBreakerDisabled?: boolean;
 }
 
 export type UpdateEndpointRequest = Partial<CreateEndpointRequest>;

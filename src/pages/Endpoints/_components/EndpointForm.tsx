@@ -42,6 +42,7 @@ interface FormState {
   activeModels: string[];
   useProxy: boolean;
   fast: boolean;
+  circuitBreakerDisabled: boolean;
   headerOverrides: HeaderOverride[];
   headerOverridesEnabled: boolean;
   remark: string;
@@ -57,6 +58,7 @@ const EMPTY: FormState = {
   activeModels: [],
   useProxy: false,
   fast: false,
+  circuitBreakerDisabled: false,
   headerOverrides: [],
   headerOverridesEnabled: false,
   remark: "",
@@ -100,6 +102,7 @@ export function EndpointForm({ open, onOpenChange, editing }: Props) {
           activeModels: editing.activeModels ?? [],
           useProxy: editing.useProxy ?? false,
           fast: editing.fast ?? false,
+          circuitBreakerDisabled: editing.circuitBreakerDisabled ?? false,
           headerOverrides: editing.headerOverrides ?? [],
           headerOverridesEnabled: editing.headerOverridesEnabled ?? false,
           remark: editing.remark,
@@ -484,6 +487,20 @@ export function EndpointForm({ open, onOpenChange, editing }: Props) {
                 />
               </div>
             ) : null}
+
+            <div className="flex items-center justify-between rounded-md border border-edge px-3 py-2">
+              <div className="flex flex-col gap-0.5">
+                <Label>禁止熔断保护</Label>
+                <span className="text-xs text-ink-mute">
+                  遇到 5xx/429/网络超时 时不跳闸，始终保留在路由候选列表中
+                </span>
+              </div>
+              <Switch
+                checked={form.circuitBreakerDisabled}
+                onCheckedChange={(v) => update({ circuitBreakerDisabled: v })}
+                aria-label="禁止熔断保护"
+              />
+            </div>
           </TabsContent>
 
           <TabsContent value="json" className="w-full min-w-0 overflow-hidden">

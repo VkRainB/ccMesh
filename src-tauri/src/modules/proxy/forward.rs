@@ -603,8 +603,8 @@ pub async fn handle_proxy(
         last_endpoint = ep.name.clone();
         last_transformer = Some(ep.transformer.clone());
 
-        // 熔断许可：gate 时对候选取许可（半开同一时刻仅 1 个探测）；拒绝则跳到下一个端点。
-        let used_permit = if gate {
+        // 熔断许可：gate 时对候选取许可（半开同一时刻仅 1 个探测；禁用熔断则跳过）；拒绝则跳到下一个端点。
+        let used_permit = if gate && !ep.circuit_breaker_disabled {
             let allow = st.breakers.allow_request(&ep.name, inbound, Instant::now());
             if !allow.allowed {
                 st.rotation.advance(n);
@@ -778,8 +778,10 @@ pub async fn handle_proxy(
                     actual_model,
                 };
                 if status == 200 {
-                    // 成功：闭合熔断（半开恢复时回传许可）；转换则通知前端
-                    if st.breakers.record_success(&ep.name, used_permit, inbound) {
+                    // 成功：闭合熔断（半开恢复时回传许可；禁用熔断端点不更新熔断态）；转换则通知前端
+                    if !ep.circuit_breaker_disabled
+                        && st.breakers.record_success(&ep.name, used_permit, inbound)
+                    {
                         st.stats.emit_health_changed();
                     }
                     // 真实 token 由各响应处理函数解析上游 usage 后记录
@@ -822,14 +824,16 @@ pub async fn handle_proxy(
                         } else {
                             FailureKind::Broken
                         };
-                        if st.breakers.record_failure(
-                            &ep.name,
-                            used_permit,
-                            Instant::now(),
-                            &format!("HTTP {status}"),
-                            inbound,
-                            kind,
-                        ) {
+                        if !ep.circuit_breaker_disabled
+                            && st.breakers.record_failure(
+                                &ep.name,
+                                used_permit,
+                                Instant::now(),
+                                &format!("HTTP {status}"),
+                                inbound,
+                                kind,
+                            )
+                        {
                             st.stats.emit_health_changed();
                         }
                     }
@@ -914,15 +918,17 @@ pub async fn handle_proxy(
             }
             Some(Err(e)) => {
                 let msg = e.to_string();
-                // 网络错误计入熔断（Retryable，Broken 长冷却）；转换则通知前端
-                if st.breakers.record_failure(
-                    &ep.name,
-                    used_permit,
-                    Instant::now(),
-                    &msg,
-                    inbound,
-                    FailureKind::Broken,
-                ) {
+                // 网络错误计入熔断（Retryable，Broken 长冷却；禁用熔断端点跳过）；转换则通知前端
+                if !ep.circuit_breaker_disabled
+                    && st.breakers.record_failure(
+                        &ep.name,
+                        used_permit,
+                        Instant::now(),
+                        &msg,
+                        inbound,
+                        FailureKind::Broken,
+                    )
+                {
                     st.stats.emit_health_changed();
                 }
                 last_err = msg.clone();
@@ -1381,6 +1387,7 @@ mod tests {
             sort_order: 0,
             fast: false,
             fast_sort_order: 0,
+            circuit_breaker_disabled: false,
             test_status: "unknown".into(),
             created_at: String::new(),
             updated_at: String::new(),

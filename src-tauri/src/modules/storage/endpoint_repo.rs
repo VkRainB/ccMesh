@@ -7,7 +7,7 @@ use crate::models::endpoint::{
     CreateEndpointRequest, Endpoint, HeaderOverride, UpdateEndpointRequest,
 };
 
-const COLS: &str = "id, name, api_url, api_key, auth_mode, enabled, use_proxy, transformer, model, models, active_models, model_mappings, model_mappings_enabled, header_overrides, header_overrides_enabled, remark, sort_order, fast, fast_sort_order, test_status, created_at, updated_at, archived";
+const COLS: &str = "id, name, api_url, api_key, auth_mode, enabled, use_proxy, transformer, model, models, active_models, model_mappings, model_mappings_enabled, header_overrides, header_overrides_enabled, remark, sort_order, fast, fast_sort_order, circuit_breaker_disabled, test_status, created_at, updated_at, archived";
 
 /// 认证头与连接控制头不允许覆写（与转发层剔除口径对齐）。
 const FORBIDDEN_OVERRIDE_HEADERS: &[&str] = &[
@@ -53,6 +53,7 @@ fn row_to_endpoint(row: &Row) -> rusqlite::Result<Endpoint> {
         sort_order: row.get("sort_order")?,
         fast: row.get::<_, i64>("fast")? != 0,
         fast_sort_order: row.get("fast_sort_order")?,
+        circuit_breaker_disabled: row.get::<_, i64>("circuit_breaker_disabled")? != 0,
         test_status: row.get("test_status")?,
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
@@ -163,8 +164,8 @@ pub fn create(conn: &Connection, req: &CreateEndpointRequest) -> AppResult<Endpo
     let header_overrides = sanitize_header_overrides(&req.header_overrides)?;
     conn.execute(
         "INSERT INTO endpoints
-            (name, api_url, api_key, auth_mode, enabled, use_proxy, transformer, model, models, active_models, model_mappings, model_mappings_enabled, header_overrides, header_overrides_enabled, remark, sort_order, fast, fast_sort_order)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+            (name, api_url, api_key, auth_mode, enabled, use_proxy, transformer, model, models, active_models, model_mappings, model_mappings_enabled, header_overrides, header_overrides_enabled, remark, sort_order, fast, fast_sort_order, circuit_breaker_disabled)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
         params![
             req.name,
             req.api_url,
@@ -184,6 +185,7 @@ pub fn create(conn: &Connection, req: &CreateEndpointRequest) -> AppResult<Endpo
             next_order,
             (req.enabled && req.fast) as i64,
             next_order,
+            req.circuit_breaker_disabled as i64,
         ],
     )?;
     require(conn, conn.last_insert_rowid())
@@ -251,6 +253,9 @@ pub fn update(conn: &Connection, id: i64, req: &UpdateEndpointRequest) -> AppRes
     if !e.enabled {
         e.fast = false;
     }
+    if let Some(v) = req.circuit_breaker_disabled {
+        e.circuit_breaker_disabled = v;
+    }
     // models 或 active_models 任一变更后，重新规整点亮子集为 models 的子集。
     e.active_models = sanitize_active(&e.models, &e.active_models);
 
@@ -260,8 +265,8 @@ pub fn update(conn: &Connection, id: i64, req: &UpdateEndpointRequest) -> AppRes
             use_proxy = ?6, transformer = ?7, model = ?8, models = ?9, active_models = ?10,
             model_mappings = ?11, model_mappings_enabled = ?12,
             header_overrides = ?13, header_overrides_enabled = ?14, remark = ?15, fast = ?16,
-            updated_at = datetime('now')
-         WHERE id = ?17",
+            circuit_breaker_disabled = ?17, updated_at = datetime('now')
+         WHERE id = ?18",
         params![
             e.name,
             e.api_url,
@@ -279,6 +284,7 @@ pub fn update(conn: &Connection, id: i64, req: &UpdateEndpointRequest) -> AppRes
             e.header_overrides_enabled as i64,
             e.remark,
             e.fast as i64,
+            e.circuit_breaker_disabled as i64,
             id,
         ],
     )?;
@@ -458,6 +464,7 @@ mod tests {
             header_overrides_enabled: false,
             remark: String::new(),
             fast: false,
+            circuit_breaker_disabled: false,
         }
     }
 

@@ -451,10 +451,17 @@ export function EndpointCard({
   // 共享 ["endpoint-health"] 查询（多卡片去重）；展示运行期熔断态。
   const { data: epHealth, dataUpdatedAt } = useEndpointHealth();
   const health = epHealth?.find((h) => h.name === endpoint.name);
-  const circuitBadge =
-    health && health.circuit !== "closed" ? (
-      <CircuitBadge health={health} receivedAt={dataUpdatedAt} />
-    ) : null;
+  const circuitBadge = endpoint.circuitBreakerDisabled ? (
+    <Badge
+      variant="outline"
+      className="border-edge text-[10px] text-ink-mute"
+      title="此端点已禁止熔断保护，故障时不会跳闸"
+    >
+      免熔断
+    </Badge>
+  ) : health && health.circuit !== "closed" ? (
+    <CircuitBadge health={health} receivedAt={dataUpdatedAt} />
+  ) : null;
 
   const toggle = useMutation({
     mutationFn: (v: boolean) => endpointApi.update(endpoint.id, { enabled: v }),

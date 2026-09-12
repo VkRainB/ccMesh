@@ -241,6 +241,7 @@ mod tests {
             sort_order: 0,
             fast: false,
             fast_sort_order: 0,
+            circuit_breaker_disabled: false,
             test_status: "unknown".into(),
             created_at: "".into(),
             updated_at: "".into(),

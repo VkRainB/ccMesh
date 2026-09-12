@@ -286,13 +286,15 @@ impl EndpointHealthInfo {
 /// 按端点名池化的熔断器注册表（存 `ProxyState`，运行期内存态）。
 /// 持两套 config preset：Claude 入站放宽，OpenAI/Responses 默认。状态按端点共享，仅阈值随入站而定。
 pub struct BreakerRegistry {
+    enabled: bool,
     config_default: CircuitBreakerConfig,
     config_claude: CircuitBreakerConfig,
     inner: Mutex<HashMap<String, BreakerInner>>,
 }
 
 impl BreakerRegistry {
-    /// 生产构造：默认 + Claude 两套 preset。
+    /// 生产构造：默认 + Claude 两套 preset（默认开启）。
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self::with_configs(
             CircuitBreakerConfig::default(),
@@ -300,9 +302,37 @@ impl BreakerRegistry {
         )
     }
 
-    /// 显式指定两套 preset（测试用）。
+    /// 根据用户配置项构造。
+    pub fn from_options(enabled: bool, failure_threshold: u32, timeout_secs: u64) -> Self {
+        let ft = failure_threshold.max(1);
+        let timeout = Duration::from_secs(timeout_secs.max(1));
+        let default_cfg = CircuitBreakerConfig {
+            failure_threshold: ft,
+            timeout,
+            ..CircuitBreakerConfig::default()
+        };
+        let claude_cfg = CircuitBreakerConfig {
+            failure_threshold: ft.saturating_mul(2),
+            timeout: Duration::from_secs(timeout_secs.max(1).saturating_mul(3) / 2),
+            ..CircuitBreakerConfig::claude()
+        };
+        Self::with_configs_and_enabled(enabled, default_cfg, claude_cfg)
+    }
+
+    /// 显式指定两套 preset（测试用，默认开启）。
+    #[allow(dead_code)]
     pub fn with_configs(default: CircuitBreakerConfig, claude: CircuitBreakerConfig) -> Self {
+        Self::with_configs_and_enabled(true, default, claude)
+    }
+
+    /// 显式指定是否开启及两套 preset。
+    pub fn with_configs_and_enabled(
+        enabled: bool,
+        default: CircuitBreakerConfig,
+        claude: CircuitBreakerConfig,
+    ) -> Self {
         Self {
+            enabled,
             config_default: default,
             config_claude: claude,
             inner: Mutex::new(HashMap::new()),
@@ -312,7 +342,12 @@ impl BreakerRegistry {
     /// 测试用：两套 preset 设为同一份 config。
     #[cfg(test)]
     pub fn new_uniform(config: CircuitBreakerConfig) -> Self {
-        Self::with_configs(config, config)
+        Self::with_configs_and_enabled(true, config, config)
+    }
+
+    /// 是否开启熔断保护。
+    pub fn is_enabled(&self) -> bool {
+        self.enabled
     }
 
     fn cfg_for(&self, inbound: InboundKind) -> &CircuitBreakerConfig {
@@ -324,6 +359,9 @@ impl BreakerRegistry {
 
     /// 选路过滤用：端点当前是否可选（不占半开许可）。Open 到期会惰性转 HalfOpen。
     pub fn is_available(&self, name: &str, _inbound: InboundKind, now: Instant) -> bool {
+        if !self.enabled {
+            return true;
+        }
         let mut g = self.inner.lock().unwrap();
         let b = g.entry(name.to_string()).or_default();
         b.maybe_half_open(now);
@@ -332,6 +370,12 @@ impl BreakerRegistry {
 
     /// 发请求前取许可。HalfOpen 同一时刻只放行 1 个探测。
     pub fn allow_request(&self, name: &str, _inbound: InboundKind, now: Instant) -> AllowResult {
+        if !self.enabled {
+            return AllowResult {
+                allowed: true,
+                used_half_open_permit: false,
+            };
+        }
         let mut g = self.inner.lock().unwrap();
         let b = g.entry(name.to_string()).or_default();
         b.maybe_half_open(now);
@@ -363,6 +407,9 @@ impl BreakerRegistry {
 
     /// 记录成功。返回是否发生状态转换（供调用方发事件）。
     pub fn record_success(&self, name: &str, used_permit: bool, inbound: InboundKind) -> bool {
+        if !self.enabled {
+            return false;
+        }
         let cfg = self.cfg_for(inbound);
         let mut g = self.inner.lock().unwrap();
         let b = g.entry(name.to_string()).or_default();
@@ -392,6 +439,9 @@ impl BreakerRegistry {
         inbound: InboundKind,
         kind: FailureKind,
     ) -> bool {
+        if !self.enabled {
+            return false;
+        }
         let cfg = self.cfg_for(inbound);
         let mut g = self.inner.lock().unwrap();
         let b = g.entry(name.to_string()).or_default();
@@ -428,7 +478,7 @@ impl BreakerRegistry {
 
     /// 记录中性结果（客户端错误/中断）：仅释放半开许可，不计入熔断。
     pub fn record_neutral(&self, name: &str, used_permit: bool) {
-        if !used_permit {
+        if !self.enabled || !used_permit {
             return;
         }
         let mut g = self.inner.lock().unwrap();
@@ -473,6 +523,9 @@ impl BreakerRegistry {
         _inbound: InboundKind,
         now: Instant,
     ) -> Option<Duration> {
+        if !self.enabled {
+            return None;
+        }
         let g = self.inner.lock().unwrap();
         let mut soonest: Option<Duration> = None;
         let mut any_open = false;
@@ -529,9 +582,12 @@ pub fn select_candidates(
     inbound: InboundKind,
     now: Instant,
 ) -> Vec<Endpoint> {
+    if !registry.is_enabled() {
+        return enabled.to_vec();
+    }
     enabled
         .iter()
-        .filter(|e| registry.is_available(&e.name, inbound, now))
+        .filter(|e| e.circuit_breaker_disabled || registry.is_available(&e.name, inbound, now))
         .cloned()
         .collect()
 }
@@ -573,6 +629,7 @@ mod tests {
             sort_order: 0,
             fast: false,
             fast_sort_order: 0,
+            circuit_breaker_disabled: false,
             test_status: "unknown".into(),
             created_at: "".into(),
             updated_at: "".into(),
@@ -1145,5 +1202,54 @@ mod tests {
         );
         assert!(!reg.is_available("c", InboundKind::OpenAi, now + Duration::from_secs(61)));
         assert!(reg.is_available("c", InboundKind::OpenAi, now + Duration::from_secs(91)));
+    }
+
+    #[test]
+    fn disabled_registry_always_allows_and_never_trips() {
+        let reg = BreakerRegistry::from_options(false, 3, 60);
+        let now = Instant::now();
+        for _ in 0..10 {
+            let changed = reg.record_failure(
+                "a",
+                false,
+                now,
+                "500",
+                InboundKind::OpenAi,
+                FailureKind::Broken,
+            );
+            assert!(!changed);
+        }
+        assert!(reg.is_available("a", InboundKind::OpenAi, now));
+        let allow = reg.allow_request("a", InboundKind::OpenAi, now);
+        assert!(allow.allowed);
+        assert!(!allow.used_half_open_permit);
+    }
+
+    #[test]
+    fn select_candidates_honors_disabled_endpoint() {
+        let reg = BreakerRegistry::new_uniform(cfg());
+        let now = Instant::now();
+        for _ in 0..3 {
+            reg.record_failure(
+                "a",
+                false,
+                now,
+                "500",
+                InboundKind::OpenAi,
+                FailureKind::Broken,
+            );
+        }
+        let mut ep_a = ep("a");
+        let ep_b = ep("b");
+        let eps = vec![ep_a.clone(), ep_b.clone()];
+        let cands = select_candidates(&eps, &reg, InboundKind::OpenAi, now);
+        assert_eq!(cands.len(), 1);
+        assert_eq!(cands[0].name, "b");
+
+        // 当 a 标记了 circuit_breaker_disabled，即使处于 open 也保留在候选
+        ep_a.circuit_breaker_disabled = true;
+        let eps2 = vec![ep_a, ep_b];
+        let cands2 = select_candidates(&eps2, &reg, InboundKind::OpenAi, now);
+        assert_eq!(cands2.len(), 2);
     }
 }

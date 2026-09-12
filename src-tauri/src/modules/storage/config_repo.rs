@@ -27,6 +27,9 @@ pub const SAFE_CONFIG_KEYS: &[&str] = &[
     "update_checkInterval",
     "openaiUa",
     "claudeCliUa",
+    "circuitBreakerEnabled",
+    "circuitBreakerFailureThreshold",
+    "circuitBreakerTimeout",
 ];
 
 pub fn get_value(conn: &Connection, key: &str) -> AppResult<Option<String>> {
@@ -96,6 +99,17 @@ pub fn get_config(conn: &Connection) -> AppResult<AppConfig> {
         proxy_for_update: parse_bool(&m, "proxyForUpdate", d.proxy_for_update),
         openai_ua: parse_str_allow_empty(&m, "openaiUa", &d.openai_ua),
         claude_cli_ua: parse_str_allow_empty(&m, "claudeCliUa", &d.claude_cli_ua),
+        circuit_breaker_enabled: parse_bool(&m, "circuitBreakerEnabled", d.circuit_breaker_enabled),
+        circuit_breaker_failure_threshold: parse_i64(
+            &m,
+            "circuitBreakerFailureThreshold",
+            d.circuit_breaker_failure_threshold as i64,
+        ) as u32,
+        circuit_breaker_timeout: parse_i64(
+            &m,
+            "circuitBreakerTimeout",
+            d.circuit_breaker_timeout as i64,
+        ) as u64,
         update: UpdateSettings {
             auto_check: parse_bool(&m, "update_autoCheck", true),
             check_interval: parse_i64(&m, "update_checkInterval", 24),

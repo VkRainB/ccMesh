@@ -64,9 +64,15 @@ pub fn get_endpoint_health(state: State<AppState>) -> AppResult<Vec<EndpointHeal
         Some(h) => enabled
             .iter()
             .map(|e| {
-                h.state.breakers.health_of(&e.name).unwrap_or_else(|| {
-                    EndpointHealthInfo::from_test_status(&e.name, &e.test_status)
-                })
+                if !h.state.breakers.is_enabled() || e.circuit_breaker_disabled {
+                    let mut info = EndpointHealthInfo::from_test_status(&e.name, &e.test_status);
+                    info.circuit = "closed".to_string();
+                    info
+                } else {
+                    h.state.breakers.health_of(&e.name).unwrap_or_else(|| {
+                        EndpointHealthInfo::from_test_status(&e.name, &e.test_status)
+                    })
+                }
             })
             .collect(),
         None => enabled
