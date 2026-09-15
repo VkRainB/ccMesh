@@ -1,39 +1,64 @@
-import { PolarAngleAxis, RadialBar, RadialBarChart } from "recharts";
+import { useMemo } from "react";
+import type { EChartsOption } from "echarts";
 
-import { TabularText } from "@/components/ui";
 import { Card, CardContent } from "@/components/ui/card";
-import { ChartContainer, type ChartConfig } from "@/components/ui/chart";
+import { EChart, useChartTokens } from "@/components/ui/chart";
+import { TabularText } from "@/components/ui";
 import type { CursorMetrics } from "@/services/modules/cursorUsage";
 
-const chartConfig = {
-  value: { label: "用量", color: "var(--primary)" },
-} satisfies ChartConfig;
-
 export function OfficialGauge({ metrics }: { metrics: CursorMetrics }) {
-  const color = metrics.overPace ? "var(--warning)" : "var(--primary)";
-  const data = [{ name: "used", value: metrics.officialTotalPct, fill: color }];
+  const t = useChartTokens();
+  const color = metrics.overPace ? t.warning : t.info;
+  const pct = Number((metrics.officialTotalPct ?? 0).toFixed(1));
+  const option = useMemo<EChartsOption>(
+    () => ({
+      series: [
+        {
+          type: "gauge",
+          min: 0,
+          max: 100,
+          startAngle: 210,
+          endAngle: -30,
+          center: ["50%", "50%"],
+          radius: "88%",
+          progress: { show: true, width: 12, itemStyle: { color } },
+          axisLine: { lineStyle: { width: 12, color: [[1, t["edge-strong"]]] } },
+          axisTick: { show: false },
+          splitLine: { show: false },
+          axisLabel: { show: false },
+          pointer: { show: false },
+          anchor: { show: false },
+          title: { show: false },
+          detail: { show: false },
+          data: [{ value: pct }],
+        },
+      ],
+    }),
+    [color, pct, t],
+  );
   return (
-    <Card className="py-4">
-      <CardContent className="flex flex-col items-center gap-1 px-4">
-        <span className="self-start text-xs text-ink-secondary">官方综合用量</span>
-        <ChartContainer config={chartConfig} className="aspect-square h-36 w-full">
-          <RadialBarChart
-            data={data}
-            startAngle={210}
-            endAngle={-30}
-            innerRadius="72%"
-            outerRadius="100%"
-          >
-            <PolarAngleAxis type="number" domain={[0, 100]} tick={false} />
-            <RadialBar dataKey="value" background cornerRadius={8} />
-          </RadialBarChart>
-        </ChartContainer>
-        <TabularText className={`text-2xl ${metrics.overPace ? "text-warning" : "text-primary"}`}>
-          {metrics.officialTotalPct}%
-        </TabularText>
-        <span className="text-xs text-ink-mute">
-          日均节奏 {metrics.expectedUsedPct}% · {metrics.overPace ? "超前" : "低于日均"}
-        </span>
+    <Card className="h-full gap-0 py-3">
+      <CardContent className="flex h-full flex-col px-4">
+        <h3 className="text-xs text-ink-secondary">已用额度</h3>
+        <div className="flex min-h-0 flex-1 items-center justify-center py-1">
+          <div className="relative mx-auto aspect-square w-full max-w-36">
+            <EChart option={option} />
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+              <TabularText
+                className={
+                  metrics.overPace
+                    ? "text-2xl leading-none text-warning"
+                    : "text-2xl leading-none text-info"
+                }
+              >
+                {pct}%
+              </TabularText>
+            </div>
+          </div>
+        </div>
+        <p className="text-center text-xs text-ink-mute">
+          建议用量 {metrics.expectedUsedPct}%
+        </p>
       </CardContent>
     </Card>
   );
