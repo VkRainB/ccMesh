@@ -3,7 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { getModelIcon } from "@/lib/model-icons";
 import type { CursorCategory } from "@/services/modules/cursorUsage";
 
-import { fmtUsd } from "./cursorUsage";
+import { fmtTok, fmtUsd } from "./cursorUsage";
 
 export function ModelDetailTable({ categories }: { categories: CursorCategory[] }) {
   const rows = categories.flatMap((c) =>
@@ -37,13 +37,13 @@ export function ModelDetailTable({ categories }: { categories: CursorCategory[] 
                     </span>
                   </td>
                   <td className="px-3 py-2">
-                    <Badge variant={r.isApi ? "info" : "success"}>{r.cat}</Badge>
+                    <Badge variant={r.isApi ? "success" : "info"}>{r.cat}</Badge>
                   </td>
                   <td className="px-3 py-2 text-right">
                     <TabularText>{r.events.toLocaleString()}</TabularText>
                   </td>
                   <td className="px-3 py-2 text-right">
-                    <TabularText>{r.tokens.toLocaleString()}</TabularText>
+                    <TabularText>{fmtTok(r.tokens)}</TabularText>
                   </td>
                   <td className="px-3 py-2 text-right">
                     <TabularText>{fmtUsd(r.weight)}</TabularText>
