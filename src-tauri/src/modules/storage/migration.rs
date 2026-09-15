@@ -168,6 +168,29 @@ const MIGRATIONS: &[&str] = &[
     // v18：端点出站请求头覆写（JSON 数组 [{name,value}]）+ 总开关。旧行默认关闭。
     "ALTER TABLE endpoints ADD COLUMN header_overrides TEXT NOT NULL DEFAULT '[]';
      ALTER TABLE endpoints ADD COLUMN header_overrides_enabled INTEGER NOT NULL DEFAULT 0;",
+    // v19：Cursor 订阅用量事件 + 单行快照（与 usage_records 隔离，含金额/类别）。
+    "CREATE TABLE IF NOT EXISTS cursor_usage_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_key TEXT NOT NULL UNIQUE,
+        ts INTEGER NOT NULL,
+        date TEXT NOT NULL,
+        hour INTEGER NOT NULL,
+        model TEXT NOT NULL,
+        kind TEXT,
+        chargeable INTEGER NOT NULL DEFAULT 1,
+        input_tokens INTEGER,
+        output_tokens INTEGER,
+        cache_read_tokens INTEGER,
+        cache_write_tokens INTEGER,
+        cost_cents REAL NOT NULL DEFAULT 0
+     );
+     CREATE INDEX IF NOT EXISTS idx_cue_ts ON cursor_usage_events(ts);
+     CREATE INDEX IF NOT EXISTS idx_cue_date ON cursor_usage_events(date);
+     CREATE TABLE IF NOT EXISTS cursor_usage_snapshot (
+        id INTEGER PRIMARY KEY CHECK(id=1),
+        json TEXT NOT NULL,
+        fetched_at INTEGER NOT NULL
+     );",
 ];
 
 /// 幂等执行迁移：读取 `schema_version` 当前版本，仅应用尚未执行的脚本。
@@ -375,6 +398,20 @@ mod tests {
             rows.filter_map(Result::ok).collect()
         };
         assert!(cols.contains(&"model_mappings_enabled".to_string()));
+    }
+
+    #[test]
+    fn v19_adds_cursor_usage_tables() {
+        let c = Connection::open_in_memory().unwrap();
+        run_migrations(&c).unwrap();
+        let n: i64 = c
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('cursor_usage_events','cursor_usage_snapshot')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 2);
     }
 
     #[test]

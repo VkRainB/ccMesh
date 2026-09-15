@@ -1,5 +1,6 @@
 pub mod chat_repo;
 pub mod config_repo;
+pub mod cursor_usage_repo;
 pub mod db;
 pub mod device;
 pub mod endpoint_repo;
