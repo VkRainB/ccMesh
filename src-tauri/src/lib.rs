@@ -201,6 +201,8 @@ pub fn run() {
             commands::usage::get_usage_by_day,
             commands::usage::get_usage_by_hour,
             commands::usage::get_usage_by_day_model,
+            commands::cursor_usage::get_cursor_usage,
+            commands::cursor_usage::refresh_cursor_usage,
             commands::backup::export_config,
             commands::backup::import_config,
             commands::config::get_config,

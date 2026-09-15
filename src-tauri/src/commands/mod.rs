@@ -3,6 +3,7 @@ pub mod cc_switch;
 pub mod chat;
 pub mod claude_user_config;
 pub mod config;
+pub mod cursor_usage;
 pub mod endpoint;
 pub mod health;
 pub mod logs;
