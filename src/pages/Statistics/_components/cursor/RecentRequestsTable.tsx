@@ -3,13 +3,14 @@ import { Badge } from "@/components/ui/badge";
 import { getModelIcon } from "@/lib/model-icons";
 import type { CursorRecentRow } from "@/services/modules/cursorUsage";
 
-import { effortLevel } from "./cursorUsage";
+import { effortLevel, fmtTok, fmtUsd } from "./cursorUsage";
 
 const EFFORT_VARIANT = {
   xhigh: "danger",
   high: "warning",
   medium: "info",
   low: "success",
+  max: "success",
 } as const;
 
 export function RecentRequestsTable({ rows }: { rows: CursorRecentRow[] }) {
@@ -25,6 +26,7 @@ export function RecentRequestsTable({ rows }: { rows: CursorRecentRow[] }) {
               <th className="px-3 py-2 text-left font-medium">模型</th>
               <th className="px-3 py-2 text-left font-medium">推理强度</th>
               <th className="px-3 py-2 text-right font-medium">Token 数</th>
+              <th className="px-3 py-2 text-right font-medium">金额</th>
             </tr>
           </thead>
           <tbody>
@@ -50,7 +52,10 @@ export function RecentRequestsTable({ rows }: { rows: CursorRecentRow[] }) {
                     )}
                   </td>
                   <td className="px-3 py-2 text-right">
-                    <TabularText>{r.tokens.toLocaleString()}</TabularText>
+                    <TabularText>{fmtTok(r.tokens)}</TabularText>
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    <TabularText>{fmtUsd(r.costCents)}</TabularText>
                   </td>
                 </tr>
               );

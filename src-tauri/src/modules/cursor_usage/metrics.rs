@@ -447,6 +447,7 @@ pub fn recent_requests(
                 time,
                 model: e.model.clone(),
                 tokens: event_tokens(e),
+                cost_cents: e.cost_cents,
             })
         })
         .take(limit)

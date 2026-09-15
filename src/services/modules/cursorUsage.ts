@@ -93,6 +93,7 @@ export interface CursorRecentRow {
   time: string;
   model: string;
   tokens: number;
+  costCents: number;
 }
 
 export interface CursorUsageSnapshot {

@@ -129,6 +129,7 @@ pub struct CursorRecentRow {
     pub time: String,
     pub model: String,
     pub tokens: i64,
+    pub cost_cents: f64,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
