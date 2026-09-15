@@ -72,7 +72,12 @@ pub fn is_auto_model(model: &str, auto_bucket: &[String]) -> bool {
     {
         return true;
     }
-    m == "auto" || m == "default" || m.starts_with("composer")
+    // ponytail: Cursor 官方将 cursor-grok-* 系列归入 "Cursor Models"（即 Auto + Composer 桶），
+    // 但 autoBucketModels 仅返回基础名、事件模型名带 -xhigh-fast 等后缀，精确匹配不命中，故加前缀规则。
+    m == "auto"
+        || m == "default"
+        || m.starts_with("composer")
+        || m.starts_with("cursor-grok")
 }
 
 pub fn normalize_period(raw: &Value) -> CursorPeriod {
@@ -552,6 +557,8 @@ mod tests {
         assert!(is_auto_model("auto-model", &bucket));
         assert!(is_auto_model("composer-1", &[]));
         assert!(is_auto_model("default", &[]));
+        assert!(is_auto_model("cursor-grok-4.6-xhigh-fast", &[]));
+        assert!(is_auto_model("cursor-grok-4.6-medium-fast", &[]));
         assert!(!is_auto_model("claude-4-sonnet", &bucket));
     }
 
