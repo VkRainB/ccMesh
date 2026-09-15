@@ -1,4 +1,4 @@
-export type EffortLevel = "xhigh" | "high" | "medium" | "low";
+export type EffortLevel = "xhigh" | "high" | "medium" | "low" | "max";
 
 export function fmtUsd(cents: number | undefined | null): string {
   return (
@@ -8,6 +8,13 @@ export function fmtUsd(cents: number | undefined | null): string {
       maximumFractionDigits: 2,
     })
   );
+}
+
+export function fmtTok(n: number | undefined | null): string {
+  const v = Number(n ?? 0);
+  if (v >= 1e8) return `${(v / 1e8).toFixed(1)}亿`;
+  if (v >= 1e4) return `${(v / 1e4).toFixed(1)}万`;
+  return String(v);
 }
 
 export function maskEmail(email: string | undefined | null): string {
@@ -25,6 +32,7 @@ export function effortLevel(model: string): EffortLevel | null {
   if (m.includes("high")) return "high";
   if (m.includes("medium")) return "medium";
   if (m.includes("low")) return "low";
+  if (/(^|[-_])max($|[-_])/.test(m)) return "max";
   return null;
 }
 

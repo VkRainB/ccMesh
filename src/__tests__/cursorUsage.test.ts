@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   effortLevel,
+  fmtTok,
   fmtUsd,
   hourlyStackSeries,
   maskEmail,
@@ -12,6 +13,14 @@ describe("fmtUsd", () => {
   it("美分转美元带千分位", () => {
     expect(fmtUsd(1234)).toBe("$12.34");
     expect(fmtUsd(0)).toBe("$0.00");
+  });
+});
+
+describe("fmtTok", () => {
+  it("按万/亿缩写", () => {
+    expect(fmtTok(123)).toBe("123");
+    expect(fmtTok(12_000)).toBe("1.2万");
+    expect(fmtTok(200_000_000)).toBe("2.0亿");
   });
 });
 
@@ -27,6 +36,7 @@ describe("effortLevel", () => {
   it("从模型名解析推理强度", () => {
     expect(effortLevel("gpt-5-high")).toBe("high");
     expect(effortLevel("claude-xhigh")).toBe("xhigh");
+    expect(effortLevel("glm-5.2-max")).toBe("max");
     expect(effortLevel("composer")).toBe(null);
   });
 });
