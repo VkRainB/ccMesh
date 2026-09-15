@@ -79,18 +79,6 @@ pub fn events_in_range(
     Ok(out)
 }
 
-pub fn recent(conn: &Connection, limit: i64) -> AppResult<Vec<CursorUsageEventRow>> {
-    let mut stmt = conn.prepare(&format!(
-        "SELECT {SELECT_COLS} FROM cursor_usage_events ORDER BY ts DESC LIMIT ?1"
-    ))?;
-    let rows = stmt.query_map(params![limit], map_row)?;
-    let mut out = Vec::new();
-    for r in rows {
-        out.push(r?);
-    }
-    Ok(out)
-}
-
 pub fn save_snapshot(conn: &Connection, snap: &CursorUsageSnapshot) -> AppResult<()> {
     let json = serde_json::to_string(snap)?;
     conn.execute(
@@ -113,6 +101,15 @@ pub fn load_snapshot(conn: &Connection) -> AppResult<Option<CursorUsageSnapshot>
         Some(s) => Ok(Some(serde_json::from_str(&s)?)),
         None => Ok(None),
     }
+}
+
+/// 删除 cutoff_ms 之前的事件，保留近期数据供回溯。
+pub fn purge_old_events(conn: &Connection, cutoff_ms: i64) -> AppResult<usize> {
+    let n = conn.execute(
+        "DELETE FROM cursor_usage_events WHERE ts < ?1",
+        params![cutoff_ms],
+    )?;
+    Ok(n)
 }
 
 #[cfg(test)]
@@ -149,7 +146,6 @@ mod tests {
         upsert_events(&c, &[sample("k2", 200)]).unwrap();
         assert_eq!(max_ts(&c).unwrap(), Some(200));
         assert_eq!(events_in_range(&c, 100, 150).unwrap().len(), 1);
-        assert_eq!(recent(&c, 10).unwrap().len(), 2);
     }
 
     #[test]
@@ -164,5 +160,21 @@ mod tests {
         let loaded = load_snapshot(&c).unwrap().unwrap();
         assert_eq!(loaded.fetched_at, 42);
         assert_eq!(loaded.email.as_deref(), Some("a@b.c"));
+    }
+
+    #[test]
+    fn purge_old_events_keeps_recent() {
+        let c = Connection::open_in_memory().unwrap();
+        run_migrations(&c).unwrap();
+        upsert_events(&c, &[sample("old", 1_000), sample("new", 9_000_000)]).unwrap();
+        // cutoff = 5_000_000 → 删 ts < 5_000_000（保留 new）
+        let n = purge_old_events(&c, 5_000_000).unwrap();
+        assert_eq!(n, 1);
+        assert_eq!(
+            c.query_row("SELECT COUNT(*) FROM cursor_usage_events", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+        assert_eq!(max_ts(&c).unwrap(), Some(9_000_000));
     }
 }

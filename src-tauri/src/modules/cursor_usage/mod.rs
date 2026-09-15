@@ -262,6 +262,12 @@ pub async fn refresh(pool: DbPool) -> AppResult<CursorUsageSnapshot> {
             warnings: warnings_for_db,
         };
         cursor_usage_repo::save_snapshot(&conn, &snap)?;
+        // 保留最近 90 天事件（覆盖 3 个月度计费周期），清理更早的无用历史
+        let cutoff = now_ms - 90 * 86_400_000;
+        let purged = cursor_usage_repo::purge_old_events(&conn, cutoff)?;
+        if purged > 0 {
+            tracing::info!(purged, "清理 90 天前的 cursor 用量事件");
+        }
         Ok(snap)
     })
     .await
