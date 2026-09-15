@@ -4,6 +4,7 @@ pub mod backup;
 pub mod chat;
 pub mod claude_desktop_config;
 pub mod config;
+pub mod cursor_usage;
 pub mod endpoint;
 pub mod omp_config;
 pub mod pet;
