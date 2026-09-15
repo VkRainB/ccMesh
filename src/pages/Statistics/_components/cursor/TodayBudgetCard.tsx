@@ -1,27 +1,32 @@
 import { TabularText } from "@/components/ui";
 import { Card, CardContent } from "@/components/ui/card";
-import type { CursorMetrics } from "@/services/modules/cursorUsage";
 
-import { fmtUsd } from "./cursorUsage";
+import { fmtTok, fmtUsd } from "./cursorUsage";
 
 export function TodayBudgetCard({
-  metrics,
-  todayRequests,
+  cents,
+  requests,
+  tokens,
 }: {
-  metrics: CursorMetrics;
-  todayRequests: number;
+  cents: number;
+  requests: number;
+  tokens: number;
 }) {
   return (
-    <Card className="py-4">
-      <CardContent className="flex flex-col gap-2 px-5">
+    <Card className="h-full gap-0 py-3">
+      <CardContent className="flex h-full flex-col gap-2 px-5">
         <span className="text-xs text-ink-secondary">今日已用</span>
-        <TabularText className="text-2xl text-info">{fmtUsd(metrics.todayUsedCents)}</TabularText>
-        <p className="text-xs text-ink-secondary">
-          {todayRequests} 次
-          {metrics.dailyBudgetCents > 0
-            ? ` · 日预算 ${fmtUsd(metrics.dailyBudgetCents)} · ${metrics.todayUsedPct}%`
-            : ""}
-        </p>
+        <TabularText className="text-2xl text-info">{fmtUsd(cents)}</TabularText>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <p className="text-xs text-ink-mute">请求</p>
+            <TabularText className="text-sm text-foreground">{requests} 次</TabularText>
+          </div>
+          <div className="border-l border-edge pl-4">
+            <p className="text-xs text-ink-mute">Token</p>
+            <TabularText className="text-sm text-foreground">{fmtTok(tokens)}</TabularText>
+          </div>
+        </div>
       </CardContent>
     </Card>
   );

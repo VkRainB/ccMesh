@@ -1,3 +1,5 @@
+import { MinusIcon } from "lucide-react";
+
 import { TabularText } from "@/components/ui";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -19,17 +21,21 @@ export function PlanQuotaCard({
   const barColor =
     used >= 100 ? "bg-destructive" : used > 80 ? "bg-warning" : "bg-primary";
   return (
-    <Card className="col-span-2 py-4">
-      <CardContent className="flex flex-col gap-3 px-5">
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="success">{plan.planName || "-"}</Badge>
-          {plan.price ? (
-            <span className="text-xs text-ink-secondary">{plan.price}</span>
-          ) : null}
-          <span className="text-xs text-ink-mute">
-            {fmtCycleDay(period.cycleStartMs)} →{" "}
-            {fmtCycleDay(period.cycleEndMs)} · 剩 {metrics.daysLeft}/{metrics.cycleTotalDays} 天
-          </span>
+    <Card className="col-span-2 h-full gap-0 py-3">
+      <CardContent className="flex h-full flex-col gap-2 px-5">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <Badge variant="success">{plan.planName || "-"}</Badge>
+            {plan.price ? (
+              <TabularText className="text-sm text-ink-secondary">{plan.price}</TabularText>
+            ) : null}
+          </div>
+          <p className="inline-flex shrink-0 items-center gap-1 text-xs text-ink-mute">
+            {fmtCycleDay(period.cycleStartMs)}
+            <MinusIcon className="size-3 opacity-60" />
+            {fmtCycleDay(period.cycleEndMs)}
+            <span>· 剩余 {metrics.daysLeft} 天</span>
+          </p>
         </div>
         <TabularText className="text-2xl text-foreground">
           {fmtUsd(metrics.cycleUsedCents)}
@@ -43,15 +49,26 @@ export function PlanQuotaCard({
           <div
             className="absolute top-0 h-full w-px bg-foreground/50"
             style={{ left: `${Math.min(100, expected)}%` }}
-            title={`期望进度 ${expected}%`}
+            title={`建议用量 ${expected}%`}
           />
         </div>
-        <p className="text-xs text-ink-secondary">
-          剩余 {fmtUsd(metrics.cycleRemainingCents)}
-          {metrics.cycleBonusCents > 0 ? ` · 赠送已用 ${fmtUsd(metrics.cycleBonusCents)}` : ""}
-          {metrics.cycleSpendCents > 0 ? ` · 总消耗 ${fmtUsd(metrics.cycleSpendCents)}` : ""}
-          {` · 额度 ${used}%`}
-        </p>
+        <div className="grid grid-cols-2 gap-4">
+          <div title="套餐额度用完后，Cursor 额外给的免费用量（bonusSpend）">
+            <p className="text-xs text-ink-mute">额外赠送</p>
+            <TabularText className="text-lg text-foreground">
+              {fmtUsd(metrics.cycleBonusCents)}
+            </TabularText>
+          </div>
+          <div className="border-l border-edge pl-4">
+            <p className="text-xs text-ink-mute">总消耗</p>
+            <TabularText className="text-lg text-foreground">
+              {fmtUsd(metrics.cycleSpendCents)}
+            </TabularText>
+          </div>
+        </div>
+        {period.displayMessage ? (
+          <p className="text-xs text-warning">官方提示：{period.displayMessage}</p>
+        ) : null}
       </CardContent>
     </Card>
   );

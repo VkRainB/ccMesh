@@ -74,8 +74,9 @@ export function CursorUsageToolbar({
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="0">不刷新</SelectItem>
+          <SelectItem value="5">5 秒</SelectItem>
+          <SelectItem value="60">1 分钟</SelectItem>
           <SelectItem value="300">5 分钟</SelectItem>
-          <SelectItem value="600">10 分钟</SelectItem>
           <SelectItem value="1800">30 分钟</SelectItem>
         </SelectContent>
       </Select>
@@ -112,21 +113,29 @@ export function CursorUsagePanel({
     );
   }
 
-  const todayRequests = snapshot.hourly.reduce((s, h) => s + h.events, 0);
+  const today = snapshot.hourly.reduce(
+    (s, h) => ({ requests: s.requests + h.events, tokens: s.tokens + h.tokens }),
+    { requests: 0, tokens: 0 },
+  );
 
   return (
     <div className="flex flex-col gap-6">
       {snapshot.warnings.length > 0 ? (
         <p className="text-sm text-warning">{snapshot.warnings.join(" · ")}</p>
       ) : null}
-      {snapshot.period.displayMessage ? (
-        <p className="text-sm text-ink-secondary">官方提示：{snapshot.period.displayMessage}</p>
-      ) : null}
 
       <div className="grid grid-cols-4 gap-4">
-        <PlanQuotaCard plan={snapshot.plan} period={snapshot.period} metrics={snapshot.metrics} />
+        <PlanQuotaCard
+          plan={snapshot.plan}
+          period={snapshot.period}
+          metrics={snapshot.metrics}
+        />
         <OfficialGauge metrics={snapshot.metrics} />
-        <TodayBudgetCard metrics={snapshot.metrics} todayRequests={todayRequests} />
+        <TodayBudgetCard
+          cents={snapshot.metrics.todayUsedCents}
+          requests={today.requests}
+          tokens={today.tokens}
+        />
       </div>
 
       <div className="grid grid-cols-3 gap-4">

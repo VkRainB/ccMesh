@@ -46,7 +46,7 @@ export function UsagePanel() {
   const appType = app === "all" || isCursor ? undefined : app;
   const [cursorAuto, setCursorAuto] = useState(() => {
     const n = parseInt(localStorage.getItem(CURSOR_AUTO_KEY) || "300", 10);
-    return Number.isFinite(n) ? n : 300;
+    return n === 0 || n === 5 || n === 60 || n === 300 || n === 1800 ? n : 300;
   });
   const [cursorMasked, setCursorMasked] = useState(
     () => localStorage.getItem(CURSOR_MASK_KEY) !== "0",
