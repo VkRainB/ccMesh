@@ -1,5 +1,5 @@
 import type { ComponentType } from "react";
-import { Cpu } from "lucide-react";
+import { Cpu, MousePointer2 } from "lucide-react";
 import {
   Aws,
   Azure,
@@ -58,6 +58,7 @@ const MODEL_ICON_PATTERNS: ModelIconConfig[] = [
   { prefixes: ["gpt-", "o1", "o3", "o4", "chatgpt", "text-embedding", "dall-e", "openai", "codex"], Icon: OpenAI },
   // Anthropic - Claude series
   { prefixes: ["claude", "anthropic"], Icon: Claude.Color },
+  { prefixes: ["composer", "cursor"], Icon: MousePointer2 },
   // Google - Gemini / Gemma / PaLM
   { prefixes: ["gemini"], Icon: Gemini.Color },
   { prefixes: ["gemma"], Icon: Gemma.Color },

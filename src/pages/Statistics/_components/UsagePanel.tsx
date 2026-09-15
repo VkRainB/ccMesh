@@ -8,7 +8,14 @@ import { TabularText } from "@/components/ui";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { isHourlyTrend, rangeValueUsageFilter, resolveTrendWindow, startOfTodayMs, type RangeValue } from "@/lib/range";
+import { useCursorUsage } from "@/hooks/useCursorUsage";
 import { usageApi, type DayModelUsage, type UsageAppFilter } from "@/services/modules/usage";
+import {
+  CURSOR_AUTO_KEY,
+  CURSOR_MASK_KEY,
+  CursorUsagePanel,
+  CursorUsageToolbar,
+} from "./cursor/CursorUsagePanel";
 
 import { UsageHeatmap } from "./UsageHeatmap";
 import { UsageTrendChart } from "./UsageTrendChart";
@@ -19,6 +26,7 @@ const APP_TABS: { key: UsageAppFilter; label: string }[] = [
   { key: "claude", label: "Claude Code" },
   { key: "codex", label: "Codex" },
   { key: "zcode", label: "ZCode" },
+  { key: "cursor", label: "Cursor" },
 ];
 
 const fmt = (n: number) => n.toLocaleString();
@@ -34,7 +42,16 @@ function appLabel(app: string): string {
 export function UsagePanel() {
   const qc = useQueryClient();
   const [app, setApp] = useState<UsageAppFilter>("all");
-  const appType = app === "all" ? undefined : app;
+  const isCursor = app === "cursor";
+  const appType = app === "all" || isCursor ? undefined : app;
+  const [cursorAuto, setCursorAuto] = useState(() => {
+    const n = parseInt(localStorage.getItem(CURSOR_AUTO_KEY) || "300", 10);
+    return Number.isFinite(n) ? n : 300;
+  });
+  const [cursorMasked, setCursorMasked] = useState(
+    () => localStorage.getItem(CURSOR_MASK_KEY) !== "0",
+  );
+  const cursor = useCursorUsage(isCursor ? cursorAuto : 0, isCursor);
   const [range, setRange] = useState<RangeValue>({ kind: "preset", key: "today" });
   // 按天对齐锚点，使筛选参数在同一条件下稳定（不把 Date.now() 放进 queryKey）。
   const todayStart = startOfTodayMs();
@@ -68,15 +85,18 @@ export function UsagePanel() {
   const summary = useQuery({
     queryKey: ["usage", "summary", app, ...filterKey],
     queryFn: () => usageApi.getSummary({ appType, ...filter }),
+    enabled: !isCursor,
   });
   const byDayModel = useQuery({
     queryKey: ["usage", "day-model", app, ...filterKey],
     queryFn: () => usageApi.getByDayModel({ appType, ...filter }),
+    enabled: !isCursor,
   });
   // 全量按天数据：热力图取近一年，趋势图按 range 前端切片（一条查询喂两张图）
   const byDay = useQuery({
     queryKey: ["usage", "by-day", app],
     queryFn: () => usageApi.getByDay({ appType }),
+    enabled: !isCursor,
   });
   const dayTotals = useMemo(() => mergeByDate(byDay.data ?? []), [byDay.data]);
   const trendWin = useMemo(
@@ -92,7 +112,7 @@ export function UsagePanel() {
         startTs: trendWin!.startMs,
         endTs: trendWin!.endExclusiveMs - 1,
       }),
-    enabled: hourly && trendWin != null,
+    enabled: !isCursor && hourly && trendWin != null,
   });
   const trendData = useMemo(() => {
     if (hourly && trendWin) {
@@ -119,6 +139,24 @@ export function UsagePanel() {
             ))}
           </TabsList>
         </Tabs>
+        {isCursor ? (
+          <CursorUsageToolbar
+            snapshot={cursor.snapshot}
+            refreshing={cursor.refresh.isPending}
+            onRefresh={() => cursor.refresh.mutate()}
+            autoSec={cursorAuto}
+            onAutoSec={(n) => {
+              setCursorAuto(n);
+              localStorage.setItem(CURSOR_AUTO_KEY, String(n));
+            }}
+            masked={cursorMasked}
+            onMasked={(v) => {
+              setCursorMasked(v);
+              localStorage.setItem(CURSOR_MASK_KEY, v ? "1" : "0");
+            }}
+            loading={cursor.query.isLoading}
+          />
+        ) : (
         <div className="flex items-center gap-2">
           <DateRangePicker value={range} onChange={setRange} />
           <Button
@@ -131,8 +169,18 @@ export function UsagePanel() {
             刷新
           </Button>
         </div>
+        )}
       </div>
 
+      {isCursor ? (
+        <CursorUsagePanel
+          snapshot={cursor.snapshot}
+          loading={cursor.query.isLoading}
+          error={cursor.query.error instanceof Error ? cursor.query.error : null}
+          refreshing={cursor.refresh.isPending}
+        />
+      ) : (
+      <>
       <div className="grid grid-cols-4 gap-4">
         <StatCard label="请求数" value={fmt(s?.totalRequests ?? 0)} />
         <StatCard
@@ -176,6 +224,8 @@ export function UsagePanel() {
       </section>
 
       <DayModelTable rows={byDayModel.data ?? []} />
+      </>
+      )}
     </div>
   );
 }
