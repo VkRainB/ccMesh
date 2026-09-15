@@ -17,7 +17,6 @@ export function PlanQuotaCard({
   metrics: CursorMetrics;
 }) {
   const used = metrics.quotaUsedPct;
-  const expected = metrics.expectedUsedPct;
   const barColor =
     used >= 100 ? "bg-destructive" : used > 80 ? "bg-warning" : "bg-primary";
   return (
@@ -45,11 +44,6 @@ export function PlanQuotaCard({
           <div
             className={`absolute inset-y-0 left-0 rounded-full ${barColor}`}
             style={{ width: `${Math.min(100, used)}%` }}
-          />
-          <div
-            className="absolute top-0 h-full w-px bg-foreground/50"
-            style={{ left: `${Math.min(100, expected)}%` }}
-            title={`建议用量 ${expected}%`}
           />
         </div>
         <div className="grid grid-cols-2 gap-4">
