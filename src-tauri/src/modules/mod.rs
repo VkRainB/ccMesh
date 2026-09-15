@@ -2,6 +2,7 @@ pub mod backup;
 pub mod cc_switch_migration;
 pub mod chat;
 pub mod claude_user_config;
+pub mod cursor_usage;
 pub mod lifecycle;
 pub mod logs;
 pub mod models_cache;
