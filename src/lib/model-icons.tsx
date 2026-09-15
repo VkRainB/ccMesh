@@ -58,7 +58,6 @@ const MODEL_ICON_PATTERNS: ModelIconConfig[] = [
   { prefixes: ["gpt-", "o1", "o3", "o4", "chatgpt", "text-embedding", "dall-e", "openai", "codex"], Icon: OpenAI },
   // Anthropic - Claude series
   { prefixes: ["claude", "anthropic"], Icon: Claude.Color },
-  { prefixes: ["composer", "cursor"], Icon: MousePointer2 },
   // Google - Gemini / Gemma / PaLM
   { prefixes: ["gemini"], Icon: Gemini.Color },
   { prefixes: ["gemma"], Icon: Gemma.Color },
@@ -118,20 +117,29 @@ const MODEL_ICON_PATTERNS: ModelIconConfig[] = [
   { prefixes: ["kat"], Icon: KwaiKAT },
   // Xiaomi - MiMo
   { prefixes: ["mimo"], Icon: XiaomiMiMo },
+  // Cursor 包装名（cursor-grok-…）放到最后，让品牌段优先
+  { prefixes: ["composer", "cursor"], Icon: MousePointer2 },
 ];
+
+/** 前缀匹配：startsWith 或 hyphen 分段（cursor-grok-4.6 → grok）。 */
+function matchesPrefix(lowerName: string, prefix: string): boolean {
+  if (lowerName.startsWith(prefix)) return true;
+  const p = prefix.endsWith("-") ? prefix.slice(0, -1) : prefix;
+  return lowerName.split(/[-_/]/).some((seg) => seg === p || (p.length > 2 && seg.startsWith(p)));
+}
 
 const DEFAULT_ICON = Cpu;
 
 /**
- * 按模型名前缀匹配品牌彩色图标（无背景圆，纯图标）。
+ * 按模型名匹配品牌彩色图标（无背景圆，纯图标）。
  * 含 `/` 时取最后一段再匹配（如 `anthropic/claude-3-5-haiku` → `claude-3-5-haiku`）。
- * 未匹配回退 lucide Cpu 图标。
+ * `cursor-grok-…` 这类包装名按中间品牌段匹配；未命中再回退 Cursor / Cpu。
  */
 export function getModelIcon(modelName: string): IconComponent {
   const nameToMatch = modelName.includes("/") ? modelName.split("/").pop()! : modelName;
   const lowerName = nameToMatch.toLowerCase();
   for (const { prefixes, Icon } of MODEL_ICON_PATTERNS) {
-    if (prefixes.some((prefix) => lowerName.startsWith(prefix))) {
+    if (prefixes.some((prefix) => matchesPrefix(lowerName, prefix))) {
       return Icon;
     }
   }
