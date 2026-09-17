@@ -14,7 +14,7 @@ use crate::utils::paths::omp_sessions_dir;
 use super::utils::{
     collect_jsonl_files, delete_pi_omp_session, infer_pi_omp_session_id_from_filename,
     load_pi_omp_messages, parse_pi_omp_scan_fields, path_basename, read_head_tail_lines,
-    truncate_summary, TITLE_MAX_CHARS,
+    truncate_summary, PI_OMP_SCAN_HEAD_LINES, PI_OMP_SCAN_TAIL_LINES, TITLE_MAX_CHARS,
 };
 
 const PROVIDER_ID: &str = "omp";
@@ -47,7 +47,8 @@ pub fn delete_session(_root: &Path, path: &Path, session_id: &str) -> Result<boo
 }
 
 fn parse_session(path: &Path) -> Option<SessionMeta> {
-    let (head, tail) = read_head_tail_lines(path, 80, 80).ok()?;
+    let (head, tail) =
+        read_head_tail_lines(path, PI_OMP_SCAN_HEAD_LINES, PI_OMP_SCAN_TAIL_LINES).ok()?;
     let fields = parse_pi_omp_scan_fields(&head, &tail);
 
     let session_id = fields

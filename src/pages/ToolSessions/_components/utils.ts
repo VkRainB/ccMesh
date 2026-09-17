@@ -213,6 +213,19 @@ export const highlightText = (text: string, query: string): ReactNode => {
   );
 };
 
+export const INITIAL_VISIBLE_MESSAGES = 80;
+
+export const sliceTailMessages = <T,>(
+  messages: T[],
+  limit: number,
+): { items: T[]; hiddenBefore: number } => {
+  if (limit <= 0 || messages.length <= limit) {
+    return { items: messages, hiddenBefore: 0 };
+  }
+  const hiddenBefore = messages.length - limit;
+  return { items: messages.slice(hiddenBefore), hiddenBefore };
+};
+
 export const matchesSessionSearch = (
   session: ToolSessionMeta,
   query: string,

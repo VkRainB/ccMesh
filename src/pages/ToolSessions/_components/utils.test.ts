@@ -6,6 +6,7 @@ import {
   getSessionKey,
   groupSessionsByProviderAndDirectory,
   matchesSessionSearch,
+  sliceTailMessages,
 } from "./utils";
 import type { ToolSessionMeta } from "@/services/modules/toolSessions";
 
@@ -66,5 +67,21 @@ describe("toolSessions utils", () => {
     expect(groups.find((g) => g.providerId === "opencode")?.sessions).toHaveLength(
       1,
     );
+  });
+
+  it("sliceTailMessages keeps the newest window", () => {
+    const all = Array.from({ length: 100 }, (_, i) => i);
+    expect(sliceTailMessages(all, 80)).toEqual({
+      items: all.slice(20),
+      hiddenBefore: 20,
+    });
+    expect(sliceTailMessages(all, 100)).toEqual({
+      items: all,
+      hiddenBefore: 0,
+    });
+    expect(sliceTailMessages([1, 2, 3], 80)).toEqual({
+      items: [1, 2, 3],
+      hiddenBefore: 0,
+    });
   });
 });

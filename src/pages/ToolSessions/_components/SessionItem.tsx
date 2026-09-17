@@ -1,13 +1,9 @@
+import { memo } from "react";
 import { ChevronRight, Clock } from "lucide-react";
 import { ClaudeCode, Codex, OpenCode } from "@lobehub/icons";
 
 import ompLogoUrl from "@/assets/svg/about/omp-logo.svg";
 import piLogoUrl from "@/assets/svg/about/pi-logo.svg";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { ToolSessionMeta } from "@/services/modules/toolSessions";
 
@@ -68,10 +64,10 @@ interface SessionItemProps {
   isChecked: boolean;
   searchQuery?: string;
   onSelect: (key: string) => void;
-  onToggleChecked: (checked: boolean) => void;
+  onToggleChecked: (sessionKey: string, checked: boolean) => void;
 }
 
-export function SessionItem({
+export const SessionItem = memo(function SessionItem({
   session,
   isSelected,
   selectionMode,
@@ -88,6 +84,7 @@ export function SessionItem({
     <div
       className={cn(
         "group flex items-start gap-2 rounded-lg border px-3 py-2.5 transition-all",
+        "[content-visibility:auto] [contain-intrinsic-size:auto_4.5rem]",
         isSelected
           ? "border-primary/30 bg-primary/10"
           : "border-transparent hover:bg-muted/60",
@@ -100,7 +97,7 @@ export function SessionItem({
             checked={isChecked}
             aria-label="选择会话"
             className="size-3.5 accent-primary"
-            onChange={(e) => onToggleChecked(e.target.checked)}
+            onChange={(e) => onToggleChecked(sessionKey, e.target.checked)}
           />
         </div>
       )}
@@ -110,16 +107,12 @@ export function SessionItem({
         className="min-w-0 flex-1 text-left"
       >
         <div className="mb-1 flex items-center gap-2">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="shrink-0">
-                <ProviderGlyph providerId={session.providerId} />
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>
-              {getProviderLabel(session.providerId)}
-            </TooltipContent>
-          </Tooltip>
+          <span
+            className="shrink-0"
+            title={getProviderLabel(session.providerId)}
+          >
+            <ProviderGlyph providerId={session.providerId} />
+          </span>
           <span className="line-clamp-2 flex-1 text-sm font-medium">
             {searchQuery ? highlightText(title, searchQuery) : title}
           </span>
@@ -137,4 +130,4 @@ export function SessionItem({
       </button>
     </div>
   );
-}
+});

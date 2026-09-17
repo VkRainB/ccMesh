@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::{self, BufRead, BufReader, Seek, SeekFrom};
+use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, FixedOffset};
@@ -10,8 +10,25 @@ use crate::modules::tool_sessions::SessionMessage;
 /// Maximum number of characters for session titles (shared across providers).
 pub const TITLE_MAX_CHARS: usize = 80;
 
+/// pi/omp 列表扫描的 head/tail 行数。title 槽 + session 头 + 首条 user 通常在前几行。
+pub const PI_OMP_SCAN_HEAD_LINES: usize = 24;
+pub const PI_OMP_SCAN_TAIL_LINES: usize = 24;
+
+/// 列表扫描只采样文件头；单行超大 tool-result 不得把整个 payload 读进列表路径。
+pub const SCAN_HEAD_BYTES_MAX: u64 = 64 * 1024;
+const SCAN_TAIL_BYTES_MAX: u64 = 16_384;
+
+/// 详情加载：跳过超大 JSONL 行，正文截断后交给前端折叠展示。
+///
+/// ponytail: 会话管理是预览器不是分页器（ceil: 超长 tool dump 只留 8k 字；
+/// 升级路径——按消息 id 懒加载全文）。
+pub const MESSAGE_LINE_MAX_BYTES: usize = 128 * 1024;
+pub const MESSAGE_CONTENT_MAX_CHARS: usize = 8_000;
+
 /// Read the first `head_n` lines and last `tail_n` lines from a file.
 /// For small files (< 16 KB), reads all lines once to avoid unnecessary seeking.
+/// Large files cap the head at [`SCAN_HEAD_BYTES_MAX`] so a few multi-MB JSONL
+/// rows cannot stall `list_tool_sessions`.
 pub fn read_head_tail_lines(
     path: &Path,
     head_n: usize,
@@ -21,7 +38,7 @@ pub fn read_head_tail_lines(
     let file_len = file.metadata()?.len();
 
     // For small files, read all lines once and split
-    if file_len < 16_384 {
+    if file_len < SCAN_TAIL_BYTES_MAX {
         let reader = BufReader::new(file);
         let all: Vec<String> = reader.lines().map_while(Result::ok).collect();
         let head = all.iter().take(head_n).cloned().collect();
@@ -30,12 +47,14 @@ pub fn read_head_tail_lines(
         return Ok((head, tail));
     }
 
-    // Read head lines from the beginning
-    let reader = BufReader::new(file);
-    let head: Vec<String> = reader.lines().take(head_n).map_while(Result::ok).collect();
+    let head_reader = BufReader::new(file.take(SCAN_HEAD_BYTES_MAX));
+    let head: Vec<String> = head_reader
+        .lines()
+        .take(head_n)
+        .map_while(Result::ok)
+        .collect();
 
-    // Seek to last ~16 KB for tail lines
-    let seek_pos = file_len.saturating_sub(16_384);
+    let seek_pos = file_len.saturating_sub(SCAN_TAIL_BYTES_MAX);
     let mut file2 = File::open(path)?;
     file2.seek(SeekFrom::Start(seek_pos))?;
     let tail_reader = BufReader::new(file2);
@@ -156,21 +175,36 @@ pub fn path_basename(value: &str) -> Option<String> {
     Some(last.to_string())
 }
 
-/// 递归收集目录下所有 `*.jsonl` 文件。pi/omp 与 codex/claude 共用同一布局扫描。
+/// 收集 pi/omp 会话 jsonl：`sessions/<slug>/*.jsonl`。
+///
+/// 不进入 jsonl 同名 sidecar 目录（bash log 等）。全量递归会让列表扫描卡在
+/// 成百上千的日志文件上。
+///
+/// ponytail: 只从 sessions 根往下走 1 层 slug（ceil: sidecar 里若再放 jsonl
+/// 会被忽略；升级路径——布局多一层再加深 remaining_descents）。
 pub fn collect_jsonl_files(root: &Path, files: &mut Vec<PathBuf>) {
-    if !root.exists() {
-        return;
-    }
-    let entries = match std::fs::read_dir(root) {
+    collect_jsonl_files_depth(root, files, 1);
+}
+
+fn collect_jsonl_files_depth(dir: &Path, files: &mut Vec<PathBuf>, remaining_descents: u32) {
+    let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(_) => return,
     };
     for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            collect_jsonl_files(&path, files);
-        } else if path.extension().and_then(|ext| ext.to_str()) == Some("jsonl") {
-            files.push(path);
+        let file_type = match entry.file_type() {
+            Ok(ft) => ft,
+            Err(_) => continue,
+        };
+        if file_type.is_dir() {
+            if remaining_descents > 0 {
+                collect_jsonl_files_depth(&entry.path(), files, remaining_descents - 1);
+            }
+            continue;
+        }
+        let name = entry.file_name();
+        if Path::new(&name).extension().and_then(|ext| ext.to_str()) == Some("jsonl") {
+            files.push(entry.path());
         }
     }
 }
@@ -308,12 +342,21 @@ pub fn parse_pi_omp_scan_fields(head: &[String], tail: &[String]) -> PiOmpScanFi
                             .unwrap_or_default();
                         let trimmed = text.trim();
                         if !trimmed.is_empty() {
-                            fields.first_user_message = Some(trimmed.to_string());
+                            fields.first_user_message =
+                                Some(truncate_summary(trimmed, TITLE_MAX_CHARS));
                         }
                     }
                 }
             }
             _ => {}
+        }
+        // session 头 + 任一标题来源已够列表展示；不必把 head 剩余行全部 serde。
+        if fields.session_id.is_some()
+            && (fields.title_slot.is_some()
+                || fields.session_title.is_some()
+                || fields.first_user_message.is_some())
+        {
+            break;
         }
     }
 
@@ -341,7 +384,7 @@ pub fn parse_pi_omp_scan_fields(head: &[String], tail: &[String]) -> PiOmpScanFi
                     .map(extract_pi_omp_content)
                     .unwrap_or_default();
                 if !text.trim().is_empty() {
-                    fields.summary = Some(text);
+                    fields.summary = Some(truncate_summary(&text, 160));
                 }
             }
         }
@@ -397,6 +440,9 @@ pub fn load_pi_omp_messages(path: &Path) -> Result<Vec<SessionMessage>, String> 
             Ok(value) => value,
             Err(_) => continue,
         };
+        if line.len() > MESSAGE_LINE_MAX_BYTES {
+            continue;
+        }
         let Ok(value): Result<Value, _> = serde_json::from_str(&line) else {
             continue;
         };
@@ -410,12 +456,15 @@ pub fn load_pi_omp_messages(path: &Path) -> Result<Vec<SessionMessage>, String> 
             .get("role")
             .and_then(Value::as_str)
             .unwrap_or("unknown");
-        let content = message
+        let mut content = message
             .get("content")
             .map(extract_pi_omp_content)
             .unwrap_or_default();
         if content.trim().is_empty() {
             continue;
+        }
+        if content.len() > MESSAGE_CONTENT_MAX_CHARS {
+            content = truncate_summary(&content, MESSAGE_CONTENT_MAX_CHARS);
         }
         let ts = message
             .get("timestamp")
@@ -483,6 +532,7 @@ fn remove_path_if_exists(path: &Path) -> std::io::Result<()> {
 mod tests {
     use super::*;
     use serde_json::json;
+    use tempfile::tempdir;
 
     #[test]
     fn parse_timestamp_to_ms_supports_integers_and_rfc3339() {
@@ -498,5 +548,107 @@ mod tests {
             parse_timestamp_to_ms(&json!("1970-01-01T00:00:01Z")),
             Some(1_000)
         );
+    }
+
+    #[test]
+    fn collect_jsonl_files_skips_sidecar_directories() {
+        let temp = tempdir().expect("tempdir");
+        let slug = temp.path().join("--E--demo--");
+        let sidecar = slug.join("2026-06-30T11-26-32-818Z_019f1847-e572-7261-85c1-f3fac09447c5");
+        std::fs::create_dir_all(&sidecar).expect("sidecar");
+        let session =
+            slug.join("2026-06-30T11-26-32-818Z_019f1847-e572-7261-85c1-f3fac09447c5.jsonl");
+        std::fs::write(&session, "{}\n").expect("session jsonl");
+        std::fs::write(sidecar.join("bash.log"), "log").expect("log");
+        std::fs::write(sidecar.join("nested.jsonl"), "{}\n").expect("nested jsonl");
+        let root_jsonl = temp.path().join("loose.jsonl");
+        std::fs::write(&root_jsonl, "{}\n").expect("root jsonl");
+
+        let mut files = Vec::new();
+        collect_jsonl_files(temp.path(), &mut files);
+        files.sort();
+        let mut expected = vec![session, root_jsonl];
+        expected.sort();
+        assert_eq!(files, expected);
+    }
+
+    #[test]
+    fn read_head_tail_lines_caps_head_bytes_on_large_files() {
+        let temp = tempdir().expect("tempdir");
+        let path = temp.path().join("huge.jsonl");
+        let mut body = String::new();
+        body.push_str("{\"type\":\"session\",\"id\":\"keep-me\"}\n");
+        body.push_str(&format!(
+            "{}\n",
+            "x".repeat(SCAN_HEAD_BYTES_MAX as usize + 8 * 1024)
+        ));
+        body.push_str("{\"type\":\"message\",\"id\":\"after-budget\"}\n");
+        std::fs::write(&path, body).expect("write");
+
+        let (head, _tail) = read_head_tail_lines(&path, 24, 24).expect("read");
+        assert!(
+            head.iter().any(|line| line.contains("keep-me")),
+            "session header at byte 0 must still be sampled: {head:?}"
+        );
+        assert!(
+            head.iter().all(|line| !line.contains("after-budget")),
+            "lines past the head byte cap must not be read: {head:?}"
+        );
+    }
+
+    #[test]
+    fn parse_pi_omp_scan_fields_stops_after_session_and_title() {
+        let title = json!({"type":"title","title":"槽标题"}).to_string();
+        let session = json!({
+            "type":"session",
+            "id":"abc",
+            "timestamp":"2026-08-27T00:44:52.410Z",
+            "cwd":"C:\\proj"
+        })
+        .to_string();
+        let user = json!({
+            "type":"message",
+            "message":{"role":"user","content":[{"type":"text","text":"不应作为标题"}]}
+        })
+        .to_string();
+        let fields = parse_pi_omp_scan_fields(&[title, session, user], &[]);
+        assert_eq!(fields.title_slot.as_deref(), Some("槽标题"));
+        assert_eq!(fields.session_id.as_deref(), Some("abc"));
+        assert!(
+            fields.first_user_message.is_none(),
+            "head parse should stop once title slot + session id exist"
+        );
+    }
+
+    #[test]
+    fn load_pi_omp_messages_truncates_huge_content_and_skips_huge_lines() {
+        let temp = tempdir().expect("tempdir");
+        let path = temp.path().join("session.jsonl");
+        let huge_text = "汉".repeat(MESSAGE_CONTENT_MAX_CHARS + 200);
+        let keep = json!({
+            "type":"message",
+            "message":{
+                "role":"user",
+                "content":[{"type":"text","text": huge_text}],
+                "timestamp": 1
+            }
+        })
+        .to_string();
+        let skipped = format!(
+            "{{\"type\":\"message\",\"message\":{{\"role\":\"assistant\",\"content\":\"{}\"}}}}",
+            "y".repeat(MESSAGE_LINE_MAX_BYTES)
+        );
+        let small = json!({
+            "type":"message",
+            "message":{"role":"assistant","content":[{"type":"text","text":"ok"}],"timestamp":2}
+        })
+        .to_string();
+        std::fs::write(&path, format!("{keep}\n{skipped}\n{small}\n")).expect("write");
+
+        let msgs = load_pi_omp_messages(&path).expect("load");
+        assert_eq!(msgs.len(), 2);
+        assert!(msgs[0].content.ends_with("..."));
+        assert!(msgs[0].content.chars().count() <= MESSAGE_CONTENT_MAX_CHARS + 3);
+        assert_eq!(msgs[1].content, "ok");
     }
 }

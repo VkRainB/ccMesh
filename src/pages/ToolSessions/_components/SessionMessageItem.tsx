@@ -49,6 +49,7 @@ export const SessionMessageItem = memo(function SessionMessageItem({
     <div
       className={cn(
         "group relative min-w-0 rounded-lg border px-3 py-2.5 transition-shadow",
+        "[content-visibility:auto] [contain-intrinsic-size:auto_7rem]",
         message.role.toLowerCase() === "user"
           ? "ml-8 border-primary/20 bg-primary/5"
           : message.role.toLowerCase() === "assistant"
