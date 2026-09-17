@@ -1,6 +1,8 @@
 mod claude;
 mod codex;
+mod omp;
 mod opencode;
+mod pi;
 mod utils;
 
 use serde::{Deserialize, Serialize};
@@ -56,14 +58,18 @@ pub struct DeleteSessionOutcome {
 }
 
 pub fn scan_sessions() -> Vec<SessionMeta> {
-    let (r1, r2, r3) = std::thread::scope(|s| {
+    let (r1, r2, r3, r4, r5) = std::thread::scope(|s| {
         let h1 = s.spawn(codex::scan_sessions);
         let h2 = s.spawn(claude::scan_sessions);
         let h3 = s.spawn(opencode::scan_sessions);
+        let h4 = s.spawn(pi::scan_sessions);
+        let h5 = s.spawn(omp::scan_sessions);
         (
             h1.join().unwrap_or_default(),
             h2.join().unwrap_or_default(),
             h3.join().unwrap_or_default(),
+            h4.join().unwrap_or_default(),
+            h5.join().unwrap_or_default(),
         )
     });
 
@@ -71,6 +77,8 @@ pub fn scan_sessions() -> Vec<SessionMeta> {
     sessions.extend(r1);
     sessions.extend(r2);
     sessions.extend(r3);
+    sessions.extend(r4);
+    sessions.extend(r5);
 
     sessions.sort_by(|a, b| {
         let a_ts = a.last_active_at.or(a.created_at).unwrap_or(0);
@@ -90,6 +98,8 @@ pub fn load_messages(provider_id: &str, source_path: &str) -> Result<Vec<Session
         "codex" => codex::load_messages(path),
         "claude" => claude::load_messages(path),
         "opencode" => opencode::load_messages(path),
+        "pi" => pi::load_messages(path),
+        "omp" => omp::load_messages(path),
         _ => Err(format!("Unsupported provider: {provider_id}")),
     }
 }
@@ -139,6 +149,8 @@ fn delete_session_with_roots(
                 "opencode" => {
                     opencode::delete_session(&validated_root, &validated_source, session_id)
                 }
+                "pi" => pi::delete_session(&validated_root, &validated_source, session_id),
+                "omp" => omp::delete_session(&validated_root, &validated_source, session_id),
                 _ => Err(format!("Unsupported provider: {provider_id}")),
             };
         }
@@ -167,6 +179,8 @@ fn provider_roots(provider_id: &str) -> Result<Vec<PathBuf>, String> {
             .map(|root| vec![root])
             .unwrap_or_default(),
         "opencode" => vec![opencode::get_opencode_data_dir()],
+        "pi" => pi::session_roots(),
+        "omp" => omp::session_roots(),
         _ => return Err(format!("Unsupported provider: {provider_id}")),
     };
 
