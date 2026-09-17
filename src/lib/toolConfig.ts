@@ -25,6 +25,7 @@ const CLAUDE_ENV_KEYS = {
   apiKey: "ANTHROPIC_API_KEY",
   sonnetModel: "ANTHROPIC_DEFAULT_SONNET_MODEL",
   opusModel: "ANTHROPIC_DEFAULT_OPUS_MODEL",
+  fableModel: "ANTHROPIC_DEFAULT_FABLE_MODEL",
   haikuModel: "ANTHROPIC_DEFAULT_HAIKU_MODEL",
   defaultModel: "ANTHROPIC_MODEL",
 } as const;
@@ -53,6 +54,7 @@ export function mergeClaudeSettings(
   setOrRemove(CLAUDE_ENV_KEYS.apiKey, f.apiKey);
   setOrRemove(CLAUDE_ENV_KEYS.sonnetModel, f.sonnetModel);
   setOrRemove(CLAUDE_ENV_KEYS.opusModel, f.opusModel);
+  setOrRemove(CLAUDE_ENV_KEYS.fableModel, f.fableModel);
   setOrRemove(CLAUDE_ENV_KEYS.haikuModel, f.haikuModel);
   setOrRemove(CLAUDE_ENV_KEYS.defaultModel, f.defaultModel);
   root.env = env;
@@ -68,6 +70,7 @@ export function parseClaudeFields(snapshot: unknown): ClaudeOperationFields {
     apiKey: get(CLAUDE_ENV_KEYS.apiKey),
     sonnetModel: get(CLAUDE_ENV_KEYS.sonnetModel),
     opusModel: get(CLAUDE_ENV_KEYS.opusModel),
+    fableModel: get(CLAUDE_ENV_KEYS.fableModel),
     haikuModel: get(CLAUDE_ENV_KEYS.haikuModel),
     defaultModel: get(CLAUDE_ENV_KEYS.defaultModel),
   };

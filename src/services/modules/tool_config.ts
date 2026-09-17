@@ -33,6 +33,7 @@ export interface ClaudeOperationFields {
   apiKey: string;
   sonnetModel: string;
   opusModel: string;
+  fableModel: string;
   haikuModel: string;
   defaultModel: string;
 }
