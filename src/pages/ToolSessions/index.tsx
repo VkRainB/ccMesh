@@ -50,7 +50,7 @@ import {
 } from "@/services/modules/toolSessions";
 import { useLayoutStore } from "@/stores";
 
-import { SessionItem } from "./_components/SessionItem";
+import { ProviderLogo, SessionItem } from "./_components/SessionItem";
 import { SessionMessageItem } from "./_components/SessionMessageItem";
 import {
   extractCodexPromptPreview,
@@ -69,7 +69,7 @@ import {
 const LIST_VIEW_KEY = "ccmesh.toolSessions.listViewMode";
 const GROUP_EXPANSION_KEY = "ccmesh.toolSessions.groupExpansionState";
 
-type ProviderFilter = "all" | "claude" | "codex" | "opencode";
+type ProviderFilter = "all" | "claude" | "codex" | "opencode" | "pi" | "omp";
 type ListViewMode = "flat" | "grouped";
 
 function readListViewMode(): ListViewMode {
@@ -79,16 +79,17 @@ function readListViewMode(): ListViewMode {
 }
 
 function readExpandedProviders(): Set<string> {
-  if (typeof window === "undefined") return new Set(["claude", "codex", "opencode"]);
+  if (typeof window === "undefined")
+    return new Set(["claude", "codex", "opencode", "pi", "omp"]);
   try {
     const raw = window.localStorage.getItem(GROUP_EXPANSION_KEY);
     const parsed = raw ? JSON.parse(raw) : null;
     const ids = Array.isArray(parsed?.expandedProviderIds)
       ? parsed.expandedProviderIds.filter((x: unknown) => typeof x === "string")
-      : ["claude", "codex", "opencode"];
+      : ["claude", "codex", "opencode", "pi", "omp"];
     return new Set(ids);
   } catch {
-    return new Set(["claude", "codex", "opencode"]);
+    return new Set(["claude", "codex", "opencode", "pi", "omp"]);
   }
 }
 
@@ -96,6 +97,9 @@ function ProviderIcon({ providerId, size = 22 }: { providerId: string; size?: nu
   if (providerId === "claude") return <ClaudeCode.Color size={size} />;
   if (providerId === "codex") return <Codex.Color size={size} />;
   if (providerId === "opencode") return <OpenCode size={size} />;
+  if (providerId === "pi" || providerId === "omp") {
+    return <ProviderLogo providerId={providerId} size={size} />;
+  }
   return null;
 }
 
@@ -381,7 +385,7 @@ export function ToolSessions() {
           </Button>
           <h1 className="text-2xl font-light tracking-tight">会话管理</h1>
           <span className="text-xs text-ink-mute">
-            本机 Claude / Codex / OpenCode 工具会话（与应用内对话无关）
+            本机 Claude / Codex / OpenCode / pi / omp 工具会话（与应用内对话无关）
           </span>
         </header>
 
@@ -520,6 +524,8 @@ export function ToolSessions() {
                         <SelectItem value="claude">Claude</SelectItem>
                         <SelectItem value="codex">Codex</SelectItem>
                         <SelectItem value="opencode">OpenCode</SelectItem>
+                        <SelectItem value="pi">pi</SelectItem>
+                        <SelectItem value="omp">omp</SelectItem>
                       </SelectContent>
                     </Select>
                     <Tooltip>
@@ -554,7 +560,7 @@ export function ToolSessions() {
                 </p>
               ) : filteredSessions.length === 0 ? (
                 <p className="p-3 text-sm text-muted-foreground">
-                  未找到工具会话。请确认本机已有 Claude Code / Codex / OpenCode 历史。
+                  未找到工具会话。请确认本机已有 Claude Code / Codex / OpenCode / pi / omp 历史。
                 </p>
               ) : listViewMode === "grouped" ? (
                 renderGrouped(providerGroups)

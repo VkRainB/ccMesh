@@ -63,6 +63,8 @@ export const getProviderLabel = (providerId: string) => {
   if (providerId === "claude") return "Claude";
   if (providerId === "codex") return "Codex";
   if (providerId === "opencode") return "OpenCode";
+  if (providerId === "pi") return "pi";
+  if (providerId === "omp") return "omp";
   return providerId;
 };
 

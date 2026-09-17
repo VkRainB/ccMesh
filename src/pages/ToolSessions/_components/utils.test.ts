@@ -46,6 +46,8 @@ describe("toolSessions utils", () => {
     expect(getProviderLabel("claude")).toBe("Claude");
     expect(getProviderLabel("codex")).toBe("Codex");
     expect(getProviderLabel("opencode")).toBe("OpenCode");
+    expect(getProviderLabel("pi")).toBe("pi");
+    expect(getProviderLabel("omp")).toBe("omp");
   });
 
   it("groupSessionsByProviderAndDirectory groups by provider", () => {

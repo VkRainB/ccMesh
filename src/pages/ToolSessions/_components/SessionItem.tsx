@@ -1,6 +1,8 @@
 import { ChevronRight, Clock } from "lucide-react";
 import { ClaudeCode, Codex, OpenCode } from "@lobehub/icons";
 
+import ompLogoUrl from "@/assets/svg/about/omp-logo.svg";
+import piLogoUrl from "@/assets/svg/about/pi-logo.svg";
 import {
   Tooltip,
   TooltipContent,
@@ -17,6 +19,28 @@ import {
   highlightText,
 } from "./utils";
 
+export function ProviderLogo({
+  providerId,
+  size = 18,
+}: {
+  providerId: string;
+  size?: number;
+}) {
+  const isPi = providerId === "pi";
+  return (
+    <img
+      src={isPi ? piLogoUrl : ompLogoUrl}
+      alt=""
+      className={cn(
+        "shrink-0 object-contain",
+        // pi.svg 用 currentColor，作为 <img> 固定为黑；深色主题反色成白。omp 是品牌渐变，不反色。
+        isPi && "dark:invert",
+      )}
+      style={{ width: size, height: size }}
+    />
+  );
+}
+
 function ProviderGlyph({ providerId }: { providerId: string }) {
   if (providerId === "claude") {
     return <ClaudeCode.Color size={18} />;
@@ -26,6 +50,9 @@ function ProviderGlyph({ providerId }: { providerId: string }) {
   }
   if (providerId === "opencode") {
     return <OpenCode size={18} />;
+  }
+  if (providerId === "pi" || providerId === "omp") {
+    return <ProviderLogo providerId={providerId} size={18} />;
   }
   return (
     <span className="inline-flex size-[18px] items-center justify-center rounded-full bg-muted text-[10px]">
