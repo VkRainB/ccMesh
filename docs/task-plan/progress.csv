@@ -186,3 +186,4 @@ Phase2,会话管理,2029.4,验收 check 与自修,fullstack,2029.3,会话管理,
 实现,Cursor 订阅用量,2040.6,Cursor Tab 与订阅制面板,前端,,,完成,claude,2026-09-15,2026-09-15,
 实现,工具会话加载性能,2041.1,pi/omp 扫描跳过 sidecar 并限制 head 字节,后端,,,完成,claude,2026-09-17,2026-09-17,列表扫描不再递归伴生目录；head 采样上限 64KB
 实现,工具会话加载性能,2041.2,详情截断超长消息与前端窗口化,全栈,2041.1,,完成,claude,2026-09-17,2026-09-17,跳过超长 JSONL 行、正文截 8k；列表 content-visibility；消息默认最近 80 条
+实现,Claude Fable 模型角色,2042.1,补 ANTHROPIC_DEFAULT_FABLE_MODEL 读写与表单行,全栈,,,完成,claude,2026-09-17,2026-09-17,对齐 cc-switch；不写 MODEL_NAME / Subagent / Claude Desktop
