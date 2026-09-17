@@ -8,6 +8,7 @@ import {
   gatewayBaseUrl,
   mergeClaudeSettings,
   parseClaudeCompact,
+  parseClaudeFields,
   parseClaudeToggles,
   splitOneM,
   withOneM,
@@ -19,6 +20,7 @@ const fields: ClaudeOperationFields = {
   apiKey: "sk-1",
   sonnetModel: "mimo[1m]",
   opusModel: "mimo-pro",
+  fableModel: "mimo-fable[1m]",
   haikuModel: "mimo-fast",
   defaultModel: "",
 };
@@ -62,10 +64,19 @@ describe("mergeClaudeSettings", () => {
     expect(merged.env.ANTHROPIC_BASE_URL).toBe("https://cc");
     expect(merged.env.ANTHROPIC_API_KEY).toBe("sk-1");
     expect(merged.env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBe("mimo[1m]");
+    expect(merged.env.ANTHROPIC_DEFAULT_FABLE_MODEL).toBe("mimo-fable[1m]");
     expect(merged.env.MY_VAR).toBe("keep");
     expect(merged.permissions).toEqual({ allow: ["*"] });
     // 空 defaultModel → 清除
     expect(merged.env.ANTHROPIC_MODEL).toBeUndefined();
+  });
+
+  it("parseClaudeFields 读取 Fable env 键", () => {
+    expect(
+      parseClaudeFields({
+        env: { ANTHROPIC_DEFAULT_FABLE_MODEL: "claude-fable-5[1m]" },
+      }).fableModel,
+    ).toBe("claude-fable-5[1m]");
   });
 
   it("operation fragment 只含 env 操作字段", () => {

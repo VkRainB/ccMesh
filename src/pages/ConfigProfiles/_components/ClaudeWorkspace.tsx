@@ -55,6 +55,7 @@ const EMPTY: ClaudeOperationFields = {
   apiKey: "",
   sonnetModel: "",
   opusModel: "",
+  fableModel: "",
   haikuModel: "",
   defaultModel: "",
 };
@@ -64,9 +65,13 @@ const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 /** token 数量输入只留数字。 */
 const digits = (s: string) => s.replace(/\D/g, "");
 
-const MODEL_ROWS: Array<{ key: "sonnetModel" | "opusModel" | "haikuModel"; role: string }> = [
+const MODEL_ROWS: Array<{
+  key: "sonnetModel" | "opusModel" | "fableModel" | "haikuModel";
+  role: string;
+}> = [
   { key: "sonnetModel", role: "Sonnet" },
   { key: "opusModel", role: "Opus" },
+  { key: "fableModel", role: "Fable" },
   { key: "haikuModel", role: "Haiku" },
 ];
 
@@ -261,7 +266,11 @@ export function ClaudeWorkspace() {
   /** 端点模式用 ccMesh 对外模型；自定义模式用从该地址拉取的模型。 */
   const modelOptions = subTab === "custom" ? fetchedModels : advertised;
 
-  const setModel = (key: "sonnetModel" | "opusModel" | "haikuModel", b: string, is1m: boolean) =>
+  const setModel = (
+    key: "sonnetModel" | "opusModel" | "fableModel" | "haikuModel",
+    b: string,
+    is1m: boolean,
+  ) =>
     updateFields({ [key]: withOneM(b, is1m) } as Partial<ClaudeOperationFields>);
 
   // 开关开启 / 压缩字段非空时高亮右侧整合编辑器中对应的配置行
