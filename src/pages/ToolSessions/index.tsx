@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeftIcon,
@@ -63,6 +63,8 @@ import {
   groupSessionsByProviderAndDirectory,
   matchesSessionSearch,
   shouldHideCodexMessageFromToc,
+  sliceTailMessages,
+  INITIAL_VISIBLE_MESSAGES,
   type SessionProviderGroup,
 } from "./_components/utils";
 
@@ -140,6 +142,8 @@ export function ToolSessions() {
   const [activeMessageIndex, setActiveMessageIndex] = useState<number | null>(
     null,
   );
+  const [messageWindow, setMessageWindow] = useState(INITIAL_VISIBLE_MESSAGES);
+  const pendingScrollIndex = useRef<number | null>(null);
   const messageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
 
   useEffect(() => {
@@ -198,6 +202,27 @@ export function ToolSessions() {
     enabled: !!activeSession?.providerId && !!activeSession?.sourcePath,
   });
   const messages = messagesQuery.data ?? [];
+  const { items: visibleMessages, hiddenBefore } = useMemo(
+    () => sliceTailMessages(messages, messageWindow),
+    [messages, messageWindow],
+  );
+
+  useEffect(() => {
+    setMessageWindow(INITIAL_VISIBLE_MESSAGES);
+    setActiveMessageIndex(null);
+  }, [activeKey]);
+
+  useEffect(() => {
+    const index = pendingScrollIndex.current;
+    if (index == null || hiddenBefore > index) return;
+    pendingScrollIndex.current = null;
+    requestAnimationFrame(() => {
+      messageRefs.current.get(index)?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+  }, [hiddenBefore, visibleMessages.length]);
 
   const tocEntries = useMemo(() => {
     return messages
@@ -262,15 +287,14 @@ export function ToolSessions() {
     });
   };
 
-  const toggleChecked = (session: ToolSessionMeta, checked: boolean) => {
-    const key = getSessionKey(session);
+  const toggleChecked = useCallback((sessionKey: string, checked: boolean) => {
     setSelectedKeys((prev) => {
       const next = new Set(prev);
-      if (checked) next.add(key);
-      else next.delete(key);
+      if (checked) next.add(sessionKey);
+      else next.delete(sessionKey);
       return next;
     });
-  };
+  }, []);
 
   const toggleGroupChecked = (
     groupSessions: ToolSessionMeta[],
@@ -291,6 +315,11 @@ export function ToolSessions() {
   const scrollToMessage = (index: number) => {
     setActiveMessageIndex(index);
     setTocOpen(false);
+    if (index < hiddenBefore) {
+      pendingScrollIndex.current = index;
+      startTransition(() => setMessageWindow(messages.length));
+      return;
+    }
     requestAnimationFrame(() => {
       messageRefs.current.get(index)?.scrollIntoView({
         behavior: "smooth",
@@ -311,7 +340,7 @@ export function ToolSessions() {
           isChecked={selectedKeys.has(key)}
           searchQuery={search}
           onSelect={setActiveKey}
-          onToggleChecked={(checked) => toggleChecked(session, checked)}
+          onToggleChecked={toggleChecked}
         />
       );
     });
@@ -679,22 +708,40 @@ export function ToolSessions() {
                   ) : messages.length === 0 && !messagesQuery.isLoading ? (
                     <p className="text-sm text-muted-foreground">暂无对话记录</p>
                   ) : (
-                    messages.map((message, index) => (
-                      <div
-                        key={`${index}-${message.ts ?? 0}`}
-                        ref={(el) => {
-                          if (el) messageRefs.current.set(index, el);
-                          else messageRefs.current.delete(index);
-                        }}
-                      >
-                        <SessionMessageItem
-                          message={message}
-                          isActive={activeMessageIndex === index}
-                          searchQuery={search}
-                          onCopy={(content) => void copyText(content)}
-                        />
-                      </div>
-                    ))
+                    <>
+                      {hiddenBefore > 0 ? (
+                        <button
+                          type="button"
+                          className="w-full rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                          onClick={() =>
+                            startTransition(() =>
+                              setMessageWindow(messages.length),
+                            )
+                          }
+                        >
+                          加载更早的 {hiddenBefore} 条消息
+                        </button>
+                      ) : null}
+                      {visibleMessages.map((message, offset) => {
+                        const index = hiddenBefore + offset;
+                        return (
+                          <div
+                            key={`${index}-${message.ts ?? 0}`}
+                            ref={(el) => {
+                              if (el) messageRefs.current.set(index, el);
+                              else messageRefs.current.delete(index);
+                            }}
+                          >
+                            <SessionMessageItem
+                              message={message}
+                              isActive={activeMessageIndex === index}
+                              searchQuery={search}
+                              onCopy={(content) => void copyText(content)}
+                            />
+                          </div>
+                        );
+                      })}
+                    </>
                   )}
                 </CardContent>
 
