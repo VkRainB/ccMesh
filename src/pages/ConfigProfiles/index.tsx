@@ -57,7 +57,7 @@ export function ConfigProfiles() {
               <img
                 src={piLogoUrl}
                 alt=""
-                className="size-3.5 shrink-0 rounded-[3px]"
+                className="size-3.5 shrink-0 object-contain dark:invert"
               />
               Pi
             </TabsTrigger>
@@ -65,7 +65,7 @@ export function ConfigProfiles() {
               <img
                 src={ompLogoUrl}
                 alt=""
-                className="size-3.5 shrink-0 rounded-[3px]"
+                className="size-3.5 shrink-0 object-contain"
               />
               OMP
             </TabsTrigger>

@@ -60,7 +60,7 @@ function ToolCardIcon({ toolName }: { toolName: ToolName }) {
         <img
           src={piLogoUrl}
           alt=""
-          className={cn(TOOL_ICON_INNER, "rounded-[3px] object-cover")}
+          className={cn(TOOL_ICON_INNER, "object-contain dark:invert")}
         />
       </span>
     );
