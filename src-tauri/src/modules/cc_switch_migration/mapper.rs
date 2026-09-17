@@ -172,6 +172,7 @@ pub fn map_row(row: &ProviderRow) -> AppResult<MappedProvider> {
             let hints = [
                 "ANTHROPIC_DEFAULT_SONNET_MODEL",
                 "ANTHROPIC_DEFAULT_OPUS_MODEL",
+                "ANTHROPIC_DEFAULT_FABLE_MODEL",
                 "ANTHROPIC_DEFAULT_HAIKU_MODEL",
                 "ANTHROPIC_MODEL",
             ]
@@ -285,13 +286,16 @@ mod tests {
 
     #[test]
     fn claude_picks_auth_token_first() {
-        let settings = r#"{"env":{"ANTHROPIC_BASE_URL":"https://api.x.com/v1/","ANTHROPIC_AUTH_TOKEN":"sk-auth","ANTHROPIC_API_KEY":"sk-key","ANTHROPIC_DEFAULT_SONNET_MODEL":"sonnet-x"}}"#;
+        let settings = r#"{"env":{"ANTHROPIC_BASE_URL":"https://api.x.com/v1/","ANTHROPIC_AUTH_TOKEN":"sk-auth","ANTHROPIC_API_KEY":"sk-key","ANTHROPIC_DEFAULT_SONNET_MODEL":"sonnet-x","ANTHROPIC_DEFAULT_FABLE_MODEL":"fable-x"}}"#;
         let m = map_row(&row("claude", settings, r#"{"apiFormat":"anthropic"}"#)).unwrap();
         assert_eq!(m.status, "ok");
         assert_eq!(m.raw_url, "https://api.x.com/v1"); // 仅去尾斜杠，/v1 由 normalize 处理
         assert_eq!(m.api_key, "sk-auth");
         assert_eq!(m.transformer, "claude");
-        assert_eq!(m.models_hint, vec!["sonnet-x".to_string()]);
+        assert_eq!(
+            m.models_hint,
+            vec!["sonnet-x".to_string(), "fable-x".to_string()]
+        );
         assert!(m.remark.contains("[cc-switch:id=p1;app=claude]"));
     }
 

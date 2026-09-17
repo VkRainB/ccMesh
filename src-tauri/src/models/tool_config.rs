@@ -65,6 +65,9 @@ pub struct ClaudeOperationFields {
     /// env.ANTHROPIC_DEFAULT_OPUS_MODEL
     #[serde(default)]
     pub opus_model: String,
+    /// env.ANTHROPIC_DEFAULT_FABLE_MODEL
+    #[serde(default)]
+    pub fable_model: String,
     /// env.ANTHROPIC_DEFAULT_HAIKU_MODEL
     #[serde(default)]
     pub haiku_model: String,
