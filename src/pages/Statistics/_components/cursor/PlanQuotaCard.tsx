@@ -5,16 +5,18 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import type { CursorMetrics, CursorPlanInfo, CursorPeriod } from "@/services/modules/cursorUsage";
 
-import { fmtCycleDay, fmtUsd } from "./cursorUsage";
+import { fmtCycleDay, fmtTok, fmtUsd } from "./cursorUsage";
 
 export function PlanQuotaCard({
   plan,
   period,
   metrics,
+  cycleTokens,
 }: {
   plan: CursorPlanInfo;
   period: CursorPeriod;
   metrics: CursorMetrics;
+  cycleTokens: number;
 }) {
   const used = metrics.quotaUsedPct;
   const barColor =
@@ -58,6 +60,10 @@ export function PlanQuotaCard({
             <TabularText className="text-lg text-foreground">
               {fmtUsd(metrics.cycleSpendCents)}
             </TabularText>
+            <p className="mt-2 text-xs text-ink-mute">总Token消耗</p>
+            <div title={`${Number(cycleTokens || 0).toLocaleString()} Token`}>
+              <TabularText className="text-lg text-foreground">{fmtTok(cycleTokens)}</TabularText>
+            </div>
           </div>
         </div>
         {period.displayMessage ? (

@@ -129,6 +129,7 @@ export function CursorUsagePanel({
           plan={snapshot.plan}
           period={snapshot.period}
           metrics={snapshot.metrics}
+          cycleTokens={snapshot.daily.reduce((s, d) => s + d.tokens, 0)}
         />
         <OfficialGauge metrics={snapshot.metrics} />
         <TodayBudgetCard
