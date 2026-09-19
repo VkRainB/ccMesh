@@ -83,13 +83,20 @@ fn read_from_conn(conn: &Connection) -> Vec<UsageRecord> {
             ts: Some(started_at),
             model,
             requests: 1,
-            input_tokens: input,
+            // ZCode input_tokens 是含 cache 的总输入（与 OpenAI prompt_tokens 同构），
+            // 扣成净输入后才能和仓库四桶互不重叠、套 read/(net+read+write)。
+            input_tokens: net_input(input, cache_create, cache_read),
             output_tokens: output,
             cache_creation_tokens: cache_create,
             cache_read_tokens: cache_read,
         });
     }
     out
+}
+
+/// ZCode 总输入扣掉读/写缓存，得到净输入。上游偶发 cache > input 时截到 0。
+fn net_input(raw_input: i64, cache_create: i64, cache_read: i64) -> i64 {
+    (raw_input - cache_create - cache_read).max(0)
 }
 
 /// Unix 毫秒 → 本地日期 `YYYY-MM-DD`。解析失败回退 `"unknown"`。
@@ -138,12 +145,24 @@ mod tests {
         assert_eq!(r.app_type, "zcode");
         assert_eq!(r.record_key, "zcode:a");
         assert_eq!(r.model, "GLM-5.3-Flash");
-        assert_eq!(r.input_tokens, 100);
+        assert_eq!(r.input_tokens, 70); // 100 总输入 − 30 命中
         assert_eq!(r.output_tokens, 50);
         assert_eq!(r.cache_read_tokens, 30);
         assert_eq!(r.requests, 1);
         assert_eq!(r.ts, Some(1788232572895));
         assert_eq!(r.date.len(), 10); // YYYY-MM-DD
+    }
+
+    #[test]
+    fn net_input_matches_zcode_snapshot_hit_rate() {
+        // 公式说明 §3.3 实测快照：input 已含命中，read/input = 98.2%
+        let raw_input = 156_351_369;
+        let cache_read = 153_608_640;
+        let net = net_input(raw_input, 0, cache_read);
+        assert_eq!(net, 2_742_729);
+        let rate = cache_read as f64 / (net + cache_read) as f64;
+        assert!((rate - cache_read as f64 / raw_input as f64).abs() < 1e-12);
+        assert!((rate - 0.982_457_915).abs() < 1e-9);
     }
 
     #[test]

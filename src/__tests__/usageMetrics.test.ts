@@ -63,6 +63,18 @@ describe("cacheHitRate", () => {
     expect(formatCacheHitPercent(null)).toBe("—");
   });
 
+  it("ZCode 含缓存总输入若不扣净输入会把命中率腰斩", () => {
+    // 用量表明细 2026-09-03 GLM-5.3-Flash：input=12_710_727 含 cache=11_292_160
+    const rawInput = 12_710_727;
+    const read = 11_292_160;
+    const wrong = cacheHitRate(buckets(rawInput, 42_785, 0, read));
+    const net = rawInput - read;
+    const right = cacheHitRate(buckets(net, 42_785, 0, read));
+    expect(wrong).toBeCloseTo(0.4705, 3);
+    expect(right).toBeCloseTo(read / rawInput, 10);
+    expect(right!).toBeGreaterThan(0.88);
+  });
+
   it("错法：净输入当分母会超过 100%，推荐式不会", () => {
     const b = buckets(200, 50, 300, 500);
     expect(500 / 200).toBeGreaterThan(1);
