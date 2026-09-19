@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 /// 单条模型映射：入站模型名 `from` → 出站（上游真实）模型名 `to`。
@@ -61,6 +63,24 @@ pub struct Endpoint {
     pub updated_at: String,
     /// 是否已归档。归档端点从主列表隐藏，可还原或删除。
     pub archived: bool,
+}
+
+impl Endpoint {
+    /// 开关开启且 value 非空的覆写项；名称小写。后写覆盖先写。
+    pub fn effective_header_overrides(&self) -> HashMap<String, String> {
+        if !self.header_overrides_enabled {
+            return HashMap::new();
+        }
+        let mut map = HashMap::new();
+        for item in &self.header_overrides {
+            let name = item.name.trim().to_ascii_lowercase();
+            if name.is_empty() || item.value.is_empty() {
+                continue;
+            }
+            map.insert(name, item.value.clone());
+        }
+        map
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -127,4 +147,64 @@ fn default_auth_mode() -> String {
 }
 fn default_transformer() -> String {
     "claude".to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_ep(enabled: bool, items: &[(&str, &str)]) -> Endpoint {
+        Endpoint {
+            id: 1,
+            name: "t".into(),
+            api_url: "https://x".into(),
+            api_key: String::new(),
+            auth_mode: "api_key".into(),
+            enabled: true,
+            use_proxy: false,
+            transformer: "openai".into(),
+            model: String::new(),
+            models: Vec::new(),
+            active_models: Vec::new(),
+            model_mappings: Vec::new(),
+            model_mappings_enabled: true,
+            header_overrides: items
+                .iter()
+                .map(|(n, v)| HeaderOverride {
+                    name: (*n).into(),
+                    value: (*v).into(),
+                })
+                .collect(),
+            header_overrides_enabled: enabled,
+            remark: String::new(),
+            sort_order: 0,
+            fast: false,
+            fast_sort_order: 0,
+            test_status: "unknown".into(),
+            created_at: String::new(),
+            updated_at: String::new(),
+            archived: false,
+        }
+    }
+
+    #[test]
+    fn effective_header_overrides_skips_disabled_and_empty() {
+        assert!(test_ep(false, &[("User-Agent", "x")])
+            .effective_header_overrides()
+            .is_empty());
+
+        let map = test_ep(
+            true,
+            &[
+                (" User-Agent ", "ccmesh"),
+                ("x-custom", ""),
+                ("X-Foo", "bar"),
+                ("x-foo", "baz"),
+            ],
+        )
+        .effective_header_overrides();
+        assert_eq!(map.get("user-agent").map(String::as_str), Some("ccmesh"));
+        assert_eq!(map.get("x-foo").map(String::as_str), Some("baz"));
+        assert!(!map.contains_key("x-custom"));
+    }
 }

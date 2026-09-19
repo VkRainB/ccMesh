@@ -965,22 +965,6 @@ pub async fn handle_proxy(
     )
 }
 
-/// 开关开启且 value 非空的覆写项；名称小写。后写覆盖先写。
-fn effective_header_overrides(ep: &Endpoint) -> HashMap<String, String> {
-    if !ep.header_overrides_enabled {
-        return HashMap::new();
-    }
-    let mut map = HashMap::new();
-    for item in &ep.header_overrides {
-        let name = item.name.trim().to_ascii_lowercase();
-        if name.is_empty() || item.value.is_empty() {
-            continue;
-        }
-        map.insert(name, item.value.clone());
-    }
-    map
-}
-
 /// 按上游协议形态把映射覆盖的推理强度写进出站请求体：
 /// - OpenAI Chat → 顶层 `reasoning_effort`
 /// - OpenAI Responses → `reasoning.effort`（`reasoning` 不存在则建对象）
@@ -1035,7 +1019,7 @@ async fn send_upstream(
     body: &Bytes,
 ) -> reqwest::Result<reqwest::Response> {
     let url = join_upstream_url(&ep.api_url, upstream_path);
-    let mut overrides = effective_header_overrides(ep);
+    let mut overrides = ep.effective_header_overrides();
     let client_session = headers
         .get("x-opencode-session")
         .and_then(|v| v.to_str().ok());
@@ -1347,46 +1331,11 @@ fn stream_transform_response(
 #[cfg(test)]
 mod tests {
     use super::{
-        effective_header_overrides, empty_candidates_message, error_body_from_bytes,
-        extract_multipart_model, parse_retry_after, rate_limited_response, truncate_error_body,
+        empty_candidates_message, error_body_from_bytes, extract_multipart_model,
+        parse_retry_after, rate_limited_response, truncate_error_body,
     };
-    use crate::models::endpoint::{Endpoint, HeaderOverride};
     use axum::body::Bytes;
     use axum::http::{HeaderMap, HeaderValue, StatusCode};
-
-    fn test_ep(enabled: bool, items: &[(&str, &str)]) -> Endpoint {
-        Endpoint {
-            id: 1,
-            name: "t".into(),
-            api_url: "https://x".into(),
-            api_key: String::new(),
-            auth_mode: "api_key".into(),
-            enabled: true,
-            use_proxy: false,
-            transformer: "openai".into(),
-            model: String::new(),
-            models: Vec::new(),
-            active_models: Vec::new(),
-            model_mappings: Vec::new(),
-            model_mappings_enabled: true,
-            header_overrides: items
-                .iter()
-                .map(|(n, v)| HeaderOverride {
-                    name: (*n).into(),
-                    value: (*v).into(),
-                })
-                .collect(),
-            header_overrides_enabled: enabled,
-            remark: String::new(),
-            sort_order: 0,
-            fast: false,
-            fast_sort_order: 0,
-            test_status: "unknown".into(),
-            created_at: String::new(),
-            updated_at: String::new(),
-            archived: false,
-        }
-    }
 
     #[test]
     fn empty_candidates_message_prefers_breaker_reason_over_model() {
@@ -1482,25 +1431,6 @@ Content-Type: image/png\r\n\
             extract_multipart_model(Some("application/json"), &Bytes::from_static(b"{}")).is_none()
         );
         assert!(extract_multipart_model(None, &Bytes::from_static(b"")).is_none());
-    }
-
-    #[test]
-    fn effective_header_overrides_skips_disabled_and_empty() {
-        let off = test_ep(false, &[("User-Agent", "x")]);
-        assert!(effective_header_overrides(&off).is_empty());
-
-        let on = test_ep(
-            true,
-            &[
-                (" User-Agent ", "ccmesh"),
-                ("x-custom", ""),
-                ("X-Foo", "bar"),
-            ],
-        );
-        let map = effective_header_overrides(&on);
-        assert_eq!(map.get("user-agent").map(String::as_str), Some("ccmesh"));
-        assert_eq!(map.get("x-foo").map(String::as_str), Some("bar"));
-        assert!(!map.contains_key("x-custom"));
     }
 
     #[test]

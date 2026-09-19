@@ -12,7 +12,7 @@ use crate::modules::proxy::resolver::resolve_outbound;
 use crate::modules::storage::chat_repo;
 use crate::modules::storage::db::DbPool;
 use crate::modules::transform::transformer::UpstreamFormat;
-use crate::utils::opencode_session::with_opencode_session;
+use crate::utils::header_overrides::with_endpoint_outbound_headers;
 use tokio_util::sync::CancellationToken;
 
 const TRIGGER_RATIO: f64 = 0.8;
@@ -215,12 +215,12 @@ async fn summarize(
             }),
         ),
     };
-    let req = with_opencode_session(
+    let req = with_endpoint_outbound_headers(
         ProbeAuth::primary_for(&ep.transformer)
             .apply(client.post(&url), &ep.api_key)
             .json(&body),
+        ep,
         &url,
-        &ep.auth_mode,
         Some(topic_id),
     );
     let resp = tokio::select! {
