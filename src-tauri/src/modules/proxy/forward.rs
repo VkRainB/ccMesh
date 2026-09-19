@@ -38,6 +38,7 @@ use crate::modules::transform::thinking_rectifier::{
 };
 use crate::modules::transform::transformer::{get_transformer, UpstreamFormat};
 use crate::modules::usage;
+use crate::utils::header_overrides::apply_header_overrides;
 use crate::utils::opencode_session::opencode_session_header;
 use crate::utils::ua;
 use crate::utils::upstream_url::join_upstream_url;
@@ -1090,9 +1091,7 @@ async fn send_upstream(
     if session.is_some() {
         overrides.remove("x-opencode-session");
     }
-    for (k, v) in &overrides {
-        rb = rb.header(k, v);
-    }
+    rb = apply_header_overrides(rb, &overrides);
     if let Some(val) = session {
         rb = rb.header("x-opencode-session", val);
     }

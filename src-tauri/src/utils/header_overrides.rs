@@ -1,30 +1,50 @@
 //! 端点配置的出站请求头覆写，供代理转发、连通性测试与对话共用。
 
+use std::collections::HashMap;
+
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+
 use crate::models::endpoint::Endpoint;
-use crate::utils::opencode_session::opencode_session_header;
+use crate::utils::opencode_session::{is_opencode_target, with_opencode_session};
 
 const SESSION_HEADER: &str = "x-opencode-session";
+
+/// 用端点覆写替换同名已有头（reqwest 的 `.header()` 是 append，不能当覆写）。
+pub fn apply_header_overrides(
+    builder: reqwest::RequestBuilder,
+    overrides: &HashMap<String, String>,
+) -> reqwest::RequestBuilder {
+    if overrides.is_empty() {
+        return builder;
+    }
+    let mut map = HeaderMap::new();
+    for (k, v) in overrides {
+        let Ok(name) = HeaderName::from_bytes(k.as_bytes()) else {
+            continue;
+        };
+        let Ok(value) = HeaderValue::from_str(v) else {
+            continue;
+        };
+        map.insert(name, value);
+    }
+    builder.headers(map)
+}
 
 /// 套上端点覆写，再按需注入官方域名会话头。
 /// 会话将注入时去掉账号级同名覆写，与代理转发一致。
 pub fn with_endpoint_outbound_headers(
-    mut builder: reqwest::RequestBuilder,
+    builder: reqwest::RequestBuilder,
     ep: &Endpoint,
     url: &str,
     client_session: Option<&str>,
 ) -> reqwest::RequestBuilder {
-    let session = opencode_session_header(url, &ep.auth_mode, client_session);
     let mut overrides = ep.effective_header_overrides();
-    if session.is_some() {
+    // 与 `opencode_session_header` 注入条件对齐，避免为判断而先生成一份 UUID。
+    if ep.auth_mode == "api_key" && is_opencode_target(url) {
         overrides.remove(SESSION_HEADER);
     }
-    for (k, v) in &overrides {
-        builder = builder.header(k, v);
-    }
-    match session {
-        Some(id) => builder.header(SESSION_HEADER, id),
-        None => builder,
-    }
+    let builder = apply_header_overrides(builder, &overrides);
+    with_opencode_session(builder, url, &ep.auth_mode, client_session)
 }
 
 #[cfg(test)]
@@ -84,6 +104,7 @@ mod tests {
         )
         .build()
         .unwrap();
+        assert_eq!(req.headers().get_all("user-agent").iter().count(), 1);
         assert_eq!(req.headers().get("user-agent").unwrap(), "ccmesh-test");
         assert_eq!(req.headers().get("x-custom").unwrap(), "from-ep");
         assert!(req.headers().get(SESSION_HEADER).is_none());
