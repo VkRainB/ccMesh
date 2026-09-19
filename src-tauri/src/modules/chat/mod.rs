@@ -21,7 +21,7 @@ use crate::modules::proxy::resolver::resolve_outbound;
 use crate::modules::storage::db::DbPool;
 use crate::modules::storage::{chat_repo, config_repo, endpoint_repo};
 use crate::modules::transform::transformer::UpstreamFormat;
-use crate::utils::opencode_session::with_opencode_session;
+use crate::utils::header_overrides::with_endpoint_outbound_headers;
 
 static ACTIVE_TOPICS: Lazy<Mutex<HashSet<String>>> = Lazy::new(|| Mutex::new(HashSet::new()));
 static CANCEL_TOKENS: Lazy<Mutex<HashMap<String, CancellationToken>>> =
@@ -277,7 +277,7 @@ async fn run_stream_inner(
         chat_repo::update_message_content(&conn, assistant_id, "", "streaming")?;
     }
 
-    let req = with_opencode_session(
+    let req = with_endpoint_outbound_headers(
         ProbeAuth::primary_for(&ep.transformer)
             .apply(client.post(&url), &ep.api_key)
             .header(
@@ -289,8 +289,8 @@ async fn run_stream_inner(
                 },
             )
             .json(&body),
+        &ep,
         &url,
-        &ep.auth_mode,
         Some(topic_id),
     );
 
