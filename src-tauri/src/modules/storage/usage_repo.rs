@@ -25,16 +25,32 @@ pub fn set_synced_mtime(conn: &Connection, file_path: &str, mtime_ns: i64) -> Ap
     Ok(())
 }
 
-/// 插入一条用量记录（按 app_type+record_key 去重）。返回是否写入。
-/// 冲突时仅回填缺失的 ts（v17 升级后首次全量重扫为旧行补时间戳，不动聚合值）。
+/// 插入一条用量记录（按 app_type+record_key 去重）。返回是否新写入。
+/// 冲突：回填缺失 ts；zcode 额外用新值覆盖四桶（源库 input 含 cache，需重扫纠正旧行）。
 pub fn insert_record(conn: &Connection, r: &UsageRecord) -> AppResult<bool> {
-    let n = conn.execute(
+    let existed = conn
+        .query_row(
+            "SELECT 1 FROM usage_records WHERE app_type = ?1 AND record_key = ?2",
+            params![r.app_type, r.record_key],
+            |_| Ok(()),
+        )
+        .is_ok();
+    conn.execute(
         "INSERT INTO usage_records(
             app_type, record_key, date, model, requests,
             input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, ts)
          VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)
-         ON CONFLICT(app_type, record_key) DO UPDATE SET ts = excluded.ts
-             WHERE usage_records.ts IS NULL AND excluded.ts IS NOT NULL",
+         ON CONFLICT(app_type, record_key) DO UPDATE SET
+            ts = CASE
+                WHEN usage_records.ts IS NULL THEN excluded.ts
+                ELSE usage_records.ts
+            END,
+            input_tokens = CASE WHEN excluded.app_type = 'zcode' THEN excluded.input_tokens ELSE usage_records.input_tokens END,
+            output_tokens = CASE WHEN excluded.app_type = 'zcode' THEN excluded.output_tokens ELSE usage_records.output_tokens END,
+            cache_creation_tokens = CASE WHEN excluded.app_type = 'zcode' THEN excluded.cache_creation_tokens ELSE usage_records.cache_creation_tokens END,
+            cache_read_tokens = CASE WHEN excluded.app_type = 'zcode' THEN excluded.cache_read_tokens ELSE usage_records.cache_read_tokens END
+         WHERE (usage_records.ts IS NULL AND excluded.ts IS NOT NULL)
+            OR excluded.app_type = 'zcode'",
         params![
             r.app_type,
             r.record_key,
@@ -48,7 +64,7 @@ pub fn insert_record(conn: &Connection, r: &UsageRecord) -> AppResult<bool> {
             r.ts,
         ],
     )?;
-    Ok(n == 1)
+    Ok(!existed)
 }
 
 /// 查询过滤条件：date 闭区间（预设周期）或 ts 毫秒闭区间（自定义时分范围），加可选 app_type。
@@ -305,6 +321,25 @@ mod tests {
             .unwrap();
         assert_eq!(ts, Some(1_780_000_000_000));
         assert_eq!(inp, 10); // 聚合值保持首次导入
+    }
+
+    #[test]
+    fn zcode_conflict_refreshes_net_input() {
+        let c = db();
+        let mut old = rec("zcode", "zcode:a", "2026-09-03", "GLM", 12_710_727, 42_785);
+        old.cache_read_tokens = 11_292_160;
+        assert!(insert_record(&c, &old).unwrap());
+        let mut neu = rec("zcode", "zcode:a", "2026-09-03", "GLM", 1_418_567, 42_785);
+        neu.cache_read_tokens = 11_292_160;
+        assert!(!insert_record(&c, &neu).unwrap());
+        let inp: i64 = c
+            .query_row(
+                "SELECT input_tokens FROM usage_records WHERE record_key='zcode:a'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(inp, 1_418_567);
     }
 
     #[test]

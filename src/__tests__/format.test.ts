@@ -41,20 +41,14 @@ describe("formatTokenCompact", () => {
 });
 
 describe("formatTokenMetric", () => {
-  it("百万以上用 M：<10M 两位小数，≥10M 一位小数", () => {
-    expect(formatTokenMetric(12_400_000)).toBe("12.4M");
-    expect(formatTokenMetric(3_210_000)).toBe("3.21M");
-    expect(formatTokenMetric(2_140_000)).toBe("2.14M");
-    expect(formatTokenMetric(8_620_000)).toBe("8.62M");
-  });
-
-  it("不足百万千分位整数", () => {
+  it("万/亿一位小数，不足万用千分位", () => {
+    expect(formatTokenMetric(12_400_000)).toBe("1240.0万");
+    expect(formatTokenMetric(3_210_000)).toBe("321.0万");
+    expect(formatTokenMetric(12_000)).toBe("1.2万");
+    expect(formatTokenMetric(200_000_000)).toBe("2.0亿");
+    expect(formatTokenMetric(1_250_000_000)).toBe("12.5亿");
     expect(formatTokenMetric(1248)).toBe("1,248");
     expect(formatTokenMetric(0)).toBe("0");
-  });
-
-  it("十亿用 B，非有限值为 0", () => {
-    expect(formatTokenMetric(1_250_000_000)).toBe("1.25B");
     expect(formatTokenMetric(Number.NaN)).toBe("0");
   });
 });

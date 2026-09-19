@@ -1,3 +1,5 @@
+import { formatTokenMetric } from "@/lib/format";
+
 export type EffortLevel = "xhigh" | "high" | "medium" | "low" | "max";
 
 export function fmtUsd(cents: number | undefined | null): string {
@@ -11,10 +13,7 @@ export function fmtUsd(cents: number | undefined | null): string {
 }
 
 export function fmtTok(n: number | undefined | null): string {
-  const v = Number(n ?? 0);
-  if (v >= 1e8) return `${(v / 1e8).toFixed(1)}亿`;
-  if (v >= 1e4) return `${(v / 1e4).toFixed(1)}万`;
-  return String(v);
+  return formatTokenMetric(Number(n ?? 0));
 }
 
 export function maskEmail(email: string | undefined | null): string {

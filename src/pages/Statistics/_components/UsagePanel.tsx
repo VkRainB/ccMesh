@@ -7,6 +7,7 @@ import { DateRangePicker } from "@/components/business";
 import { TabularText } from "@/components/ui";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { formatTokenMetric } from "@/lib/format";
 import { fromUsageSummary } from "@/lib/usageMetrics";
 import {
   isHourlyTrend,
@@ -289,15 +290,18 @@ function DayModelTable({ rows }: { rows: DayModelUsage[] }) {
                     <td className="px-3 py-2 text-right">
                       <TabularText>{fmt(r.requests)}</TabularText>
                     </td>
-                    <td className="px-3 py-2 text-right">
-                      <TabularText>{fmt(r.inputTokens)}</TabularText>
+                    <td className="px-3 py-2 text-right" title={r.inputTokens.toLocaleString()}>
+                      <TabularText>{formatTokenMetric(r.inputTokens)}</TabularText>
                     </td>
-                    <td className="px-3 py-2 text-right">
-                      <TabularText>{fmt(r.outputTokens)}</TabularText>
+                    <td className="px-3 py-2 text-right" title={r.outputTokens.toLocaleString()}>
+                      <TabularText>{formatTokenMetric(r.outputTokens)}</TabularText>
                     </td>
-                    <td className="px-3 py-2 text-right">
+                    <td
+                      className="px-3 py-2 text-right"
+                      title={(r.cacheCreationTokens + r.cacheReadTokens).toLocaleString()}
+                    >
                       <TabularText>
-                        {fmt(r.cacheCreationTokens + r.cacheReadTokens)}
+                        {formatTokenMetric(r.cacheCreationTokens + r.cacheReadTokens)}
                       </TabularText>
                     </td>
                   </tr>
