@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { RequestMonitor } from "@/components/business/RequestMonitor";
-import { DateRangePicker, StatCard } from "@/components/business";
+import { DateRangePicker } from "@/components/business";
 import type { RangePreset } from "@/components/business/DateRangePicker";
 import { useStats } from "@/hooks/useStats";
 import { rangeValueEquals, isHourlyTrend, resolveTrendWindow, startOfTodayMs, ymd, type RangeValue } from "@/lib/range";
@@ -14,7 +14,7 @@ import {
 } from "@/services/modules/stats";
 import { EndpointStatsTable } from "./EndpointStatsTable";
 import { HistoryDialog } from "./HistoryDialog";
-import { TrendBadge } from "./TrendBadge";
+import { UsageOverviewCards } from "./UsageOverviewCards";
 import { UsageHeatmap } from "./UsageHeatmap";
 import { UsageTrendChart } from "./UsageTrendChart";
 import { mergeByDate, sliceHourlyTrend, sliceTrend } from "./usageChart";
@@ -156,8 +156,7 @@ export function EndpointStatsPanel() {
     if (range.kind !== "custom") return undefined;
     return aggregateRange(history.data?.items ?? [], ymd(range.startMs), ymd(range.endMs));
   }, [activePeriod, data, history.data, range]);
-  const trend = data?.trend;
-  const showTrend = activePeriod === "today" && trend;
+  const showTrend = activePeriod === "today";
 
   return (
     <div className="flex flex-col gap-6">
@@ -170,24 +169,12 @@ export function EndpointStatsPanel() {
         <p className="text-sm text-ink-mute">加载中…</p>
       ) : (
         <>
-          <div className="grid grid-cols-4 gap-4">
-            <StatCard
-              label="请求"
-              value={stats?.requests ?? 0}
-              hint={showTrend ? <TrendBadge pct={trend.requestsPct} /> : undefined}
-            />
-            <StatCard label="错误" value={stats?.errors ?? 0} />
-            <StatCard
-              label="输入 Token"
-              value={stats?.inputTokens ?? 0}
-              hint={showTrend ? <TrendBadge pct={trend.inputTokensPct} /> : undefined}
-            />
-            <StatCard
-              label="输出 Token"
-              value={stats?.outputTokens ?? 0}
-              hint={showTrend ? <TrendBadge pct={trend.outputTokensPct} /> : undefined}
-            />
-          </div>
+          <UsageOverviewCards
+            requests={stats?.requests ?? 0}
+            buckets={stats}
+            yesterdayBuckets={showTrend ? data?.yesterday : undefined}
+            showTrend={showTrend}
+          />
 
           <section className="flex flex-col gap-2">
             <h2 className="text-sm font-medium text-ink-secondary">调用热力图</h2>

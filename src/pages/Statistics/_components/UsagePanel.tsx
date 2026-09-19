@@ -3,11 +3,19 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RefreshCwIcon } from "lucide-react";
 import { toast } from "sonner";
 
-import { DateRangePicker, StatCard, TokenHint } from "@/components/business";
+import { DateRangePicker } from "@/components/business";
 import { TabularText } from "@/components/ui";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { isHourlyTrend, rangeValueUsageFilter, resolveTrendWindow, startOfTodayMs, type RangeValue } from "@/lib/range";
+import { fromUsageSummary } from "@/lib/usageMetrics";
+import {
+  isHourlyTrend,
+  rangeValueUsageFilter,
+  resolveTrendWindow,
+  startOfTodayMs,
+  ymd,
+  type RangeValue,
+} from "@/lib/range";
 import { useCursorUsage } from "@/hooks/useCursorUsage";
 import { usageApi, type DayModelUsage, type UsageAppFilter } from "@/services/modules/usage";
 import {
@@ -18,6 +26,7 @@ import {
 } from "./cursor/CursorUsagePanel";
 
 import { UsageHeatmap } from "./UsageHeatmap";
+import { UsageOverviewCards } from "./UsageOverviewCards";
 import { UsageTrendChart } from "./UsageTrendChart";
 import { mergeByDate, sliceHourlyTrend, sliceTrend } from "./usageChart";
 
@@ -86,6 +95,14 @@ export function UsagePanel() {
     queryKey: ["usage", "summary", app, ...filterKey],
     queryFn: () => usageApi.getSummary({ appType, ...filter }),
     enabled: !isCursor,
+  });
+  const isToday = range.kind === "preset" && range.key === "today";
+  const yesterdayDate = ymd(todayStart - 86_400_000);
+  const yesterdaySummary = useQuery({
+    queryKey: ["usage", "summary", app, "yesterday", yesterdayDate],
+    queryFn: () =>
+      usageApi.getSummary({ appType, start: yesterdayDate, end: yesterdayDate }),
+    enabled: !isCursor && isToday,
   });
   const byDayModel = useQuery({
     queryKey: ["usage", "day-model", app, ...filterKey],
@@ -181,36 +198,16 @@ export function UsagePanel() {
         />
       ) : (
       <>
-      <div className="grid grid-cols-4 gap-4">
-        <StatCard label="请求数" value={fmt(s?.totalRequests ?? 0)} />
-        <StatCard
-          label="输入 Token"
-          value={fmt(s?.totalInputTokens ?? 0)}
-          hintBelow
-          hint={<TokenHint value={s?.totalInputTokens ?? 0} />}
-        />
-        <StatCard
-          label="输出 Token"
-          value={fmt(s?.totalOutputTokens ?? 0)}
-          hintBelow
-          hint={<TokenHint value={s?.totalOutputTokens ?? 0} />}
-        />
-        <StatCard
-          label="缓存 Token"
-          value={fmt(
-            (s?.totalCacheCreationTokens ?? 0) + (s?.totalCacheReadTokens ?? 0),
-          )}
-          hintBelow
-          hint={
-            <TokenHint
-              value={
-                (s?.totalCacheCreationTokens ?? 0) +
-                (s?.totalCacheReadTokens ?? 0)
-              }
-            />
-          }
-        />
-      </div>
+      <UsageOverviewCards
+        requests={s?.totalRequests ?? 0}
+        buckets={s ? fromUsageSummary(s) : undefined}
+        yesterdayBuckets={
+          isToday && yesterdaySummary.data
+            ? fromUsageSummary(yesterdaySummary.data)
+            : undefined
+        }
+        showTrend={isToday}
+      />
 
       <section className="flex flex-col gap-2">
         <h2 className="text-sm font-medium text-ink-secondary">调用热力图</h2>
