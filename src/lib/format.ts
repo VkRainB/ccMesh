@@ -17,6 +17,25 @@ export function formatTokenCompact(n: number): string {
 }
 
 /**
+ * 统计概览主数值：百万以上用 M（12.4M / 3.21M），否则千分位整数。
+ * ≥10M 一位小数，1M–10M 两位小数，对齐用量卡片设计稿。
+ */
+export function formatTokenMetric(n: number): string {
+  if (!Number.isFinite(n)) return "0";
+  const sign = n < 0 ? "-" : "";
+  const abs = Math.abs(n);
+  if (abs >= 1e9) {
+    const v = abs / 1e9;
+    return `${sign}${v >= 10 ? v.toFixed(1) : v.toFixed(2)}B`;
+  }
+  if (abs >= 1e6) {
+    const v = abs / 1e6;
+    return `${sign}${v >= 10 ? v.toFixed(1) : v.toFixed(2)}M`;
+  }
+  return `${sign}${Math.round(abs).toLocaleString()}`;
+}
+
+/**
  * Token 数量紧凑展示（千位 k 单位）：
  * - |n| ≥ 1000：取整千 → `1k`、`102k`、`110k`
  * - 否则：原始整数
