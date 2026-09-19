@@ -4,6 +4,7 @@ import { HistoryIcon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 
 import { TabularText } from "@/components/ui";
+import { formatTokenMetric } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -110,15 +111,24 @@ export function HistoryDialog() {
                       <td className="px-3 py-2 text-right whitespace-nowrap">
                         <TabularText>{r.errors}</TabularText>
                       </td>
-                      <td className="px-3 py-2 text-right whitespace-nowrap">
-                        <TabularText>{r.inputTokens}</TabularText>
+                      <td
+                        className="px-3 py-2 text-right whitespace-nowrap"
+                        title={r.inputTokens.toLocaleString()}
+                      >
+                        <TabularText>{formatTokenMetric(r.inputTokens)}</TabularText>
                       </td>
-                      <td className="px-3 py-2 text-right whitespace-nowrap">
-                        <TabularText>{r.outputTokens}</TabularText>
+                      <td
+                        className="px-3 py-2 text-right whitespace-nowrap"
+                        title={r.outputTokens.toLocaleString()}
+                      >
+                        <TabularText>{formatTokenMetric(r.outputTokens)}</TabularText>
                       </td>
-                      <td className="px-3 py-2 text-right whitespace-nowrap">
+                      <td
+                        className="px-3 py-2 text-right whitespace-nowrap"
+                        title={(r.cacheCreationTokens + r.cacheReadTokens).toLocaleString()}
+                      >
                         <TabularText>
-                          {r.cacheCreationTokens + r.cacheReadTokens}
+                          {formatTokenMetric(r.cacheCreationTokens + r.cacheReadTokens)}
                         </TabularText>
                       </td>
                       <td className="px-3 py-2">

@@ -27,19 +27,19 @@ describe("UsageOverviewCards", () => {
       />,
     );
     expect(screen.getByText("真实消耗 Tokens")).toBeInTheDocument();
-    expect(screen.getByText("18.8M")).toBeInTheDocument();
+    expect(screen.getByText("1883.0万")).toBeInTheDocument();
     expect(screen.getByText("缓存命中率")).toBeInTheDocument();
     expect(screen.getByText("61.7%")).toBeInTheDocument();
     expect(screen.getByText("请求数")).toBeInTheDocument();
     expect(screen.getByText("1,248")).toBeInTheDocument();
     expect(screen.getByText("输入")).toBeInTheDocument();
-    expect(screen.getByText("3.21M")).toBeInTheDocument();
+    expect(screen.getByText("321.0万")).toBeInTheDocument();
     expect(screen.getByText("输出")).toBeInTheDocument();
-    expect(screen.getByText("4.86M")).toBeInTheDocument();
+    expect(screen.getByText("486.0万")).toBeInTheDocument();
     expect(screen.getByText("创建缓存")).toBeInTheDocument();
-    expect(screen.getByText("2.14M")).toBeInTheDocument();
+    expect(screen.getByText("214.0万")).toBeInTheDocument();
     expect(screen.getByText("命中缓存")).toBeInTheDocument();
-    expect(screen.getByText("8.62M")).toBeInTheDocument();
+    expect(screen.getByText("862.0万")).toBeInTheDocument();
     expect(screen.getByText(/较昨日/)).toBeInTheDocument();
   });
 

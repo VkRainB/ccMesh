@@ -1,4 +1,5 @@
 import { TabularText } from "@/components/ui";
+import { formatTokenMetric } from "@/lib/format";
 import type { EndpointStat } from "@/services/modules/stats";
 
 interface Props {
@@ -37,17 +38,17 @@ export function EndpointStatsTable({ rows }: Props) {
               <td className="px-4 py-2 text-right">
                 <TabularText>{r.errors}</TabularText>
               </td>
-              <td className="px-4 py-2 text-right">
-                <TabularText>{r.inputTokens}</TabularText>
+              <td className="px-4 py-2 text-right" title={r.inputTokens.toLocaleString()}>
+                <TabularText>{formatTokenMetric(r.inputTokens)}</TabularText>
               </td>
-              <td className="px-4 py-2 text-right">
-                <TabularText>{r.outputTokens}</TabularText>
+              <td className="px-4 py-2 text-right" title={r.outputTokens.toLocaleString()}>
+                <TabularText>{formatTokenMetric(r.outputTokens)}</TabularText>
               </td>
-              <td className="px-4 py-2 text-right">
-                <TabularText>{r.cacheCreationTokens}</TabularText>
+              <td className="px-4 py-2 text-right" title={r.cacheCreationTokens.toLocaleString()}>
+                <TabularText>{formatTokenMetric(r.cacheCreationTokens)}</TabularText>
               </td>
-              <td className="px-4 py-2 text-right">
-                <TabularText>{r.cacheReadTokens}</TabularText>
+              <td className="px-4 py-2 text-right" title={r.cacheReadTokens.toLocaleString()}>
+                <TabularText>{formatTokenMetric(r.cacheReadTokens)}</TabularText>
               </td>
             </tr>
           ))}

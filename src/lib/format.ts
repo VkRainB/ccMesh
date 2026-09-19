@@ -17,21 +17,17 @@ export function formatTokenCompact(n: number): string {
 }
 
 /**
- * 统计概览主数值：百万以上用 M（12.4M / 3.21M），否则千分位整数。
- * ≥10M 一位小数，1M–10M 两位小数，对齐用量卡片设计稿。
+ * 统计页 Token 主数值（端点/用量卡片与表格共用）：
+ * - ≥ 1 亿：`2.0亿`
+ * - ≥ 1 万：`321.0万`
+ * - 否则：千分位整数
  */
 export function formatTokenMetric(n: number): string {
   if (!Number.isFinite(n)) return "0";
   const sign = n < 0 ? "-" : "";
   const abs = Math.abs(n);
-  if (abs >= 1e9) {
-    const v = abs / 1e9;
-    return `${sign}${v >= 10 ? v.toFixed(1) : v.toFixed(2)}B`;
-  }
-  if (abs >= 1e6) {
-    const v = abs / 1e6;
-    return `${sign}${v >= 10 ? v.toFixed(1) : v.toFixed(2)}M`;
-  }
+  if (abs >= 1e8) return `${sign}${(abs / 1e8).toFixed(1)}亿`;
+  if (abs >= 1e4) return `${sign}${(abs / 1e4).toFixed(1)}万`;
   return `${sign}${Math.round(abs).toLocaleString()}`;
 }
 
