@@ -1,6 +1,6 @@
 import { request } from "../request";
 
-export type UsageAppFilter = "all" | "claude" | "codex" | "zcode" | "cursor";
+export type UsageAppFilter = "all" | "claude" | "codex" | "zcode" | "omp" | "cursor";
 
 export interface UsageSummary {
   totalRequests: number;

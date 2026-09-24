@@ -36,6 +36,7 @@ const APP_TABS: { key: UsageAppFilter; label: string }[] = [
   { key: "claude", label: "Claude Code" },
   { key: "codex", label: "Codex" },
   { key: "zcode", label: "ZCode" },
+  { key: "omp", label: "OMP" },
   { key: "cursor", label: "Cursor" },
 ];
 
@@ -45,10 +46,11 @@ function appLabel(app: string): string {
   if (app === "claude") return "Claude Code";
   if (app === "codex") return "Codex";
   if (app === "zcode") return "ZCode";
+  if (app === "omp") return "OMP";
   return app;
 }
 
-/** 用量统计（MVP）：读取本机 Claude Code / Codex 会话日志，按 日期×来源×模型 汇总 token。 */
+/** 用量统计（MVP）：读取本机 Claude Code / Codex / ZCode / OMP 用量，按 日期×来源×模型 汇总 token。 */
 export function UsagePanel() {
   const qc = useQueryClient();
   const [app, setApp] = useState<UsageAppFilter>("all");
