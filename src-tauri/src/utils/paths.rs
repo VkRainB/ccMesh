@@ -73,7 +73,10 @@ pub fn omp_agent_dir() -> Option<PathBuf> {
 /// 仅改会话目录，不动 agent 其余布局；非空且为绝对路径时直接采用。
 pub const PI_CODING_AGENT_SESSION_DIR_ENV: &str = "PI_CODING_AGENT_SESSION_DIR";
 
-/// pi/omp 共用的 agent 根覆盖环境变量：整体迁移 `~/.pi` / `~/.omp` 到别处。
+/// pi/omp 共用的 agent 目录覆盖环境变量。
+///
+/// pi：把该值当配置根，会话在 `<env>/agent/sessions`（`resolve_sessions_dir`）。
+/// omp：该值就是完整 agent 目录，会话在 `<env>/sessions`（`resolve_omp_sessions_dirs`）。
 pub const PI_CODING_AGENT_DIR_ENV: &str = "PI_CODING_AGENT_DIR";
 
 /// 解析 pi/omp 的会话目录，尊重 env 覆盖（纯函数，便于并行单测）。
@@ -118,16 +121,85 @@ pub fn pi_sessions_dir() -> Option<PathBuf> {
     )
 }
 
-/// 本机 omp 会话目录：`~/.omp/agent/sessions`，支持 env 覆盖（与 pi 共用 env 键）。
+/// 本机 omp 会话目录（会话浏览用，只取主目录）。
+///
+/// `PI_CODING_AGENT_SESSION_DIR` 为绝对路径时优先；否则取
+/// [`resolve_omp_sessions_dirs`] 的第一项（默认 / agent 覆盖 / XDG）。
 pub fn omp_sessions_dir() -> Option<PathBuf> {
-    resolve_sessions_dir(
-        std::env::var(PI_CODING_AGENT_SESSION_DIR_ENV)
-            .ok()
-            .as_deref(),
+    if let Some(raw) = std::env::var(PI_CODING_AGENT_SESSION_DIR_ENV)
+        .ok()
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        let p = PathBuf::from(raw);
+        if p.is_absolute() {
+            return Some(p);
+        }
+    }
+    omp_sessions_dirs().into_iter().next()
+}
+
+/// 用量扫描用的全部 omp 会话根：主目录 + 已存在的命名 profile。
+pub fn omp_sessions_dirs() -> Vec<PathBuf> {
+    resolve_omp_sessions_dirs(
         std::env::var(PI_CODING_AGENT_DIR_ENV).ok().as_deref(),
+        std::env::var("XDG_DATA_HOME").ok().as_deref(),
         home_dir().as_deref(),
-        ".omp",
+        cfg!(unix),
     )
+}
+
+/// 解析 omp 会话目录列表（纯函数，便于单测）。
+///
+/// 主目录优先级：绝对路径的 `agent_dir_env` → `<env>/sessions`（同时关闭 XDG）
+/// → `xdg_enabled` 且 `$xdg_data_env/omp` 已存在 → `$xdg/omp/sessions`
+/// → `<home>/.omp/agent/sessions`。
+/// 之后追加 `<home>/.omp/profiles/*/agent/sessions`（目录存在才加入）。
+/// 命名 profile 不受 `PI_CODING_AGENT_DIR` 影响，与 omp `dirs.ts` 一致。
+pub fn resolve_omp_sessions_dirs(
+    agent_dir_env: Option<&str>,
+    xdg_data_env: Option<&str>,
+    home: Option<&Path>,
+    xdg_enabled: bool,
+) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let agent_override = agent_dir_env
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute());
+
+    if let Some(agent) = agent_override {
+        out.push(agent.join("sessions"));
+    } else if let Some(xdg) = xdg_omp_sessions(xdg_data_env, xdg_enabled) {
+        out.push(xdg);
+    } else if let Some(home) = home {
+        out.push(home.join(".omp").join("agent").join("sessions"));
+    }
+
+    if let Some(home) = home {
+        let profiles = home.join(".omp").join("profiles");
+        if let Ok(entries) = std::fs::read_dir(&profiles) {
+            let mut extra: Vec<PathBuf> = entries
+                .flatten()
+                .map(|e| e.path().join("agent").join("sessions"))
+                .filter(|p| p.is_dir())
+                .collect();
+            extra.sort();
+            out.extend(extra);
+        }
+    }
+    out
+}
+
+fn xdg_omp_sessions(xdg_data_env: Option<&str>, xdg_enabled: bool) -> Option<PathBuf> {
+    if !xdg_enabled {
+        return None;
+    }
+    let raw = xdg_data_env.map(str::trim).filter(|s| !s.is_empty())?;
+    let root = PathBuf::from(raw).join("omp");
+    root.is_dir().then(|| root.join("sessions"))
 }
 
 /// 把工作目录 `cwd` 编码为 pi/omp 的会话 slug（`omp://session.md`「On-Disk Layout」）。
@@ -303,11 +375,71 @@ mod tests {
     }
 
     #[test]
-    fn resolve_sessions_dir_agent_env_relocates_agent_root() {
+    fn resolve_sessions_dir_agent_env_relocates_pi_agent_root() {
         let home = Path::new("C:\\Users\\Administrator");
-        let dir = resolve_sessions_dir(None, Some("D:\\piroot"), Some(home), ".omp")
+        let dir = resolve_sessions_dir(None, Some("D:\\piroot"), Some(home), ".pi")
             .expect("agent env override");
         assert_eq!(dir, Path::new("D:\\piroot").join("agent").join("sessions"));
+    }
+
+    #[test]
+    fn resolve_omp_sessions_dirs_agent_env_is_the_agent_dir() {
+        let home = Path::new("C:\\Users\\Administrator");
+        let dirs = resolve_omp_sessions_dirs(Some("D:\\piroot"), None, Some(home), true);
+        assert_eq!(dirs, vec![PathBuf::from("D:\\piroot").join("sessions")]);
+    }
+
+    #[test]
+    fn resolve_omp_sessions_dirs_xdg_when_omp_dir_exists() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let xdg = temp.path().join("xdg");
+        std::fs::create_dir_all(xdg.join("omp")).unwrap();
+        let dirs = resolve_omp_sessions_dirs(None, xdg.to_str(), Some(&home), true);
+        assert_eq!(dirs, vec![xdg.join("omp").join("sessions")]);
+    }
+
+    #[test]
+    fn resolve_omp_sessions_dirs_skips_xdg_when_disabled_or_missing() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        let xdg = temp.path().join("xdg");
+        std::fs::create_dir_all(xdg.join("omp")).unwrap();
+        let disabled = resolve_omp_sessions_dirs(None, xdg.to_str(), Some(&home), false);
+        assert_eq!(
+            disabled,
+            vec![home.join(".omp").join("agent").join("sessions")]
+        );
+        let missing = resolve_omp_sessions_dirs(None, None, Some(&home), true);
+        assert_eq!(
+            missing,
+            vec![home.join(".omp").join("agent").join("sessions")]
+        );
+    }
+
+    #[test]
+    fn resolve_omp_sessions_dirs_appends_existing_profiles() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let work = home
+            .join(".omp")
+            .join("profiles")
+            .join("work")
+            .join("agent")
+            .join("sessions");
+        let empty = home
+            .join(".omp")
+            .join("profiles")
+            .join("empty")
+            .join("agent");
+        std::fs::create_dir_all(&work).unwrap();
+        std::fs::create_dir_all(&empty).unwrap();
+        let dirs = resolve_omp_sessions_dirs(Some("D:\\omp-agent"), None, Some(&home), false);
+        assert_eq!(
+            dirs,
+            vec![PathBuf::from("D:\\omp-agent").join("sessions"), work]
+        );
     }
 
     #[test]
