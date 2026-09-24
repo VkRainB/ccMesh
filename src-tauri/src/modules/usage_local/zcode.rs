@@ -79,7 +79,7 @@ fn read_from_conn(conn: &Connection) -> Vec<UsageRecord> {
         out.push(UsageRecord {
             app_type: "zcode".to_string(),
             record_key: format!("zcode:{id}"),
-            date: local_date_from_ms(started_at),
+            date: super::local_date_from_ms(started_at),
             ts: Some(started_at),
             model,
             requests: 1,
@@ -97,18 +97,6 @@ fn read_from_conn(conn: &Connection) -> Vec<UsageRecord> {
 /// ZCode 总输入扣掉读/写缓存，得到净输入。上游偶发 cache > input 时截到 0。
 fn net_input(raw_input: i64, cache_create: i64, cache_read: i64) -> i64 {
     (raw_input - cache_create - cache_read).max(0)
-}
-
-/// Unix 毫秒 → 本地日期 `YYYY-MM-DD`。解析失败回退 `"unknown"`。
-fn local_date_from_ms(ms: i64) -> String {
-    use chrono::TimeZone;
-    let secs = ms.div_euclid(1000);
-    let nanos = ((ms.rem_euclid(1000)) * 1_000_000) as u32;
-    chrono::Local
-        .timestamp_opt(secs, nanos)
-        .single()
-        .map(|t| t.format("%Y-%m-%d").to_string())
-        .unwrap_or_else(|| "unknown".to_string())
 }
 
 #[cfg(test)]

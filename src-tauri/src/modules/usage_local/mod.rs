@@ -1,5 +1,6 @@
 pub mod claude;
 pub mod codex;
+pub mod omp;
 pub mod zcode;
 
 use std::fs;
@@ -47,6 +48,18 @@ pub(crate) fn ts_millis(ts: &str) -> Option<i64> {
         .map(|dt| dt.timestamp_millis())
 }
 
+/// Unix 毫秒 → 本地日期 `YYYY-MM-DD`。解析失败回退 `"unknown"`。
+pub(crate) fn local_date_from_ms(ms: i64) -> String {
+    use chrono::TimeZone;
+    let secs = ms.div_euclid(1000);
+    let nanos = ((ms.rem_euclid(1000)) * 1_000_000) as u32;
+    chrono::Local
+        .timestamp_opt(secs, nanos)
+        .single()
+        .map(|t| t.format("%Y-%m-%d").to_string())
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
 /// RFC3339 时间戳 → 本地日期 "YYYY-MM-DD"；解析失败取前 10 字符。
 pub(crate) fn local_date(ts: &str) -> String {
     chrono::DateTime::parse_from_rfc3339(ts)
@@ -58,38 +71,46 @@ pub(crate) fn local_date(ts: &str) -> String {
         .unwrap_or_else(|_| ts.chars().take(10).collect())
 }
 
-/// 同步本机 Claude Code 与 Codex 用量到 DB（增量：按文件 mtime 跳过未变化文件）。
+/// 同步本机 Claude Code、Codex、ZCode 与 omp 用量到 DB（JSONL 按文件 mtime 增量）。
 pub fn sync_all(conn: &Connection) -> UsageSyncResult {
     let mut result = UsageSyncResult::default();
-    let Some(home) = paths::home_dir() else {
-        return result;
-    };
+    if let Some(home) = paths::home_dir() {
+        // Claude Code：~/.claude/projects/**/*.jsonl（含子代理目录）
+        let mut claude_files = Vec::new();
+        collect_jsonl(&home.join(".claude").join("projects"), 6, &mut claude_files);
 
-    // Claude Code：~/.claude/projects/**/*.jsonl（含子代理目录）
-    let mut claude_files = Vec::new();
-    collect_jsonl(&home.join(".claude").join("projects"), 6, &mut claude_files);
+        // Codex：~/.codex/sessions/YYYY/MM/DD/*.jsonl + ~/.codex/archived_sessions/*.jsonl
+        let codex_root = home.join(".codex");
+        let mut codex_files = Vec::new();
+        collect_jsonl(&codex_root.join("sessions"), 5, &mut codex_files);
+        collect_jsonl(&codex_root.join("archived_sessions"), 2, &mut codex_files);
 
-    // Codex：~/.codex/sessions/YYYY/MM/DD/*.jsonl + ~/.codex/archived_sessions/*.jsonl
-    let codex_root = home.join(".codex");
-    let mut codex_files = Vec::new();
-    collect_jsonl(&codex_root.join("sessions"), 5, &mut codex_files);
-    collect_jsonl(&codex_root.join("archived_sessions"), 2, &mut codex_files);
-
-    for f in &claude_files {
-        sync_file(conn, f, &mut result, |p| claude::parse_file(p));
-    }
-    for f in &codex_files {
-        sync_file(conn, f, &mut result, |p| codex::parse_file(p));
-    }
-
-    // ZCode：~/.zcode/cli/db/db.sqlite（SQLite 单文件，不走 sync_file/mtime 增量）。
-    // 全量读 model_usage，按 record_key="zcode:<id>" 去重插入。
-    for rec in zcode::read_records(&zcode::default_db_path(&home)) {
-        match usage_repo::insert_record(conn, &rec) {
-            Ok(true) => result.imported += 1,
-            Ok(false) => {}
-            Err(_) => result.errors += 1,
+        for f in &claude_files {
+            sync_file(conn, f, &mut result, |p| claude::parse_file(p));
         }
+        for f in &codex_files {
+            sync_file(conn, f, &mut result, |p| codex::parse_file(p));
+        }
+
+        // ZCode：~/.zcode/cli/db/db.sqlite（SQLite 单文件，不走 sync_file/mtime 增量）。
+        // 全量读 model_usage，按 record_key="zcode:<id>" 去重插入。
+        for rec in zcode::read_records(&zcode::default_db_path(&home)) {
+            match usage_repo::insert_record(conn, &rec) {
+                Ok(true) => result.imported += 1,
+                Ok(false) => {}
+                Err(_) => result.errors += 1,
+            }
+        }
+    }
+
+    // omp：主会话目录 + 命名 profile。深度 4 覆盖 <cwd>/<file>.jsonl 与子代理再下一层。
+    // 不依赖 home：PI_CODING_AGENT_DIR 本身就能定位会话。
+    let mut omp_files = Vec::new();
+    for dir in paths::omp_sessions_dirs() {
+        collect_jsonl(&dir, 4, &mut omp_files);
+    }
+    for f in &omp_files {
+        sync_file(conn, f, &mut result, |p| omp::parse_file(p));
     }
     result
 }
