@@ -18,6 +18,7 @@ pub const SAFE_CONFIG_KEYS: &[&str] = &[
     "silentStart",
     "autoRun",
     "modelsCacheTtl",
+    "modelDisplayNames",
     "webdav_url",
     "webdav_username",
     "webdav_password",

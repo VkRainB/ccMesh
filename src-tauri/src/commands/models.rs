@@ -5,8 +5,8 @@ use serde_json::{json, Value};
 use tauri::State;
 
 use crate::error::AppResult;
-use crate::modules::models_cache::fetch_models;
-use crate::modules::models_probe::probe_models;
+use crate::modules::models_cache::{default_model, fetch_models, model_info, save_display_names};
+use crate::modules::models_probe::probe_model_entries;
 use crate::modules::proxy::client::{build_client, should_use_proxy};
 use crate::modules::storage::{config_repo, endpoint_repo};
 use crate::state::AppState;
@@ -59,7 +59,16 @@ pub async fn get_models(
         } else {
             &direct
         };
-        all.extend(fetch_models(client, ep).await);
+        let models = fetch_models(client, ep).await;
+        if models.is_empty() {
+            all.push(model_info(default_model(ep), &ep.name, None));
+            continue;
+        }
+        {
+            let conn = state.db_pool.get()?;
+            save_display_names(&conn, &ep.api_url, &models)?;
+        }
+        all.extend(models.iter().map(|m| model_info(&m.id, &ep.name, Some(&m.display_name))));
     }
 
     {
@@ -88,5 +97,8 @@ pub async fn fetch_endpoint_models(
     };
     let want = should_use_proxy(use_proxy.unwrap_or(false), proxy_enabled, &proxy_url);
     let client = build_client(want, &proxy_url, Duration::from_secs(15))?;
-    Ok(probe_models(&client, &api_url, &api_key, &transformer).await)
+    let models = probe_model_entries(&client, &api_url, &api_key, &transformer).await;
+    let conn = state.db_pool.get()?;
+    save_display_names(&conn, &api_url, &models)?;
+    Ok(models.into_iter().map(|m| m.id).collect())
 }

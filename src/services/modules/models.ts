@@ -2,6 +2,7 @@ import { request } from "../request";
 
 export interface ModelEntry {
   id: string;
+  display_name: string;
   object?: string;
   owned_by?: string;
   endpoint_id?: string;

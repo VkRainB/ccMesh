@@ -20,6 +20,7 @@ const MIGRATION_CONFIG_KEYS: &[&str] = &[
     "autoDarkStart",
     "closeWindowBehavior",
     "modelsCacheTtl",
+    "modelDisplayNames",
     "update_autoCheck",
     "update_checkInterval",
     "openaiUa",

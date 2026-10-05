@@ -7,11 +7,29 @@
 //!
 //! 模型列表 URL 走 `join_upstream_url`：base 已含 `/vN` 或末尾 `#` 时只追加 `/models`。
 
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::modules::transform::transformer::UpstreamFormat;
 use crate::utils::ua;
 use crate::utils::upstream_url::join_upstream_url;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelEntry {
+    pub id: String,
+    pub display_name: String,
+}
+
+fn parse_models(value: &Value) -> Vec<ModelEntry> {
+    value.get("data").and_then(Value::as_array).into_iter().flatten()
+        .filter_map(|item| {
+            let id = item.get("id")?.as_str()?.trim();
+            if id.is_empty() { return None; }
+            let name = item.get("display_name").and_then(Value::as_str)
+                .map(str::trim).filter(|s| !s.is_empty()).unwrap_or(id);
+            Some(ModelEntry { id: id.to_owned(), display_name: name.to_owned() })
+        }).collect()
+}
 
 /// 已知兼容子路径：部分供应商在真实 API 根后挂代理子路径，剥离后可能命中 `/v1/models`。
 const KNOWN_COMPAT_SUFFIXES: [&str; 9] = [
@@ -96,23 +114,18 @@ fn strip_known_suffix(base: &str) -> Option<&str> {
         .map(|s| &base[..base.len() - s.len()])
 }
 
-/// 单次请求 + 解析 `data[].id`（Claude/OpenAI 上游响应结构相同）。失败返回空。
-pub async fn request_model_ids(
+/// 单次请求并保留上游展示名称；失败返回空。
+pub async fn request_models(
     client: &reqwest::Client,
     url: &str,
     api_key: &str,
     auth: ProbeAuth,
-) -> Vec<String> {
+) -> Vec<ModelEntry> {
     let req = auth.apply(client.get(url), api_key);
     if let Ok(resp) = req.send().await {
         if resp.status().is_success() {
             if let Ok(v) = resp.json::<Value>().await {
-                if let Some(data) = v.get("data").and_then(|d| d.as_array()) {
-                    return data
-                        .iter()
-                        .filter_map(|m| m.get("id").and_then(|i| i.as_str()).map(String::from))
-                        .collect();
-                }
+                return parse_models(&v);
             }
         }
     }
@@ -121,22 +134,27 @@ pub async fn request_model_ids(
 
 /// 聚合探测：候选 URL × 两种鉴权（所选 transformer 首选），任一成功立即返回，全失败返回空。
 /// 最多 2 候选 × 2 鉴权 = 4 次请求。
-pub async fn probe_models(
+pub async fn probe_model_entries(
     client: &reqwest::Client,
     api_url: &str,
     api_key: &str,
     transformer: &str,
-) -> Vec<String> {
+) -> Vec<ModelEntry> {
     let primary = ProbeAuth::primary_for(transformer);
     for url in build_candidate_urls(api_url) {
         for auth in [primary, primary.other()] {
-            let ids = request_model_ids(client, &url, api_key, auth).await;
+            let ids = request_models(client, &url, api_key, auth).await;
             if !ids.is_empty() {
                 return ids;
             }
         }
     }
     Vec::new()
+}
+
+/// 仅需 ID 的消费者（配置迁移）复用同一探测链路。
+pub async fn probe_models(client: &reqwest::Client, api_url: &str, api_key: &str, transformer: &str) -> Vec<String> {
+    probe_model_entries(client, api_url, api_key, transformer).await.into_iter().map(|m| m.id).collect()
 }
 
 #[cfg(test)]

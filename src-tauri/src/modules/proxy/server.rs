@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -15,7 +16,7 @@ use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
 use crate::error::{AppError, AppResult};
-use crate::modules::models_cache::model_info;
+use crate::modules::models_cache::{model_info, read_display_names};
 use crate::modules::proxy::circuit_breaker::BreakerRegistry;
 use crate::modules::proxy::forward::{handle_proxy, ActiveRequests, ProxyState};
 use crate::modules::proxy::rotation::Rotation;
@@ -75,7 +76,7 @@ fn build_router(state: Arc<ProxyState>) -> Router {
     Router::new()
         .route("/health", get(health_route))
         .route("/stats", get(stats_route))
-        .route("/v1/models", get(models_route))
+        .route("/v1/models", get(models_route).with_state(state.db_pool.clone()))
         .route("/v1/messages/count_tokens", post(count_tokens_route))
         .fallback(handle_proxy)
         .layer(DefaultBodyLimit::disable())
@@ -176,18 +177,23 @@ async fn stats_route() -> Response {
 /// `/v1/models`：按启用端点的配置态模型清单聚合（读库，不请求上游）。
 /// 专用型端点（model 非空）公布锁定模型；聚合型端点展开 models 清单。
 /// 按入站鉴权格式返回：带 x-api-key/anthropic-version → Anthropic 格式；否则 OpenAI 格式。
-async fn models_route(State(st): State<Arc<ProxyState>>, headers: HeaderMap) -> Response {
-    let pairs: Vec<(String, String)> = match st.db_pool.get() {
+async fn models_route(State(db_pool): State<DbPool>, headers: HeaderMap) -> Response {
+    let mut display_names = HashMap::new();
+    let pairs: Vec<(String, String)> = match db_pool.get() {
         Ok(conn) => match endpoint_repo::list_enabled(&conn) {
-            Ok(endpoints) => endpoints
-                .iter()
-                .flat_map(|ep| {
-                    crate::modules::proxy::resolver::advertised_models(ep)
-                        .into_iter()
-                        .map(|m| (m, ep.name.clone()))
-                        .collect::<Vec<_>>()
-                })
-                .collect(),
+            Ok(endpoints) => {
+                let saved_names = read_display_names(&conn).unwrap_or_default();
+                let mut pairs = Vec::new();
+                for ep in &endpoints {
+                    for id in crate::modules::proxy::resolver::advertised_models(ep) {
+                        let name = saved_names.get(ep.api_url.trim()).and_then(|names| names.get(&id))
+                            .map(String::as_str).filter(|s| !s.trim().is_empty()).unwrap_or(&id);
+                        display_names.entry(id.to_lowercase()).or_insert_with(|| name.to_owned());
+                        pairs.push((id, ep.name.clone()));
+                    }
+                }
+                pairs
+            },
             Err(_) => Vec::new(),
         },
         Err(_) => Vec::new(),
@@ -206,7 +212,7 @@ async fn models_route(State(st): State<Arc<ProxyState>>, headers: HeaderMap) -> 
                 json!({
                     "id": id,
                     "type": "model",
-                    "display_name": id,
+                    "display_name": display_names.get(&id.to_lowercase()).map(String::as_str).unwrap_or(id),
                     "created_at": "2025-01-01T00:00:00Z"
                 })
             })
@@ -222,10 +228,10 @@ async fn models_route(State(st): State<Arc<ProxyState>>, headers: HeaderMap) -> 
         }))
         .into_response()
     } else {
-        // OpenAI 格式：object:list + data[].{id,object,created,owned_by}
+        // OpenAI 格式，同时提供上游友好展示名称。
         let data: Vec<serde_json::Value> = pairs
             .iter()
-            .map(|(id, name)| model_info(id, name))
+            .map(|(id, name)| model_info(id, name, display_names.get(&id.to_lowercase()).map(String::as_str)))
             .collect();
         Json(json!({ "object": "list", "data": data })).into_response()
     }
@@ -238,4 +244,73 @@ async fn count_tokens_route(body: Bytes) -> Response {
     let messages = json.get("messages").cloned().unwrap_or_else(|| json!([]));
     let input = crate::modules::tokens::estimate_input_tokens(system, &messages);
     Json(json!({ "input_tokens": input })).into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::modules::models_cache::{read_display_names, save_display_names};
+    use crate::modules::models_probe::probe_model_entries;
+    use crate::modules::storage::{db::create_pool, migration::run_migrations};
+
+    #[tokio::test]
+    async fn model_display_names_survive_refresh_restart_and_external_formats() {
+        let upstream = Router::new().route("/v1/models", get(|| async {
+            Json(json!({"data": [
+                {"id": "gpt-5.5", "display_name": " GPT-5.5 "},
+                {"id": "unnamed", "display_name": 17},
+                {"id": "blank", "display_name": "  "},
+                {"id": "hidden", "display_name": "Hidden"},
+                {"id": " "}, {"id": 42}
+            ]}))
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let api_url = format!("http://{}", listener.local_addr().unwrap());
+        let upstream_task = tokio::spawn(async move { axum::serve(listener, upstream).await.unwrap(); });
+        let client = reqwest::Client::builder().no_proxy().timeout(Duration::from_secs(3)).build().unwrap();
+        let models = probe_model_entries(&client, &api_url, "test", "openai").await;
+        assert_eq!(models.iter().map(|m| (m.id.as_str(), m.display_name.as_str())).collect::<Vec<_>>(),
+            vec![("gpt-5.5", "GPT-5.5"), ("unnamed", "unnamed"), ("blank", "blank"), ("hidden", "Hidden")]);
+        upstream_task.abort(); // 对外路由必须不依赖上游继续在线。
+
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("models.db");
+        {
+            let pool = create_pool(&path).unwrap();
+            let conn = pool.get().unwrap();
+            run_migrations(&conn).unwrap();
+            conn.execute("INSERT INTO endpoints(name,api_url,api_key,enabled,transformer,models,active_models,model_mappings,model_mappings_enabled)
+                VALUES('first',?1,'test',1,'openai','[\"gpt-5.5\",\"unnamed\",\"blank\",\"hidden\"]','[\"gpt-5.5\",\"unnamed\",\"blank\"]','[{\"from\":\"alias\",\"to\":\"gpt-5.5\"}]',1)", [&api_url]).unwrap();
+            conn.execute("INSERT INTO endpoints(name,api_url,api_key,enabled,transformer,models) VALUES('second','https://other.invalid','test',1,'openai','[\"GPT-5.5\",\"legacy\"]')", []).unwrap();
+            save_display_names(&conn, &api_url, &models).unwrap();
+            save_display_names(&conn, &api_url, &[]).unwrap();
+            let bundle = crate::modules::backup::build_config_bundle(&conn).unwrap();
+            let mut imported = rusqlite::Connection::open_in_memory().unwrap();
+            run_migrations(&imported).unwrap();
+            crate::modules::backup::import_config_bundle(&mut imported, &bundle, false).unwrap();
+            assert_eq!(read_display_names(&imported).unwrap()[&api_url]["gpt-5.5"], "GPT-5.5");
+        }
+        let pool = create_pool(&path).unwrap();
+        let app = Router::new().route("/v1/models", get(models_route)).with_state(pool);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/v1/models", listener.local_addr().unwrap());
+        let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap(); });
+        for anthropic in [false, true] {
+            let mut request = client.get(&url);
+            if anthropic { request = request.header("anthropic-version", "2023-06-01"); }
+            let response: serde_json::Value = request.send().await.unwrap().error_for_status().unwrap().json().await.unwrap();
+            let data = response["data"].as_array().unwrap();
+            assert_eq!(data.iter().map(|m| (m["id"].as_str().unwrap(), m["display_name"].as_str().unwrap())).collect::<Vec<_>>(),
+                vec![("gpt-5.5", "GPT-5.5"), ("unnamed", "unnamed"), ("blank", "blank"), ("alias", "alias"), ("legacy", "legacy")]);
+            if anthropic {
+                assert_eq!(response["first_id"], "gpt-5.5");
+                assert_eq!(response["last_id"], "legacy");
+                assert_eq!(response["has_more"], false);
+            } else {
+                assert_eq!(response["object"], "list");
+                assert_eq!(data[0]["owned_by"], "first");
+            }
+        }
+        task.abort();
+    }
 }
