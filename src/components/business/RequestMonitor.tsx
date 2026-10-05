@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { InfoIcon, ArrowDownRightIcon, TriangleAlertIcon, Trash2Icon } from "lucide-react";
+import { InfoIcon, ArrowDownRightIcon, TriangleAlertIcon, Trash2Icon, Settings2Icon } from "lucide-react";
 import { Anthropic, Codex, OpenAI } from "@lobehub/icons";
 import type { ComponentType } from "react";
 
@@ -13,11 +13,32 @@ import {
 import { Pagination } from "@/components/ui/Pagination";
 import { Button } from "@/components/ui/button";
 import { useRequestLogs } from "@/hooks/useRequestLogs";
+import { useCache } from "@/hooks/useCache";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Switch } from "@/components/ui/switch";
 import { DateRangePicker } from "@/components/business/DateRangePicker";
 import { RequestLogsCleanupDialog } from "@/components/business/RequestLogsCleanupDialog";
 import { rangeValueMs, startOfTodayMs, type RangeValue } from "@/lib/range";
 import { formatDuration, formatTokenK } from "@/lib/format";
 import { statsApi, type RequestLog } from "@/services/modules/stats";
+
+const COLUMNS = [
+  ["time", "时间"], ["endpoint", "端点"], ["inbound", "入站"], ["outbound", "出站"],
+  ["status", "状态"], ["model", "模型"], ["duration", "用时"], ["firstByte", "首字"], ["tokens", "Token"],
+] as const;
+type Column = typeof COLUMNS[number][0];
+interface TablePreferences { hiddenColumns: Column[]; actualModelOnly: boolean }
+const DEFAULT_PREFERENCES: TablePreferences = { hiddenColumns: [], actualModelOnly: false };
+const CACHE_KEY = "ccmesh:request-table-preferences:v1";
+
+function parsePreferences(value: unknown): TablePreferences {
+  if (typeof value !== "object" || value === null) return DEFAULT_PREFERENCES;
+  const saved = value as Record<string, unknown>;
+  if (!Array.isArray(saved.hiddenColumns) || typeof saved.actualModelOnly !== "boolean") return DEFAULT_PREFERENCES;
+  const hiddenColumns = COLUMNS.map(([id]) => id).filter((id) => saved.hiddenColumns instanceof Array && saved.hiddenColumns.includes(id));
+  if (hiddenColumns.length === COLUMNS.length) return DEFAULT_PREFERENCES;
+  return { hiddenColumns, actualModelOnly: saved.actualModelOnly };
+}
 
 type Mode = "live" | "ranged";
 
@@ -48,6 +69,7 @@ export function RequestMonitor({
   title,
 }: Props) {
   const [page, setPage] = useState(1);
+  const [preferences, setPreferences] = useCache(CACHE_KEY, { defaultValue: DEFAULT_PREFERENCES, parse: parsePreferences });
   const [ownRange, setOwnRange] = useState<RangeValue>({
     kind: "preset",
     key: "today",
@@ -91,6 +113,40 @@ export function RequestMonitor({
           {mode === "ranged" && !controlledRange && (
             <DateRangePicker value={rangeValue} onChange={setOwnRange} />
           )}
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button size="sm" variant="ghost" className="h-8 w-8 p-0" aria-label="配置请求表格">
+                <Settings2Icon className="size-4" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" aria-label="请求表格配置">
+              <div className="flex flex-col gap-3">
+                <p className="text-sm font-medium">显示字段</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {COLUMNS.map(([id, label]) => {
+                    const visible = !preferences.hiddenColumns.includes(id);
+                    return <label key={id} className="flex items-center gap-2 text-sm">
+                      <input type="checkbox" checked={visible}
+                        disabled={visible && preferences.hiddenColumns.length === COLUMNS.length - 1}
+                        onChange={(event) => {
+                          const checked = event.target.checked;
+                          setPreferences((previous) => ({ ...previous, hiddenColumns: checked
+                            ? previous.hiddenColumns.filter((column) => column !== id)
+                            : [...previous.hiddenColumns, id] }));
+                        }} />
+                      {label}
+                    </label>;
+                  })}
+                </div>
+                <label className="flex items-center justify-between gap-3 text-sm">
+                  仅显示实际模型
+                  <Switch aria-label="仅显示实际模型" checked={preferences.actualModelOnly}
+                    onCheckedChange={(actualModelOnly) => setPreferences((previous) => ({ ...previous, actualModelOnly }))} />
+                </label>
+                <Button variant="outline" size="sm" onClick={() => setPreferences(DEFAULT_PREFERENCES)}>恢复默认</Button>
+              </div>
+            </PopoverContent>
+          </Popover>
           <Button
             size="sm"
             variant="ghost"
@@ -113,7 +169,7 @@ export function RequestMonitor({
       {isLoading ? (
         <p className="text-sm text-ink-mute">加载中…</p>
       ) : (
-        <RequestLogTable items={items} />
+        <RequestLogTable items={items} preferences={preferences} />
       )}
 
       {total > pageSize && (
@@ -129,7 +185,7 @@ export function RequestMonitor({
 }
 
 /** 纯展示：请求明细表（空态自处理），便于复用与单测。 */
-export function RequestLogTable({ items }: { items: RequestLog[] }) {
+export function RequestLogTable({ items, preferences = DEFAULT_PREFERENCES }: { items: RequestLog[]; preferences?: TablePreferences }) {
   if (items.length === 0) {
     return <p className="text-sm text-ink-mute">暂无请求记录</p>;
   }
@@ -138,20 +194,14 @@ export function RequestLogTable({ items }: { items: RequestLog[] }) {
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-edge text-xs text-ink-secondary">
-            <th className="px-3 py-2 text-left font-medium">时间</th>
-            <th className="px-3 py-2 text-left font-medium">端点</th>
-            <th className="px-3 py-2 text-left font-medium">入站</th>
-            <th className="px-3 py-2 text-left font-medium">出站</th>
-            <th className="w-[5.5rem] px-3 py-2 text-left font-medium">状态</th>
-            <th className="w-[8rem] max-w-[8rem] px-3 py-2 text-left font-medium">模型</th>
-            <th className="px-3 py-2 text-right font-medium">用时</th>
-            <th className="px-3 py-2 text-right font-medium">首字</th>
-            <th className="px-3 py-2 text-right font-medium">Token</th>
+            {COLUMNS.filter(([id]) => !preferences.hiddenColumns.includes(id)).map(([id, label]) => (
+              <th key={id} className={`px-3 py-2 font-medium ${["duration", "firstByte", "tokens"].includes(id) ? "text-right" : "text-left"} ${id === "model" ? "w-[8rem] max-w-[8rem]" : id === "status" ? "w-[5.5rem]" : ""}`}>{label}</th>
+            ))}
           </tr>
         </thead>
         <tbody>
           {items.map((r) => (
-            <RequestRow key={r.id || r.ts} log={r} />
+            <RequestRow key={r.id || r.ts} log={r} preferences={preferences} />
           ))}
         </tbody>
       </table>
@@ -239,7 +289,7 @@ const getEndpointIcon = (
   return OpenAI;
 };
 
-function RequestRow({ log }: { log: RequestLog }) {
+function RequestRow({ log, preferences }: { log: RequestLog; preferences: TablePreferences }) {
   // 优先 transformer（端点配置类型，更准确），旧行/未记录回退 inboundFormat
   const FormatIcon = getEndpointIcon(log.transformer ?? log.inboundFormat);
   const total =
@@ -249,24 +299,31 @@ function RequestRow({ log }: { log: RequestLog }) {
     log.cacheReadTokens;
   return (
     <tr className="border-b border-edge-subtle last:border-0">
+      {!preferences.hiddenColumns.includes("time") && (
       <td
         className="px-3 py-2 whitespace-nowrap"
         title={new Date(log.ts).toLocaleString()}
       >
         <TabularText>{fmtDateTime(log.ts)}</TabularText>
       </td>
+      )}
+      {!preferences.hiddenColumns.includes("endpoint") && (
       <td className="px-3 py-2">
         <div className="flex items-center gap-1.5">
           <FormatIcon size={14} className="shrink-0" />
           <span className="truncate">{log.endpointName}</span>
         </div>
       </td>
+      )}
+      {!preferences.hiddenColumns.includes("inbound") && (
       <td
         className="px-3 py-2 font-mono text-xs text-ink-secondary"
         title={`入站协议：${log.inboundFormat}`}
       >
         {log.inboundPath || inferPath(log.inboundFormat)}
       </td>
+      )}
+      {!preferences.hiddenColumns.includes("outbound") && (
       <td
         className="max-w-[200px] truncate px-3 py-2 font-mono text-xs text-ink-secondary"
         title={
@@ -277,6 +334,8 @@ function RequestRow({ log }: { log: RequestLog }) {
       >
         {log.upstreamPath || inferPath(log.inboundFormat)}
       </td>
+      )}
+      {!preferences.hiddenColumns.includes("status") && (
       <td className="w-[5.5rem] px-3 py-2">
         <div className="flex items-center justify-between">
           <span className="inline-flex items-center gap-1.5">
@@ -306,19 +365,27 @@ function RequestRow({ log }: { log: RequestLog }) {
           )}
         </div>
       </td>
+      )}
+      {!preferences.hiddenColumns.includes("model") && (
       <td className="w-[8rem] max-w-[8rem] px-3 py-2 align-middle">
-        <ModelCell model={log.model} actualModel={log.actualModel} />
+        <ModelCell model={log.model} actualModel={log.actualModel} actualModelOnly={preferences.actualModelOnly} />
       </td>
+      )}
+      {!preferences.hiddenColumns.includes("duration") && (
       <td className="px-3 py-2 text-right text-xs text-ink-secondary">
         <TabularText>
           {!log.isError && log.durationMs != null ? formatDuration(log.durationMs) : "—"}
         </TabularText>
       </td>
+      )}
+      {!preferences.hiddenColumns.includes("firstByte") && (
       <td className="px-3 py-2 text-right text-xs text-ink-secondary">
         <TabularText>
           {!log.isError && log.firstByteMs != null ? formatDuration(log.firstByteMs) : "—"}
         </TabularText>
       </td>
+      )}
+      {!preferences.hiddenColumns.includes("tokens") && (
       <td className="px-3 py-2 text-right">
         <HoverCard openDelay={100} closeDelay={50}>
           <HoverCardTrigger asChild>
@@ -335,22 +402,29 @@ function RequestRow({ log }: { log: RequestLog }) {
           </HoverCardContent>
         </HoverCard>
       </td>
+      )}
     </tr>
   );
 }
 
-/** 模型列：透传单行；映射时上入站 / 中转化图标 / 下实际模型（同色）。无模型留白。 */
+/** 模型列：按共享偏好展示映射链或唯一实际模型；缺实际名回退请求名。 */
 export function ModelCell({
   model,
   actualModel,
+  actualModelOnly = false,
 }: {
   model: string | null;
   actualModel: string | null;
+  actualModelOnly?: boolean;
 }) {
   // 后端入站缺失时可能是 ""，与 null 一并视为无入站。
   const inbound = model?.trim() ? model : null;
   const actual = actualModel?.trim() ? actualModel : null;
   if (!inbound && !actual) return null;
+  if (actualModelOnly) {
+    const name = actual ?? inbound;
+    return <span className="block w-full min-w-0 text-xs text-ink-secondary" title={name ?? undefined}>{name}</span>;
+  }
   // 仅有实际模型（入站空、出站改写）：仍展示唯一可用名。
   if (!inbound) {
     return (

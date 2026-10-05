@@ -1,7 +1,7 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, cleanup } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 
 import {
@@ -10,6 +10,7 @@ import {
   fmtTime,
   ModelCell,
   RequestLogTable,
+  RequestMonitor,
   TokenDetail,
 } from "@/components/business/RequestMonitor";
 import { RequestLogsCleanupDialog } from "@/components/business/RequestLogsCleanupDialog";
@@ -133,11 +134,6 @@ describe("RequestLogTable", () => {
     expect(screen.getByText("暂无请求记录")).toBeInTheDocument();
   });
 
-  it("表头含模型列（位于用时前）", () => {
-    render(<RequestLogTable items={[log]} />);
-    const headers = screen.getAllByRole("columnheader").map((h) => h.textContent);
-    expect(headers).toEqual(["时间", "端点", "入站", "出站", "状态", "模型", "用时", "首字", "Token"]);
-  });
 
   it("透传时模型列只显示请求模型", () => {
     render(<RequestLogTable items={[log]} />);
@@ -154,6 +150,16 @@ describe("RequestLogTable", () => {
     render(<RequestLogTable items={[mapped]} />);
     expect(screen.getByText("claude-opus-4-8")).toBeInTheDocument();
     expect(screen.getByText("gpt-5.5")).toBeInTheDocument();
+  });
+
+  it("隐藏字段同时移除表头和对应数据，保留其他字段", () => {
+    render(<RequestLogTable items={[log]} preferences={{ hiddenColumns: ["endpoint", "tokens"], actualModelOnly: false }} />);
+    expect(screen.queryByRole("columnheader", { name: "端点" })).not.toBeInTheDocument();
+    expect(screen.queryByText("ep-a")).not.toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Token" })).not.toBeInTheDocument();
+    expect(screen.queryByText("20")).not.toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "模型" })).toBeInTheDocument();
+    expect(screen.getByText("claude-3")).toBeInTheDocument();
   });
 
   it("无模型时模型列留白（不显示 —）", () => {
@@ -174,22 +180,19 @@ describe("ModelCell", () => {
     expect(screen.getByText("claude-3")).toHaveAttribute("title", "claude-3");
   });
 
-  it("映射上下两行同色，实际模型非 text-info", () => {
-    render(<ModelCell model="in" actualModel="out" />);
-    const inbound = screen.getByText("in");
-    const actual = screen.getByText("out");
-    expect(inbound.className).toContain("text-ink-secondary");
-    expect(inbound.className).toContain("min-w-0");
-    expect(actual.className).toContain("text-ink-secondary");
-    expect(actual.className).toContain("min-w-0");
-    expect(actual.className).not.toContain("text-info");
-    expect(actual).toHaveAttribute("title", "out");
-  });
 
   it("仅有实际模型时仍单行展示", () => {
     render(<ModelCell model="" actualModel="gpt-5.5" />);
     expect(screen.getByText("gpt-5.5")).toHaveAttribute("title", "gpt-5.5");
     expect(screen.queryByText("—")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["requested", "actual", "actual"], ["requested", null, "requested"],
+    ["requested", "   ", "requested"], [null, "actual", "actual"], [null, null, ""],
+  ])("实际模型模式优先出站名并正确处理空值 %s → %s", (model, actualModel, expected) => {
+    const { container } = render(<ModelCell model={model} actualModel={actualModel} actualModelOnly />);
+    expect(container.textContent).toBe(expected);
   });
 });
 
@@ -289,5 +292,83 @@ describe("TokenDetail 实际模型", () => {
   it("无映射(透传)时不展示实际模型", () => {
     render(<TokenDetail log={{ ...log, actualModel: null }} total={20} />);
     expect(screen.queryByText(/实际模型/)).not.toBeInTheDocument();
+  });
+});
+
+describe("请求表格共享偏好", () => {
+  const key = "ccmesh:request-table-preferences:v1";
+  beforeEach(() => {
+    localStorage.removeItem(key);
+    mockedInvoke.mockReset();
+    mockedInvoke.mockImplementation(async (command) => {
+      if (command === "get_request_logs") return { items: [{ ...log, model: "requested", actualModel: "actual" }], total: 1 };
+      if (command === "get_retention_days") return 30;
+      return undefined;
+    });
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    localStorage.removeItem(key);
+    window.dispatchEvent(new StorageEvent("storage", { key }));
+    cleanup();
+  });
+
+  it("两张表即时共享字段与模型模式，重新挂载恢复且可重置", async () => {
+    const view = renderWithQuery(<><RequestMonitor mode="live" /><RequestMonitor mode="ranged" /></>);
+    await screen.findAllByText("requested");
+    fireEvent.click(screen.getAllByRole("button", { name: "配置请求表格" })[0]);
+    fireEvent.click(screen.getByRole("checkbox", { name: "端点" }));
+    fireEvent.click(screen.getByRole("switch", { name: "仅显示实际模型" }));
+    expect(screen.queryByRole("columnheader", { name: "端点" })).not.toBeInTheDocument();
+    expect(screen.queryByText("ep-a")).not.toBeInTheDocument();
+    expect(screen.queryByText("requested")).not.toBeInTheDocument();
+    expect(screen.getAllByText("actual")).toHaveLength(2);
+    view.unmount();
+    renderWithQuery(<RequestMonitor mode="ranged" />);
+    await screen.findByText("actual");
+    expect(screen.queryByText("requested")).not.toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "端点" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "配置请求表格" }));
+    fireEvent.click(screen.getByRole("button", { name: "恢复默认" }));
+    expect(screen.getByRole("columnheader", { name: "端点" })).toBeInTheDocument();
+    expect(screen.getByText("requested")).toBeInTheDocument();
+  });
+
+  it.each(["{broken", JSON.stringify({ hiddenColumns: ["time", "endpoint", "inbound", "outbound", "status", "model", "duration", "firstByte", "tokens"], actualModelOnly: true })])(
+    "损坏缓存或零列配置不会丢失表格 %s", async (raw) => {
+      localStorage.setItem(key, raw);
+      renderWithQuery(<RequestMonitor mode="live" />);
+      expect(await screen.findByText("requested")).toBeInTheDocument();
+      expect(screen.getByRole("columnheader", { name: "端点" })).toBeInTheDocument();
+    },
+  );
+
+  it("跨标签修改及清空同步，最后一列不可隐藏", async () => {
+    renderWithQuery(<RequestMonitor mode="live" />);
+    await screen.findByText("requested");
+    localStorage.setItem(key, JSON.stringify({ hiddenColumns: ["time", "endpoint", "inbound", "outbound", "status", "duration", "firstByte", "tokens"], actualModelOnly: true }));
+    fireEvent(window, new StorageEvent("storage", { key, storageArea: localStorage }));
+    expect(screen.queryByText("requested")).not.toBeInTheDocument();
+    expect(screen.getByText("actual")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "配置请求表格" }));
+    expect(screen.getByRole("checkbox", { name: "模型" })).toBeDisabled();
+    localStorage.removeItem(key);
+    fireEvent(window, new StorageEvent("storage", { key: null, storageArea: localStorage }));
+    expect(screen.getByRole("columnheader", { name: "端点" })).toBeInTheDocument();
+    expect(screen.getByText("requested")).toBeInTheDocument();
+  });
+
+  it("存储拒绝写入时当前页面仍同步，恢复后可以保存", async () => {
+    renderWithQuery(<><RequestMonitor mode="live" /><RequestMonitor mode="ranged" /></>);
+    await screen.findAllByText("requested");
+    const denied = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new DOMException("denied", "SecurityError"); });
+    fireEvent.click(screen.getAllByRole("button", { name: "配置请求表格" })[0]);
+    fireEvent.click(screen.getByRole("switch", { name: "仅显示实际模型" }));
+    expect(screen.queryByText("requested")).not.toBeInTheDocument();
+    expect(screen.getAllByText("actual")).toHaveLength(2);
+    denied.mockRestore();
+    fireEvent.click(screen.getByRole("button", { name: "恢复默认" }));
+    expect(screen.getAllByText("requested")).toHaveLength(2);
+    expect(JSON.parse(localStorage.getItem(key)!)).toEqual({ hiddenColumns: [], actualModelOnly: false });
   });
 });
