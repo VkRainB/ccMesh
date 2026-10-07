@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/hover-card";
 import { Pagination } from "@/components/ui/Pagination";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useRequestLogs } from "@/hooks/useRequestLogs";
 import { useCache } from "@/hooks/useCache";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -126,11 +127,10 @@ export function RequestMonitor({
                   {COLUMNS.map(([id, label]) => {
                     const visible = !preferences.hiddenColumns.includes(id);
                     return <label key={id} className="flex items-center gap-2 text-sm">
-                      <input type="checkbox" checked={visible}
+                      <Checkbox checked={visible} aria-label={label}
                         disabled={visible && preferences.hiddenColumns.length === COLUMNS.length - 1}
-                        onChange={(event) => {
-                          const checked = event.target.checked;
-                          setPreferences((previous) => ({ ...previous, hiddenColumns: checked
+                        onCheckedChange={(checked) => {
+                          setPreferences((previous) => ({ ...previous, hiddenColumns: checked === true
                             ? previous.hiddenColumns.filter((column) => column !== id)
                             : [...previous.hiddenColumns, id] }));
                         }} />
