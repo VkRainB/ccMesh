@@ -13,7 +13,6 @@ import {
   type UpdateInfo,
 } from "@/services/modules/update";
 import { useUpdateStore } from "@/stores/modules/update";
-import { useStartUpdate } from "@/hooks/useUpdate";
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -23,10 +22,9 @@ export function AppInfoSection() {
   const [version, setVersion] = useState("");
   const [info, setInfo] = useState<UpdateInfo | null>(null);
   const [checking, setChecking] = useState(false);
-  const setUpdate = useUpdateStore((s) => s.set);
+  const updateInfo = useUpdateStore((s) => s.info);
+  const openAvailable = useUpdateStore((s) => s.openAvailable);
   const setUpdateFromInfo = useUpdateStore((s) => s.setFromInfo);
-  const downloading = useUpdateStore((s) => s.progress) !== null;
-  const startUpdate = useStartUpdate();
 
   useEffect(() => {
     getAppVersion()
@@ -48,13 +46,6 @@ export function AppInfoSection() {
     }
   };
 
-  const skip = async () => {
-    if (!info) return;
-    await updateApi.skipVersion(info.version).catch(() => undefined);
-    setUpdate(false, "");
-    setInfo(null);
-    toast.success(`已跳过 ${info.version}`);
-  };
 
   return (
     <section className="rounded-lg border border-edge-subtle bg-surface-card p-6">
@@ -93,28 +84,12 @@ export function AppInfoSection() {
         </div>
       </div>
 
-      {info?.available ? (
-        <div className="mt-4 rounded-lg border border-primary/20 bg-primary/5 p-4 text-sm">
+      {updateInfo ? (
+        <div className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-primary/20 bg-primary/5 p-4 text-sm">
           <p className="text-ink-primary">
-            检测到新版本 <span className="font-mono tabular-nums">{info.version}</span>
+            检测到新版本 <span className="font-mono tabular-nums">{updateInfo.version}</span>
           </p>
-          {info.notes ? (
-            <p className="mt-2 max-h-32 overflow-y-auto whitespace-pre-wrap text-xs text-ink-mute">
-              {info.notes}
-            </p>
-          ) : null}
-          <div className="mt-3 flex gap-2">
-            <Button
-              size="sm"
-              disabled={downloading}
-              onClick={() => void startUpdate()}
-            >
-              {downloading ? "正在下载…" : "下载并安装"}
-            </Button>
-            <Button size="sm" variant="ghost" onClick={skip}>
-              跳过此版本
-            </Button>
-          </div>
+          <Button size="sm" onClick={() => openAvailable(updateInfo)}>查看更新</Button>
         </div>
       ) : info && !info.available ? (
         <p className="mt-4 text-sm text-ink-mute">已是最新版本</p>

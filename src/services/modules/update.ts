@@ -11,6 +11,12 @@ export interface UpdateInfo {
   notes: string;
 }
 
+export interface VersionJumpInfo {
+  previousVersion: string;
+  currentVersion: string;
+  notes: string;
+}
+
 export interface UpdateSettings {
   autoCheck: boolean;
   checkInterval: number;
@@ -40,6 +46,9 @@ export async function getAppVersion(): Promise<string> {
 export const updateApi = {
   check: () => request<UpdateInfo>("check_for_updates"),
   installUpdateAndRestart: () => request<void>("install_update_and_restart"),
+  checkVersionJump: () => request<VersionJumpInfo | null>("check_version_jump"),
+  acknowledgeVersionJump: (version: string) =>
+    request<void>("acknowledge_version_jump", { version }),
   getSettings: () => request<UpdateSettings>("get_update_settings"),
   setSettings: (autoCheck: boolean, checkInterval: number) =>
     request<void>("set_update_settings", { autoCheck, checkInterval }),

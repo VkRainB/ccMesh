@@ -11,6 +11,7 @@ import { GeneralCard } from "./_components/GeneralCard";
 import { PetCard } from "./_components/PetCard";
 import { ProxyCard } from "./_components/ProxyCard";
 import { StartupCard } from "./_components/StartupCard";
+import { UpdateCard } from "./_components/UpdateCard";
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -70,6 +71,7 @@ export function Settings() {
           autostartQ={autostartQ}
           toggleAutostart={toggleAutostart}
         />
+        <UpdateCard cfg={cfg} save={save} />
         <AdvancedCard cfg={cfg} save={save} />
         <ProxyCard
           cfg={cfg}

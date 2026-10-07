@@ -32,14 +32,16 @@ export function VersionPopover({ compact = false }: { compact?: boolean }) {
   const [version, setVersion] = useState("");
   const [info, setInfo] = useState<UpdateInfo | null>(null);
   const [checking, setChecking] = useState(false);
+  const [open, setOpen] = useState(false);
 
   const updateAvailable = useUpdateStore((s) => s.available);
   const updateVersion = useUpdateStore((s) => s.version);
+  const updateInfo = useUpdateStore((s) => s.info);
   const downloading = useUpdateStore((s) => s.progress) !== null;
   const setUpdateFromInfo = useUpdateStore((s) => s.setFromInfo);
   const startUpdate = useStartUpdate();
-  const available = info?.available ?? updateAvailable;
-  const availableVersion = info?.available ? info.version : updateVersion;
+  const available = updateAvailable;
+  const availableVersion = updateVersion;
 
   useEffect(() => {
     getAppVersion()
@@ -52,6 +54,7 @@ export function VersionPopover({ compact = false }: { compact?: boolean }) {
     try {
       const i = await updateApi.check();
       setInfo(i);
+      if (i.available) setOpen(false);
       setUpdateFromInfo(i);
       if (!i.available) toast.success("已是最新版本");
     } catch (e) {
@@ -69,7 +72,7 @@ export function VersionPopover({ compact = false }: { compact?: boolean }) {
   if (!version) return null;
 
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button
           type="button"
@@ -123,28 +126,22 @@ export function VersionPopover({ compact = false }: { compact?: boolean }) {
         {/* 版本号 + 状态 */}
         <div className="mb-3 text-center">
           <p className="text-lg font-semibold tracking-tight">v{version}</p>
-          {info ? (
-            info.available ? (
-              <span className="text-xs text-primary">
-                发现新版本 v{info.version}
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
-                <CheckCircleIcon className="size-3" />
-                已是最新版本
-              </span>
-            )
-          ) : updateAvailable ? (
+          {updateAvailable ? (
             <span className="text-xs text-primary">
               发现新版本 v{updateVersion}
+            </span>
+          ) : info && !info.available ? (
+            <span className="inline-flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
+              <CheckCircleIcon className="size-3" />
+              已是最新版本
             </span>
           ) : null}
         </div>
 
         {/* 更新日志 */}
-        {info?.notes && (
+        {updateInfo?.notes && (
           <p className="mb-3 max-h-32 overflow-y-auto whitespace-pre-wrap text-xs text-ink-mute">
-            {info.notes}
+            {updateInfo.notes}
           </p>
         )}
 

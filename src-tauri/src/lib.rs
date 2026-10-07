@@ -248,6 +248,8 @@ pub fn run() {
             commands::window::notify_window_shown,
             commands::update::check_for_updates,
             commands::update::install_update_and_restart,
+            commands::update::check_version_jump,
+            commands::update::acknowledge_version_jump,
             commands::update::get_update_settings,
             commands::update::set_update_settings,
             commands::update::skip_version,
