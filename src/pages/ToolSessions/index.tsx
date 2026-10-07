@@ -43,6 +43,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useCache } from "@/hooks/useCache";
 import { cn } from "@/lib/utils";
 import {
   toolSessionsApi,
@@ -73,26 +74,34 @@ const GROUP_EXPANSION_KEY = "ccmesh.toolSessions.groupExpansionState";
 
 type ProviderFilter = "all" | "claude" | "codex" | "opencode" | "pi" | "omp";
 type ListViewMode = "flat" | "grouped";
+interface GroupExpansion { expandedProviderIds: string[] }
 
-function readListViewMode(): ListViewMode {
-  if (typeof window === "undefined") return "grouped";
-  const stored = window.localStorage.getItem(LIST_VIEW_KEY);
-  return stored === "flat" || stored === "grouped" ? stored : "grouped";
+const DEFAULT_LIST_VIEW: ListViewMode = "grouped";
+const DEFAULT_GROUP_EXPANSION: GroupExpansion = {
+  expandedProviderIds: ["claude", "codex", "opencode", "pi", "omp"],
+};
+
+/** 旧版把 flat/grouped 当纯文本写入；useCache 只读 JSON。 */
+function upgradeListViewMode() {
+  try {
+    const raw = localStorage.getItem(LIST_VIEW_KEY);
+    if (raw === "flat" || raw === "grouped") {
+      localStorage.setItem(LIST_VIEW_KEY, JSON.stringify(raw));
+    }
+  } catch {
+    // 存储不可用时交给 useCache 降级。
+  }
 }
 
-function readExpandedProviders(): Set<string> {
-  if (typeof window === "undefined")
-    return new Set(["claude", "codex", "opencode", "pi", "omp"]);
-  try {
-    const raw = window.localStorage.getItem(GROUP_EXPANSION_KEY);
-    const parsed = raw ? JSON.parse(raw) : null;
-    const ids = Array.isArray(parsed?.expandedProviderIds)
-      ? parsed.expandedProviderIds.filter((x: unknown) => typeof x === "string")
-      : ["claude", "codex", "opencode", "pi", "omp"];
-    return new Set(ids);
-  } catch {
-    return new Set(["claude", "codex", "opencode", "pi", "omp"]);
-  }
+function parseListViewMode(value: unknown): ListViewMode {
+  return value === "flat" || value === "grouped" ? value : DEFAULT_LIST_VIEW;
+}
+
+function parseGroupExpansion(value: unknown): GroupExpansion {
+  if (typeof value !== "object" || value === null) return DEFAULT_GROUP_EXPANSION;
+  const ids = (value as { expandedProviderIds?: unknown }).expandedProviderIds;
+  if (!Array.isArray(ids)) return DEFAULT_GROUP_EXPANSION;
+  return { expandedProviderIds: ids.filter((id): id is string => typeof id === "string") };
 }
 
 function ProviderIcon({ providerId, size = 22 }: { providerId: string; size?: number }) {
@@ -115,6 +124,7 @@ async function copyText(text: string, ok = "已复制") {
 }
 
 export function ToolSessions() {
+  upgradeListViewMode();
   const setActiveView = useLayoutStore((s) => s.setActiveView);
   const qc = useQueryClient();
 
@@ -125,10 +135,14 @@ export function ToolSessions() {
   const sessions = sessionsQuery.data ?? [];
 
   const [providerFilter, setProviderFilter] = useState<ProviderFilter>("all");
-  const [listViewMode, setListViewMode] = useState<ListViewMode>(readListViewMode);
-  const [expandedProviders, setExpandedProviders] = useState<Set<string>>(
-    readExpandedProviders,
-  );
+  const [listViewMode, setListViewMode] = useCache(LIST_VIEW_KEY, {
+    defaultValue: DEFAULT_LIST_VIEW,
+    parse: parseListViewMode,
+  });
+  const [groupExpansion, setGroupExpansion] = useCache(GROUP_EXPANSION_KEY, {
+    defaultValue: DEFAULT_GROUP_EXPANSION,
+    parse: parseGroupExpansion,
+  });
   const [searchOpen, setSearchOpen] = useState(false);
   const [search, setSearch] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
@@ -145,17 +159,6 @@ export function ToolSessions() {
   const [messageWindow, setMessageWindow] = useState(INITIAL_VISIBLE_MESSAGES);
   const pendingScrollIndex = useRef<number | null>(null);
   const messageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
-
-  useEffect(() => {
-    window.localStorage.setItem(LIST_VIEW_KEY, listViewMode);
-  }, [listViewMode]);
-
-  useEffect(() => {
-    window.localStorage.setItem(
-      GROUP_EXPANSION_KEY,
-      JSON.stringify({ expandedProviderIds: [...expandedProviders] }),
-    );
-  }, [expandedProviders]);
 
   useEffect(() => {
     if (searchOpen) searchRef.current?.focus();
@@ -279,12 +282,11 @@ export function ToolSessions() {
   );
 
   const toggleProvider = (id: string) => {
-    setExpandedProviders((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+    setGroupExpansion((prev) => ({
+      expandedProviderIds: prev.expandedProviderIds.includes(id)
+        ? prev.expandedProviderIds.filter((item) => item !== id)
+        : [...prev.expandedProviderIds, id],
+    }));
   };
 
   const toggleChecked = useCallback((sessionKey: string, checked: boolean) => {
@@ -347,7 +349,7 @@ export function ToolSessions() {
 
   const renderGrouped = (groups: SessionProviderGroup[]) =>
     groups.map((group) => {
-      const expanded = expandedProviders.has(group.providerId);
+      const expanded = groupExpansion.expandedProviderIds.includes(group.providerId);
       const selectedCount = group.sessions.filter((s) =>
         selectedKeys.has(getSessionKey(s)),
       ).length;
@@ -488,6 +490,7 @@ export function ToolSessions() {
                           variant="ghost"
                           size="icon"
                           className="size-7"
+                          aria-label={listViewMode === "grouped" ? "分类视图" : "列表视图"}
                           onClick={() =>
                             setListViewMode((m) =>
                               m === "grouped" ? "flat" : "grouped",
