@@ -104,8 +104,9 @@ describe("RequestLogTable", () => {
     expect(screen.queryByRole("columnheader", { name: "首字" })).not.toBeInTheDocument();
     expect(screen.getByText("0.12s")).toBeInTheDocument(); // 用时 120ms
     expect(screen.getByText("0.08s")).toBeInTheDocument(); // 首字 80ms
-    // 输出 5 < 100，不计算速度
-    expect(screen.getByText("TPS").parentElement).toHaveTextContent("—");
+    // 输出 5 < 100，速度留空，不用短横线
+    expect(screen.getByText("TPS").parentElement).toHaveTextContent(/^TPS$/);
+    expect(screen.queryByText("—")).not.toBeInTheDocument();
   });
 
   it("输出不少于 100 时按首字到结束展示 tok/s", () => {
@@ -135,9 +136,11 @@ describe("RequestLogTable", () => {
     };
     render(<RequestLogTable items={[estimated]} />);
     expect(screen.getByText("≈20.0 tok/s")).toBeInTheDocument();
+    // 没有首字计时：首字留空
+    expect(screen.getByText("首字").parentElement).toHaveTextContent(/^首字$/);
   });
 
-  it("失败行隐藏用时/首字（显示 —）", () => {
+  it("失败行隐藏用时/首字（留空，不显示短横线）", () => {
     const failed: RequestLog = {
       ...log,
       id: 3,
@@ -145,11 +148,13 @@ describe("RequestLogTable", () => {
       isError: true,
     };
     render(<RequestLogTable items={[failed]} />);
-    // 计时单元格应为占位符，且不出现秒数值
     expect(screen.queryByText("0.12s")).not.toBeInTheDocument();
     expect(screen.queryByText("0.08s")).not.toBeInTheDocument();
     expect(screen.queryByText(/tok\/s/)).not.toBeInTheDocument();
-    expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText("—")).not.toBeInTheDocument();
+    expect(screen.getByText("首字").parentElement).toHaveTextContent(/^首字$/);
+    expect(screen.getByText("用时").parentElement).toHaveTextContent(/^用时$/);
+    expect(screen.getByText("TPS").parentElement).toHaveTextContent(/^TPS$/);
   });
 
   it("错误行有错误体时展示详情入口", () => {

@@ -289,13 +289,13 @@ const getEndpointIcon = (
   return OpenAI;
 };
 
-/** 延迟：首字、用时、输出速度垂直三行。失败请求三项都是占位。数值左对齐。 */
+/** 延迟：首字、用时、输出速度垂直三行。没有值时留空，不显示短横线。数值左对齐。 */
 export function LatencyCell({ log }: { log: RequestLog }) {
   const tps = log.isError ? null : formatOutputTps(log.outputTokens, log.durationMs, log.firstByteMs);
   const rows: [string, string][] = [
-    ["首字", !log.isError && log.firstByteMs != null ? formatDuration(log.firstByteMs) : "—"],
-    ["用时", !log.isError && log.durationMs != null ? formatDuration(log.durationMs) : "—"],
-    ["TPS", tps ?? "—"],
+    ["首字", !log.isError && log.firstByteMs != null ? formatDuration(log.firstByteMs) : ""],
+    ["用时", !log.isError && log.durationMs != null ? formatDuration(log.durationMs) : ""],
+    ["TPS", tps ?? ""],
   ];
   return (
     <div className="grid grid-cols-[auto_auto] items-baseline gap-x-3 gap-y-0.5 text-xs leading-4">
