@@ -119,7 +119,10 @@ describe("RequestLogTable", () => {
     render(<RequestLogTable items={[fast]} />);
     expect(screen.getByText("5.36s")).toBeInTheDocument();
     expect(screen.getByText("24.70s")).toBeInTheDocument();
-    expect(screen.getByText("85.6 tok/s")).toBeInTheDocument();
+    const tps = screen.getByText("85.6 tok/s");
+    expect(tps).toBeInTheDocument();
+    expect(tps).not.toHaveAttribute("title");
+    expect(tps.parentElement).not.toHaveAttribute("title");
   });
 
   it("没有首字且输出不少于 200 时速度带约等号", () => {
