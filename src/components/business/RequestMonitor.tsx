@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { InfoIcon, ArrowDownRightIcon, TriangleAlertIcon, Trash2Icon, Settings2Icon } from "lucide-react";
 import { Anthropic, Codex, OpenAI } from "@lobehub/icons";
@@ -289,7 +289,7 @@ const getEndpointIcon = (
   return OpenAI;
 };
 
-/** 延迟：首字、用时、输出速度垂直三行。没有值时留空，不显示短横线。数值左对齐。 */
+/** 延迟：首字、用时、输出速度垂直三行。没有值时留空。标签和数值都从左对齐。 */
 export function LatencyCell({ log }: { log: RequestLog }) {
   const tps = log.isError ? null : formatOutputTps(log.outputTokens, log.durationMs, log.firstByteMs);
   const rows: [string, string][] = [
@@ -298,12 +298,14 @@ export function LatencyCell({ log }: { log: RequestLog }) {
     ["TPS", tps ?? ""],
   ];
   return (
-    <div className="grid grid-cols-[auto_auto] items-baseline gap-x-3 gap-y-0.5 text-xs leading-4">
+    <div className="inline-grid grid-cols-[max-content_max-content] items-baseline justify-items-start gap-x-3 gap-y-0.5 text-left text-xs leading-4">
       {rows.map(([label, value]) => (
-        <span key={label} className="contents">
-          <span className="text-ink-mute">{label}</span>
-          <TabularText className="justify-self-start text-foreground">{value}</TabularText>
-        </span>
+        <Fragment key={label}>
+          <span className="text-left text-ink-mute">{label}</span>
+          <span className="justify-self-start text-left font-mono tabular-nums tracking-tight text-foreground">
+            {value}
+          </span>
+        </Fragment>
       ))}
     </div>
   );
@@ -392,7 +394,7 @@ function RequestRow({ log, preferences }: { log: RequestLog; preferences: TableP
       </td>
       )}
       {!preferences.hiddenColumns.includes("latency") && (
-      <td className="px-3 py-2 whitespace-nowrap">
+      <td className="px-3 py-2 text-left whitespace-nowrap">
         <LatencyCell log={log} />
       </td>
       )}

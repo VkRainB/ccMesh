@@ -105,7 +105,7 @@ describe("RequestLogTable", () => {
     expect(screen.getByText("0.12s")).toBeInTheDocument(); // 用时 120ms
     expect(screen.getByText("0.08s")).toBeInTheDocument(); // 首字 80ms
     // 输出 5 < 100，速度留空，不用短横线
-    expect(screen.getByText("TPS").parentElement).toHaveTextContent(/^TPS$/);
+    expect(screen.getByText("TPS").nextElementSibling).toHaveTextContent("");
     expect(screen.queryByText("—")).not.toBeInTheDocument();
   });
 
@@ -123,7 +123,9 @@ describe("RequestLogTable", () => {
     const tps = screen.getByText("85.6 tok/s");
     expect(tps).toBeInTheDocument();
     expect(tps).not.toHaveAttribute("title");
-    expect(tps.parentElement).not.toHaveAttribute("title");
+    expect(tps.className).toContain("text-left");
+    expect(tps.className).toContain("justify-self-start");
+    expect(tps.parentElement?.className).toContain("justify-items-start");
   });
 
   it("没有首字且输出不少于 200 时速度带约等号", () => {
@@ -137,7 +139,7 @@ describe("RequestLogTable", () => {
     render(<RequestLogTable items={[estimated]} />);
     expect(screen.getByText("≈20.0 tok/s")).toBeInTheDocument();
     // 没有首字计时：首字留空
-    expect(screen.getByText("首字").parentElement).toHaveTextContent(/^首字$/);
+    expect(screen.getByText("首字").nextElementSibling).toHaveTextContent("");
   });
 
   it("失败行隐藏用时/首字（留空，不显示短横线）", () => {
@@ -152,9 +154,9 @@ describe("RequestLogTable", () => {
     expect(screen.queryByText("0.08s")).not.toBeInTheDocument();
     expect(screen.queryByText(/tok\/s/)).not.toBeInTheDocument();
     expect(screen.queryByText("—")).not.toBeInTheDocument();
-    expect(screen.getByText("首字").parentElement).toHaveTextContent(/^首字$/);
-    expect(screen.getByText("用时").parentElement).toHaveTextContent(/^用时$/);
-    expect(screen.getByText("TPS").parentElement).toHaveTextContent(/^TPS$/);
+    expect(screen.getByText("首字").nextElementSibling).toHaveTextContent("");
+    expect(screen.getByText("用时").nextElementSibling).toHaveTextContent("");
+    expect(screen.getByText("TPS").nextElementSibling).toHaveTextContent("");
   });
 
   it("错误行有错误体时展示详情入口", () => {
