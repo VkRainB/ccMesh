@@ -289,10 +289,7 @@ const getEndpointIcon = (
   return OpenAI;
 };
 
-const TPS_HINT =
-  "从首字到结束的输出速度。输出少于 100 token 不计算；没有首字、输出不少于 200 token 时按总用时估算，标 ≈";
-
-/** 延迟：首字、用时、输出速度垂直三行。失败请求三项都是占位。 */
+/** 延迟：首字、用时、输出速度垂直三行。失败请求三项都是占位。数值左对齐。 */
 export function LatencyCell({ log }: { log: RequestLog }) {
   const tps = log.isError ? null : formatOutputTps(log.outputTokens, log.durationMs, log.firstByteMs);
   const rows: [string, string][] = [
@@ -300,23 +297,14 @@ export function LatencyCell({ log }: { log: RequestLog }) {
     ["用时", !log.isError && log.durationMs != null ? formatDuration(log.durationMs) : "—"],
     ["TPS", tps ?? "—"],
   ];
-  const live = rows.some(([, value]) => value !== "—");
   return (
-    <div className="flex items-stretch gap-2">
-      <span
-        aria-hidden
-        className={`my-0.5 w-[3px] shrink-0 rounded-full ${live ? "bg-success" : "bg-transparent"}`}
-      />
-      <div className="grid grid-cols-[auto_auto] items-baseline gap-x-3 gap-y-0.5 text-xs leading-4">
-        {rows.map(([label, value]) => (
-          <span key={label} className="contents">
-            <span className="text-ink-mute">{label}</span>
-            <span className="text-right" title={label === "TPS" ? TPS_HINT : undefined}>
-              <TabularText className="text-foreground">{value}</TabularText>
-            </span>
-          </span>
-        ))}
-      </div>
+    <div className="grid grid-cols-[auto_auto] items-baseline gap-x-3 gap-y-0.5 text-xs leading-4">
+      {rows.map(([label, value]) => (
+        <span key={label} className="contents">
+          <span className="text-ink-mute">{label}</span>
+          <TabularText className="justify-self-start text-foreground">{value}</TabularText>
+        </span>
+      ))}
     </div>
   );
 }
