@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   formatDuration,
+  formatOutputTps,
   formatTokenCompact,
   formatTokenK,
   formatTokenMetric,
@@ -84,5 +85,26 @@ describe("formatDuration", () => {
 
   it("非有限值按 0.00s", () => {
     expect(formatDuration(Number.NaN)).toBe("0.00s");
+  });
+});
+
+describe("formatOutputTps", () => {
+  it("从首字算到结束，输出不少于 100", () => {
+    // 24.70s - 5.36s = 19.34s，1656 / 19.34 ≈ 85.6
+    expect(formatOutputTps(1656, 24_700, 5_360)).toBe("85.6 tok/s");
+    expect(formatOutputTps(100, 2_000, 1_000)).toBe("100.0 tok/s");
+  });
+
+  it("输出不足 100、生成时间为 0 或时间缺失时不计算", () => {
+    expect(formatOutputTps(99, 24_700, 5_360)).toBeNull();
+    expect(formatOutputTps(200, 5_360, 5_360)).toBeNull();
+    expect(formatOutputTps(200, null, 5_360)).toBeNull();
+    expect(formatOutputTps(Number.NaN, 1_000, 100)).toBeNull();
+  });
+
+  it("没有首字且输出不少于 200 时按总用时估算并标约等", () => {
+    // 等首字的时间算进分母，所以偏低
+    expect(formatOutputTps(200, 10_000, null)).toBe("≈20.0 tok/s");
+    expect(formatOutputTps(199, 10_000, null)).toBeNull();
   });
 });

@@ -20,12 +20,12 @@ import { Switch } from "@/components/ui/switch";
 import { DateRangePicker } from "@/components/business/DateRangePicker";
 import { RequestLogsCleanupDialog } from "@/components/business/RequestLogsCleanupDialog";
 import { rangeValueMs, startOfTodayMs, type RangeValue } from "@/lib/range";
-import { formatDuration, formatTokenK } from "@/lib/format";
+import { formatDuration, formatOutputTps, formatTokenK } from "@/lib/format";
 import { statsApi, type RequestLog } from "@/services/modules/stats";
 
 const COLUMNS = [
   ["time", "时间"], ["endpoint", "端点"], ["inbound", "入站"], ["outbound", "出站"],
-  ["status", "状态"], ["model", "模型"], ["duration", "用时"], ["firstByte", "首字"], ["tokens", "Token"],
+  ["status", "状态"], ["model", "模型"], ["latency", "延迟"], ["tokens", "Token"],
 ] as const;
 type Column = typeof COLUMNS[number][0];
 interface TablePreferences { hiddenColumns: Column[]; actualModelOnly: boolean }
@@ -195,7 +195,7 @@ export function RequestLogTable({ items, preferences = DEFAULT_PREFERENCES }: { 
         <thead>
           <tr className="border-b border-edge text-xs text-ink-secondary">
             {COLUMNS.filter(([id]) => !preferences.hiddenColumns.includes(id)).map(([id, label]) => (
-              <th key={id} className={`px-3 py-2 font-medium ${["duration", "firstByte", "tokens"].includes(id) ? "text-right" : "text-left"} ${id === "model" ? "w-[8rem] max-w-[8rem]" : id === "status" ? "w-[5.5rem]" : ""}`}>{label}</th>
+              <th key={id} className={`px-3 py-2 font-medium ${id === "tokens" ? "text-right" : "text-left"} ${id === "model" ? "w-[8rem] max-w-[8rem]" : id === "status" ? "w-[5.5rem]" : ""}`}>{label}</th>
             ))}
           </tr>
         </thead>
@@ -289,6 +289,38 @@ const getEndpointIcon = (
   return OpenAI;
 };
 
+const TPS_HINT =
+  "从首字到结束的输出速度。输出少于 100 token 不计算；没有首字、输出不少于 200 token 时按总用时估算，标 ≈";
+
+/** 延迟：首字、用时、输出速度垂直三行。失败请求三项都是占位。 */
+export function LatencyCell({ log }: { log: RequestLog }) {
+  const tps = log.isError ? null : formatOutputTps(log.outputTokens, log.durationMs, log.firstByteMs);
+  const rows: [string, string][] = [
+    ["首字", !log.isError && log.firstByteMs != null ? formatDuration(log.firstByteMs) : "—"],
+    ["用时", !log.isError && log.durationMs != null ? formatDuration(log.durationMs) : "—"],
+    ["TPS", tps ?? "—"],
+  ];
+  const live = rows.some(([, value]) => value !== "—");
+  return (
+    <div className="flex items-stretch gap-2">
+      <span
+        aria-hidden
+        className={`my-0.5 w-[3px] shrink-0 rounded-full ${live ? "bg-success" : "bg-transparent"}`}
+      />
+      <div className="grid grid-cols-[auto_auto] items-baseline gap-x-3 gap-y-0.5 text-xs leading-4">
+        {rows.map(([label, value]) => (
+          <span key={label} className="contents">
+            <span className="text-ink-mute">{label}</span>
+            <span className="text-right" title={label === "TPS" ? TPS_HINT : undefined}>
+              <TabularText className="text-foreground">{value}</TabularText>
+            </span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function RequestRow({ log, preferences }: { log: RequestLog; preferences: TablePreferences }) {
   // 优先 transformer（端点配置类型，更准确），旧行/未记录回退 inboundFormat
   const FormatIcon = getEndpointIcon(log.transformer ?? log.inboundFormat);
@@ -371,18 +403,9 @@ function RequestRow({ log, preferences }: { log: RequestLog; preferences: TableP
         <ModelCell model={log.model} actualModel={log.actualModel} actualModelOnly={preferences.actualModelOnly} />
       </td>
       )}
-      {!preferences.hiddenColumns.includes("duration") && (
-      <td className="px-3 py-2 text-right text-xs text-ink-secondary">
-        <TabularText>
-          {!log.isError && log.durationMs != null ? formatDuration(log.durationMs) : "—"}
-        </TabularText>
-      </td>
-      )}
-      {!preferences.hiddenColumns.includes("firstByte") && (
-      <td className="px-3 py-2 text-right text-xs text-ink-secondary">
-        <TabularText>
-          {!log.isError && log.firstByteMs != null ? formatDuration(log.firstByteMs) : "—"}
-        </TabularText>
+      {!preferences.hiddenColumns.includes("latency") && (
+      <td className="px-3 py-2 whitespace-nowrap">
+        <LatencyCell log={log} />
       </td>
       )}
       {!preferences.hiddenColumns.includes("tokens") && (
@@ -457,6 +480,7 @@ export function TokenDetail({ log, total }: { log: RequestLog; total: number }) 
     ["缓存创建", log.cacheCreationTokens],
     ["缓存读取", log.cacheReadTokens],
   ];
+  const tps = log.isError ? null : formatOutputTps(log.outputTokens, log.durationMs, log.firstByteMs);
   return (
     <div className="flex flex-col gap-1.5 text-xs">
       {log.model && (
@@ -493,6 +517,12 @@ export function TokenDetail({ log, total }: { log: RequestLog; total: number }) 
         <div className="flex items-center justify-between gap-4 text-ink-secondary">
           <span>耗时</span>
           <TabularText>{formatDuration(log.durationMs)}</TabularText>
+        </div>
+      )}
+      {tps && (
+        <div className="flex items-center justify-between gap-4 text-ink-secondary">
+          <span>TPS</span>
+          <TabularText>{tps}</TabularText>
         </div>
       )}
     </div>
