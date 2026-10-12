@@ -50,3 +50,35 @@ export function formatDuration(ms: number): string {
   if (!Number.isFinite(ms)) return "0.00s";
   return `${(ms / 1000).toFixed(2)}s`;
 }
+
+/** 有首字计时时，输出少于此值不算速度。 */
+const TPS_MIN_OUTPUT = 100;
+/** 没有首字、只能按总用时估算时，输出少于此值不算。 */
+const TPS_MIN_ESTIMATE_OUTPUT = 200;
+
+/**
+ * 输出速度（tok/s），从首字算到结束：`output / (用时 - 首字)`。
+ * 有首字且输出 ≥ 100 时给精确值。没有首字、输出 ≥ 200 时按总用时估算并加 `≈`
+ * （等首字的时间也算进去，所以偏低）。时间无效或不够门槛时返回 null。
+ * ponytail: 思考过程不单独记账，无法区分「思考不外露」的模型，那种请求仍按输出 token 计。
+ */
+export function formatOutputTps(
+  outputTokens: number,
+  durationMs: number | null,
+  firstByteMs: number | null,
+): string | null {
+  if (!Number.isFinite(outputTokens) || outputTokens <= 0) return null;
+  if (durationMs == null || !Number.isFinite(durationMs) || durationMs <= 0) return null;
+
+  const perSecond = (ms: number) => `${(outputTokens / (ms / 1000)).toFixed(1)} tok/s`;
+
+  if (firstByteMs != null && Number.isFinite(firstByteMs)) {
+    if (outputTokens < TPS_MIN_OUTPUT) return null;
+    const generateMs = durationMs - firstByteMs;
+    if (generateMs <= 0) return null;
+    return perSecond(generateMs);
+  }
+
+  if (outputTokens < TPS_MIN_ESTIMATE_OUTPUT) return null;
+  return `≈${perSecond(durationMs)}`;
+}

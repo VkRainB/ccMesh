@@ -97,10 +97,41 @@ describe("RequestLogTable", () => {
     expect(screen.getAllByText("/v1/images/generations").length).toBeGreaterThanOrEqual(2);
   });
 
-  it("成功行展示用时/首字", () => {
+  it("成功行在延迟列垂直展示首字、用时与 TPS", () => {
     render(<RequestLogTable items={[log]} />);
+    expect(screen.getByRole("columnheader", { name: "延迟" })).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "用时" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "首字" })).not.toBeInTheDocument();
     expect(screen.getByText("0.12s")).toBeInTheDocument(); // 用时 120ms
     expect(screen.getByText("0.08s")).toBeInTheDocument(); // 首字 80ms
+    // 输出 5 < 100，不计算速度
+    expect(screen.getByText("TPS").parentElement).toHaveTextContent("—");
+  });
+
+  it("输出不少于 100 时按首字到结束展示 tok/s", () => {
+    const fast: RequestLog = {
+      ...log,
+      id: 7,
+      outputTokens: 1656,
+      durationMs: 24_700,
+      firstByteMs: 5_360,
+    };
+    render(<RequestLogTable items={[fast]} />);
+    expect(screen.getByText("5.36s")).toBeInTheDocument();
+    expect(screen.getByText("24.70s")).toBeInTheDocument();
+    expect(screen.getByText("85.6 tok/s")).toBeInTheDocument();
+  });
+
+  it("没有首字且输出不少于 200 时速度带约等号", () => {
+    const estimated: RequestLog = {
+      ...log,
+      id: 8,
+      outputTokens: 200,
+      durationMs: 10_000,
+      firstByteMs: null,
+    };
+    render(<RequestLogTable items={[estimated]} />);
+    expect(screen.getByText("≈20.0 tok/s")).toBeInTheDocument();
   });
 
   it("失败行隐藏用时/首字（显示 —）", () => {
@@ -114,6 +145,7 @@ describe("RequestLogTable", () => {
     // 计时单元格应为占位符，且不出现秒数值
     expect(screen.queryByText("0.12s")).not.toBeInTheDocument();
     expect(screen.queryByText("0.08s")).not.toBeInTheDocument();
+    expect(screen.queryByText(/tok\/s/)).not.toBeInTheDocument();
     expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(2);
   });
 
@@ -334,7 +366,7 @@ describe("请求表格共享偏好", () => {
     expect(screen.getByText("requested")).toBeInTheDocument();
   });
 
-  it.each(["{broken", JSON.stringify({ hiddenColumns: ["time", "endpoint", "inbound", "outbound", "status", "model", "duration", "firstByte", "tokens"], actualModelOnly: true })])(
+  it.each(["{broken", JSON.stringify({ hiddenColumns: ["time", "endpoint", "inbound", "outbound", "status", "model", "latency", "tokens"], actualModelOnly: true })])(
     "损坏缓存或零列配置不会丢失表格 %s", async (raw) => {
       localStorage.setItem(key, raw);
       renderWithQuery(<RequestMonitor mode="live" />);
@@ -346,7 +378,7 @@ describe("请求表格共享偏好", () => {
   it("跨标签修改及清空同步，最后一列不可隐藏", async () => {
     renderWithQuery(<RequestMonitor mode="live" />);
     await screen.findByText("requested");
-    localStorage.setItem(key, JSON.stringify({ hiddenColumns: ["time", "endpoint", "inbound", "outbound", "status", "duration", "firstByte", "tokens"], actualModelOnly: true }));
+    localStorage.setItem(key, JSON.stringify({ hiddenColumns: ["time", "endpoint", "inbound", "outbound", "status", "latency", "tokens"], actualModelOnly: true }));
     fireEvent(window, new StorageEvent("storage", { key, storageArea: localStorage }));
     expect(screen.queryByText("requested")).not.toBeInTheDocument();
     expect(screen.getByText("actual")).toBeInTheDocument();
