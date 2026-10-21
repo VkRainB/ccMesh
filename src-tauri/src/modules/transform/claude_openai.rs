@@ -258,7 +258,10 @@ pub fn openai_response_to_claude(resp: &Value) -> Value {
 
     let usage = resp.get("usage");
     let input_tokens = first_usage_field(usage, &["prompt_tokens", "input_tokens"]);
-    let output_tokens = first_usage_field(usage, &["completion_tokens", "output_tokens"]);
+    let mut output_tokens = first_usage_field(usage, &["completion_tokens", "output_tokens"]);
+    if let Some(u) = usage {
+        output_tokens = crate::modules::usage::output_with_reasoning(u, output_tokens);
+    }
     let cache_creation_tokens = usage_field(usage, "cache_creation_input_tokens");
     let cache_read_tokens = cache_read_usage_tokens(usage);
 
@@ -485,6 +488,22 @@ mod tests {
         assert_eq!(out["usage"]["output_tokens"], json!(5));
         assert_eq!(out["usage"]["cache_creation_input_tokens"], json!(0));
         assert_eq!(out["usage"]["cache_read_input_tokens"], json!(7));
+    }
+
+    #[test]
+    fn response_adds_independent_reasoning_tokens() {
+        // xAI 把 reasoning 放在 completion 之外：total = prompt + completion + reasoning。
+        let resp = json!({
+            "choices": [{ "message": { "content": "hi" }, "finish_reason": "stop" }],
+            "usage": {
+                "prompt_tokens": 32,
+                "completion_tokens": 9,
+                "total_tokens": 135,
+                "completion_tokens_details": { "reasoning_tokens": 94 }
+            }
+        });
+        let out = openai_response_to_claude(&resp);
+        assert_eq!(out["usage"]["output_tokens"], json!(103));
     }
 
     #[test]

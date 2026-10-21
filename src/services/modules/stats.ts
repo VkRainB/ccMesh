@@ -69,8 +69,10 @@ export interface RequestLog {
   cacheReadTokens: number;
   model: string | null;
   durationMs: number | null;
-  /** 首字节延迟（毫秒）：流式为首个内容分片到达耗时，缓冲为响应头到达耗时。旧行/无数据为 null。 */
+  /** 首个可见输出 token 的延迟（毫秒）。非流式、或流里没有可见 token 时为 null。 */
   firstByteMs: number | null;
+  /** 输出 token 由字符估算得出（上游没给 usage）。旧行为 false。 */
+  outputEstimated?: boolean;
   /** 实际(出站)模型：映射/锁定改写后与请求模型不同才有值；透传/旧行为 null。 */
   actualModel: string | null;
   /** 错误响应体（仅错误请求，限长写入）。旧行/无响应体为 null。 */

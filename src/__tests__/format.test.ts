@@ -89,22 +89,33 @@ describe("formatDuration", () => {
 });
 
 describe("formatOutputTps", () => {
-  it("从首字算到结束，输出不少于 100", () => {
+  it("从首字算到结束，短回复只要生成窗口够长也展示", () => {
     // 24.70s - 5.36s = 19.34s，1656 / 19.34 ≈ 85.6
     expect(formatOutputTps(1656, 24_700, 5_360)).toBe("85.6 tok/s");
     expect(formatOutputTps(100, 2_000, 1_000)).toBe("100.0 tok/s");
+    // 99 token / 19.34s，不再因为不足 100 个 token 被藏起来
+    expect(formatOutputTps(99, 24_700, 5_360)).toBe("5.1 tok/s");
+    // 20 / 1.6s
+    expect(formatOutputTps(20, 2_000, 400)).toBe("12.5 tok/s");
   });
 
-  it("输出不足 100、生成时间为 0 或时间缺失时不计算", () => {
-    expect(formatOutputTps(99, 24_700, 5_360)).toBeNull();
+  it("生成窗口太短、生成时间为 0 或时间缺失时不计算", () => {
+    // 窗口 40ms，时钟噪声
+    expect(formatOutputTps(5, 120, 80)).toBeNull();
     expect(formatOutputTps(200, 5_360, 5_360)).toBeNull();
     expect(formatOutputTps(200, null, 5_360)).toBeNull();
     expect(formatOutputTps(Number.NaN, 1_000, 100)).toBeNull();
+    expect(formatOutputTps(0, 2_000, 100)).toBeNull();
   });
 
-  it("没有首字且输出不少于 200 时按总用时估算并标约等", () => {
+  it("没有首字时按总用时估算并标约等", () => {
     // 等首字的时间算进分母，所以偏低
     expect(formatOutputTps(200, 10_000, null)).toBe("≈20.0 tok/s");
-    expect(formatOutputTps(199, 10_000, null)).toBeNull();
+    expect(formatOutputTps(199, 10_000, null)).toBe("≈19.9 tok/s");
+    expect(formatOutputTps(20, 150, null)).toBeNull();
+  });
+
+  it("输出 token 是估算值时即使有首字也标约等", () => {
+    expect(formatOutputTps(20, 2_000, 400, true)).toBe("≈12.5 tok/s");
   });
 });

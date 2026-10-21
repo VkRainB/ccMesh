@@ -291,7 +291,9 @@ const getEndpointIcon = (
 
 /** 延迟：首字、用时、输出速度垂直三行。没有值时留空。标签和数值都从左对齐。 */
 export function LatencyCell({ log }: { log: RequestLog }) {
-  const tps = log.isError ? null : formatOutputTps(log.outputTokens, log.durationMs, log.firstByteMs);
+  const tps = log.isError
+    ? null
+    : formatOutputTps(log.outputTokens, log.durationMs, log.firstByteMs, log.outputEstimated);
   const rows: [string, string][] = [
     ["首字", !log.isError && log.firstByteMs != null ? formatDuration(log.firstByteMs) : ""],
     ["用时", !log.isError && log.durationMs != null ? formatDuration(log.durationMs) : ""],
@@ -302,7 +304,14 @@ export function LatencyCell({ log }: { log: RequestLog }) {
       {rows.map(([label, value]) => (
         <Fragment key={label}>
           <span className="text-left text-ink-mute">{label}</span>
-          <span className="justify-self-start text-left font-mono tabular-nums tracking-tight text-foreground">
+          <span
+            className="justify-self-start text-left font-mono tabular-nums tracking-tight text-foreground"
+            title={
+              label === "TPS" && value.startsWith("≈")
+                ? "分母含等首字时间，或输出 token 按字符估算"
+                : undefined
+            }
+          >
             {value}
           </span>
         </Fragment>
@@ -470,7 +479,9 @@ export function TokenDetail({ log, total }: { log: RequestLog; total: number }) 
     ["缓存创建", log.cacheCreationTokens],
     ["缓存读取", log.cacheReadTokens],
   ];
-  const tps = log.isError ? null : formatOutputTps(log.outputTokens, log.durationMs, log.firstByteMs);
+  const tps = log.isError
+    ? null
+    : formatOutputTps(log.outputTokens, log.durationMs, log.firstByteMs, log.outputEstimated);
   return (
     <div className="flex flex-col gap-1.5 text-xs">
       {log.model && (
@@ -486,8 +497,10 @@ export function TokenDetail({ log, total }: { log: RequestLog; total: number }) 
       {rows.map(([k, v]) => (
         <div key={k} className="flex items-center justify-between gap-4">
           <span className="text-ink-secondary">{k}</span>
-          <span title={v.toLocaleString()}>
-            <TabularText>{formatTokenK(v)}</TabularText>
+          <span title={k === "输出" && log.outputEstimated ? "按输出字符估算" : v.toLocaleString()}>
+            <TabularText>
+              {k === "输出" && log.outputEstimated && v > 0 ? `≈${formatTokenK(v)}` : formatTokenK(v)}
+            </TabularText>
           </span>
         </div>
       ))}

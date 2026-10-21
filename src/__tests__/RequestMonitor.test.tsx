@@ -104,7 +104,7 @@ describe("RequestLogTable", () => {
     expect(screen.queryByRole("columnheader", { name: "首字" })).not.toBeInTheDocument();
     expect(screen.getByText("0.12s")).toBeInTheDocument(); // 用时 120ms
     expect(screen.getByText("0.08s")).toBeInTheDocument(); // 首字 80ms
-    // 输出 5 < 100，速度留空，不用短横线
+    // 生成窗口只有 40ms，速度留空，不用短横线
     expect(screen.getByText("TPS").nextElementSibling).toHaveTextContent("");
     expect(screen.queryByText("—")).not.toBeInTheDocument();
   });
@@ -128,7 +128,19 @@ describe("RequestLogTable", () => {
     expect(tps.parentElement?.className).toContain("justify-items-start");
   });
 
-  it("没有首字且输出不少于 200 时速度带约等号", () => {
+  it("短回复在生成窗口够长时展示 TPS", () => {
+    const shortReply: RequestLog = {
+      ...log,
+      id: 9,
+      outputTokens: 20,
+      durationMs: 2_000,
+      firstByteMs: 400,
+    };
+    render(<RequestLogTable items={[shortReply]} />);
+    expect(screen.getByText("12.5 tok/s")).toBeInTheDocument();
+  });
+
+  it("没有首字时速度带约等号", () => {
     const estimated: RequestLog = {
       ...log,
       id: 8,
@@ -138,8 +150,26 @@ describe("RequestLogTable", () => {
     };
     render(<RequestLogTable items={[estimated]} />);
     expect(screen.getByText("≈20.0 tok/s")).toBeInTheDocument();
+    expect(screen.getByText("≈20.0 tok/s")).toHaveAttribute(
+      "title",
+      "分母含等首字时间，或输出 token 按字符估算",
+    );
     // 没有首字计时：首字留空
     expect(screen.getByText("首字").nextElementSibling).toHaveTextContent("");
+  });
+
+  it("估算的输出 token 在明细里带约等号", () => {
+    const estimatedTokens: RequestLog = {
+      ...log,
+      id: 10,
+      outputTokens: 12,
+      outputEstimated: true,
+      durationMs: 2_000,
+      firstByteMs: 400,
+    };
+    render(<RequestLogTable items={[estimatedTokens]} />);
+    // 12 token / (2.00s - 0.40s) = 7.5
+    expect(screen.getByText("≈7.5 tok/s")).toBeInTheDocument();
   });
 
   it("失败行隐藏用时/首字（留空，不显示短横线）", () => {

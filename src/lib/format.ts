@@ -51,34 +51,39 @@ export function formatDuration(ms: number): string {
   return `${(ms / 1000).toFixed(2)}s`;
 }
 
-/** 有首字计时时，输出少于此值不算速度。 */
-const TPS_MIN_OUTPUT = 100;
-/** 没有首字、只能按总用时估算时，输出少于此值不算。 */
-const TPS_MIN_ESTIMATE_OUTPUT = 200;
+/**
+ * 生成窗口短于此时钟误差会把速率放大，不展示。
+ * 200ms 能盖住「你好」这种短回复，又挡掉只有下载尾巴的假速度。
+ */
+const TPS_MIN_WINDOW_MS = 200;
 
 /**
- * 输出速度（tok/s），从首字算到结束：`output / (用时 - 首字)`。
- * 有首字且输出 ≥ 100 时给精确值。没有首字、输出 ≥ 200 时按总用时估算并加 `≈`
- * （等首字的时间也算进去，所以偏低）。时间无效或不够门槛时返回 null。
- * ponytail: 思考过程不单独记账，无法区分「思考不外露」的模型，那种请求仍按输出 token 计。
+ * 输出速度（tok/s）。
+ * 有首字：`output / (用时 - 首字)`，窗口是真正在吐 token 的时间。
+ * 没有首字（非流式，或流里没看到可见 token）：按总用时估算，前面加 `≈`
+ * （等首字的时间算进分母，所以偏低）。
+ * `outputEstimated` 为真时分子是字符估算，同样加 `≈`。
+ * 窗口短于 {@link TPS_MIN_WINDOW_MS}、输出 ≤ 0、或生成时间为 0 时不展示。
  */
 export function formatOutputTps(
   outputTokens: number,
   durationMs: number | null,
   firstByteMs: number | null,
+  outputEstimated = false,
 ): string | null {
   if (!Number.isFinite(outputTokens) || outputTokens <= 0) return null;
   if (durationMs == null || !Number.isFinite(durationMs) || durationMs <= 0) return null;
 
   const perSecond = (ms: number) => `${(outputTokens / (ms / 1000)).toFixed(1)} tok/s`;
-
-  if (firstByteMs != null && Number.isFinite(firstByteMs)) {
-    if (outputTokens < TPS_MIN_OUTPUT) return null;
+  // 有首字时间戳时只认生成窗口。窗口为 0（首字等于结束）或短于门槛都不展示，
+  // 避免退回总用时把「已经结束的生成」再算一遍。
+  if (firstByteMs != null && Number.isFinite(firstByteMs) && firstByteMs >= 0) {
     const generateMs = durationMs - firstByteMs;
-    if (generateMs <= 0) return null;
-    return perSecond(generateMs);
+    if (generateMs < TPS_MIN_WINDOW_MS) return null;
+    const text = perSecond(generateMs);
+    return outputEstimated ? `≈${text}` : text;
   }
 
-  if (outputTokens < TPS_MIN_ESTIMATE_OUTPUT) return null;
+  if (durationMs < TPS_MIN_WINDOW_MS) return null;
   return `≈${perSecond(durationMs)}`;
 }

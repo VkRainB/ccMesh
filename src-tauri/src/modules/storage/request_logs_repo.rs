@@ -14,8 +14,9 @@ pub fn insert_batch(conn: &mut Connection, logs: &[RequestLog], device_id: &str)
             "INSERT INTO request_logs(
                 ts, endpoint_name, inbound_format, transformer, upstream_url, inbound_path, upstream_path,
                 status_code, is_error, input_tokens, output_tokens, cache_creation_tokens,
-                cache_read_tokens, model, duration_ms, first_byte_ms, actual_model, error_body, device_id)
-             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)",
+                cache_read_tokens, model, duration_ms, first_byte_ms, actual_model, error_body,
+                output_estimated, device_id)
+             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)",
         )?;
         for l in logs {
             stmt.execute(params![
@@ -37,6 +38,7 @@ pub fn insert_batch(conn: &mut Connection, logs: &[RequestLog], device_id: &str)
                 l.first_byte_ms,
                 l.actual_model,
                 l.error_body,
+                l.output_estimated as i64,
                 device_id,
             ])?;
         }
@@ -66,6 +68,7 @@ fn row_to_log(r: &rusqlite::Row) -> rusqlite::Result<RequestLog> {
         first_byte_ms: r.get(16)?,
         actual_model: r.get(17)?,
         error_body: r.get(18)?,
+        output_estimated: r.get::<_, i64>(19)? != 0,
     })
 }
 
@@ -107,7 +110,7 @@ pub fn query_page(
     let sql = format!(
         "SELECT id, ts, endpoint_name, inbound_format, transformer, upstream_url, status_code, is_error,
                 input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, model, duration_ms,
-                inbound_path, upstream_path, first_byte_ms, actual_model, error_body
+                inbound_path, upstream_path, first_byte_ms, actual_model, error_body, output_estimated
          FROM request_logs{where_sql}
          ORDER BY ts DESC, id DESC LIMIT ? OFFSET ?"
     );
@@ -140,7 +143,7 @@ pub fn by_hour(
         "SELECT strftime('%Y-%m-%d %H:00', ts/1000, 'unixepoch', 'localtime'),
                 COUNT(*),
                 COALESCE(SUM(input_tokens),0),
-                COALESCE(SUM(output_tokens),0),
+                COALESCE(SUM(CASE WHEN output_estimated = 0 THEN output_tokens ELSE 0 END),0),
                 COALESCE(SUM(cache_creation_tokens),0),
                 COALESCE(SUM(cache_read_tokens),0)
          FROM request_logs{where_sql}
@@ -209,6 +212,7 @@ mod tests {
             first_byte_ms: Some(45),
             actual_model: None,
             error_body: None,
+            output_estimated: false,
         }
     }
 
@@ -237,6 +241,19 @@ mod tests {
         assert_eq!(page1[0].cache_read_tokens, 2);
         assert_eq!(page1[0].first_byte_ms, Some(45));
         assert_eq!(page1[0].actual_model, None);
+        assert!(!page1[0].output_estimated);
+    }
+
+    #[test]
+    fn output_estimated_roundtrips() {
+        let mut c = db();
+        let mut row = log(100, "a", false);
+        row.output_estimated = true;
+        row.output_tokens = 12;
+        insert_batch(&mut c, &[row], "dev").unwrap();
+        let (items, _) = query_page(&c, None, None, None, 10, 0).unwrap();
+        assert!(items[0].output_estimated);
+        assert_eq!(items[0].output_tokens, 12);
     }
 
     #[test]
