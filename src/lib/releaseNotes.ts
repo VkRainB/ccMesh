@@ -16,6 +16,39 @@ export function getBundledReleaseNotes(version: string): string {
   return start === -1 ? "" : lines.slice(start).join("\n").trim();
 }
 
+const TEMPLATE_MARKERS = [
+  "<!-- 首次发版后根据实际产物名校准文件名 -->",
+  "**按操作系统选择下载：**",
+];
+
+function templateCut(notes: string): number {
+  let cut = -1;
+  for (const marker of TEMPLATE_MARKERS) {
+    const at = notes.indexOf(marker);
+    if (at !== -1 && (cut === -1 || at < cut)) cut = at;
+  }
+  const divAt = notes.search(/<div\b/i);
+  if (divAt !== -1 && (cut === -1 || divAt < cut)) cut = divAt;
+  return cut;
+}
+
+/** Drop the GitHub download-table template and any HTML left in updater notes. */
+export function sanitizeReleaseNotes(notes: string): string {
+  const cut = templateCut(notes);
+  let text = cut === -1 ? notes : notes.slice(0, cut);
+  // ponytail: block matches are non-greedy and ignore nesting. Published notes are cut
+  // at the template before those blocks. Nested HTML inside the prose needs a real parser.
+  text = text
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "")
+    .replace(/<table\b[^>]*>[\s\S]*?<\/table>/gi, "")
+    .replace(/<div\b[^>]*>[\s\S]*?<\/div>/gi, "")
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/!\[[^\]]*]\([^)\n]*\)/g, "")
+    .replace(/<\/?[a-zA-Z][^>\n]*>/g, "");
+  return text.trim();
+}
+
 function inlineNotes(text: string): ReactNode[] {
   return text.split(/(`[^`\n]+`|\*\*[^*\n]+\*\*)/g).map((part, index) => {
     if (part.startsWith("`") && part.endsWith("`")) {
@@ -39,9 +72,9 @@ function inlineNotes(text: string): ReactNode[] {
   });
 }
 
-/** A deliberately small Markdown subset. HTML, links and images remain inert text. */
+/** A deliberately small Markdown subset. Template HTML is removed first; links stay inert text. */
 export function renderReleaseNotes(notes: string): ReactNode[] {
-  const lines = notes.split(/\r?\n/);
+  const lines = sanitizeReleaseNotes(notes).split(/\r?\n/);
   const nodes: ReactNode[] = [];
   let index = 0;
   while (index < lines.length) {
