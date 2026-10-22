@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CheckCircleIcon,
   DownloadIcon,
@@ -24,6 +24,7 @@ import {
 } from "@/services/modules/update";
 import { useUpdateStore } from "@/stores/modules/update";
 import { useStartUpdate } from "@/hooks/useUpdate";
+import { renderReleaseNotes } from "@/lib/releaseNotes";
 import { cn } from "@/lib/utils";
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -42,6 +43,10 @@ export function VersionPopover({ compact = false }: { compact?: boolean }) {
   const startUpdate = useStartUpdate();
   const available = updateAvailable;
   const availableVersion = updateVersion;
+  const releaseNotes = useMemo(
+    () => (updateInfo?.notes ? renderReleaseNotes(updateInfo.notes) : []),
+    [updateInfo?.notes],
+  );
 
   useEffect(() => {
     getAppVersion()
@@ -139,10 +144,10 @@ export function VersionPopover({ compact = false }: { compact?: boolean }) {
         </div>
 
         {/* 更新日志 */}
-        {updateInfo?.notes && (
-          <p className="mb-3 max-h-32 overflow-y-auto whitespace-pre-wrap text-xs text-ink-mute">
-            {updateInfo.notes}
-          </p>
+        {releaseNotes.length > 0 && (
+          <div className="mb-3 max-h-32 space-y-2 overflow-y-auto break-words text-xs leading-relaxed text-ink-mute">
+            {releaseNotes}
+          </div>
         )}
 
         {/* 下载安装按钮 */}
