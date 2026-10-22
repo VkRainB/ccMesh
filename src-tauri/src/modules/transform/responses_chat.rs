@@ -724,7 +724,10 @@ impl ResponsesStreamConverter {
                     .or_else(|| u.get("output_tokens"))
                     .and_then(|v| v.as_i64())
                 {
-                    self.output_tokens = o;
+                    self.output_tokens = crate::modules::usage::output_with_reasoning(u, o);
+                } else {
+                    self.output_tokens =
+                        crate::modules::usage::output_with_reasoning(u, self.output_tokens);
                 }
             }
         }

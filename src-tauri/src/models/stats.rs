@@ -84,8 +84,11 @@ pub struct RequestLog {
     pub cache_read_tokens: i64,
     pub model: Option<String>,
     pub duration_ms: Option<i64>,
-    /// 首字节延迟（毫秒）：流式为首个内容分片到达耗时，缓冲为响应头到达耗时。旧行/无数据为 None。
+    /// 首个可见输出 token 的延迟（毫秒）。非流式、以及只有 ping/空 delta 的流为 None。
     pub first_byte_ms: Option<i64>,
+    /// 输出 token 由字符估算得出（上游没给 usage）。旧行为 false。
+    #[serde(default)]
+    pub output_estimated: bool,
     /// 实际(出站)模型：映射/锁定改写后实际转发上游的模型。仅当与请求模型不同才有值，透传/旧行为 None。
     pub actual_model: Option<String>,
     /// 错误响应体（仅错误请求，限长写入）。旧行/无响应体为 None。

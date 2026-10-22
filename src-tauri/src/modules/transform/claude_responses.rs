@@ -424,6 +424,9 @@ fn responses_usage(usage: Option<&Value>) -> (i64, i64, i64) {
         .and_then(|u| u.get("output_tokens"))
         .and_then(|v| v.as_i64())
         .unwrap_or(0);
+    let output = usage
+        .map(|u| crate::modules::usage::output_with_reasoning(u, output))
+        .unwrap_or(output);
     ((input - cache_read).max(0), output, cache_read)
 }
 

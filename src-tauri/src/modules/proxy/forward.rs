@@ -144,7 +144,8 @@ struct RequestMeta {
     /// 真实出站路由路径（实际转发上游的路径，转换时为 `/v1/chat/completions`）。
     upstream_path: String,
     started_ms: i64,
-    /// 首字节延迟（毫秒）：响应头到达时置入；流式响应处理器会在首个内容分片到达时覆盖为更精确的首字。
+    /// 首个可见输出 token 的延迟（毫秒）。非流式没有这一刻，保持 None。
+    /// 流式在首个非空内容/推理/工具参数到达时写入，不把响应头、ping、message_start、空 role delta 算进去。
     first_byte_ms: Option<i64>,
     /// 实际(出站)模型：映射/锁定改写后与入站不同才有值，透传为 None。
     actual_model: Option<String>,
@@ -179,7 +180,7 @@ impl RequestMeta {
             status_code,
             is_error,
             usage: tu,
-            duration_ms: Some(chrono::Utc::now().timestamp_millis() - self.started_ms),
+            duration_ms: Some((chrono::Utc::now().timestamp_millis() - self.started_ms).max(0)),
             first_byte_ms: self.first_byte_ms,
             actual_model: self.actual_model.clone(),
             error_body,
@@ -661,7 +662,7 @@ pub async fn handle_proxy(
         } else {
             None
         };
-        let attempt_body: Bytes = if let Some(mut v) = transformed {
+        let mut attempt_body: Bytes = if let Some(mut v) = transformed {
             // 映射覆盖优先于转换层按入站 effort 写出的值；Images 入站不写 effort。
             if let Some(eff) = effort_override.as_deref() {
                 if !protocol.is_images() {
@@ -682,6 +683,14 @@ pub async fn handle_proxy(
         } else {
             body.clone()
         };
+        // Chat Completions 直通流式：上游默认不回 usage。只在这条路径注入 include_usage。
+        // 转换路径（claude→chat / responses→chat）的请求转换器已经写过。
+        // 客户端没要 usage 帧时，下行剥掉多出来的空 choices usage chunk。
+        let strip_unrequested_usage = client_wants_stream
+            && matches!(protocol, InboundProtocol::OpenAi)
+            && matches!(format, UpstreamFormat::OpenAiChat)
+            && ensure_chat_stream_include_usage(&mut attempt_body)
+            && !client_requested_include_usage(body_json.as_ref());
         let upstream_path = if needs_transform || responses_to_chat {
             "/v1/chat/completions"
         } else if claude_to_responses {
@@ -774,8 +783,9 @@ pub async fn handle_proxy(
                     inbound_path: path.clone(),
                     upstream_path: upstream_path.to_string(),
                     started_ms,
-                    // 响应头到达即首字节（缓冲响应用此值；流式处理器会在首个内容分片到达时覆盖）。
-                    first_byte_ms: Some(chrono::Utc::now().timestamp_millis() - started_ms),
+                    // 非流式不记首字：响应头到达时正文已经生成完，拿它当首 token 会把 TPS 分母收成纯下载时间。
+                    // 流式在看见第一个非空输出 token 时再写。
+                    first_byte_ms: None,
                     actual_model,
                 };
                 if status == 200 {
@@ -805,7 +815,13 @@ pub async fn handle_proxy(
                     return match (needs_transform, client_wants_stream) {
                         (true, true) => stream_transform_response(resp, stats, meta),
                         (true, false) => transform_buffered_response(resp, stats, meta).await,
-                        (false, true) => relay_stream_response(resp, stats, meta, format),
+                        (false, true) => relay_stream_response(
+                            resp,
+                            stats,
+                            meta,
+                            format,
+                            strip_unrequested_usage,
+                        ),
                         (false, false) => relay_buffered_response(resp, stats, meta, format).await,
                     };
                 }
@@ -1141,6 +1157,67 @@ fn relay_buffered_error(status_code: u16, headers: HeaderMap, bytes: Bytes) -> R
     response
 }
 
+/// 客户端是否自己要了 `stream_options.include_usage`。没要就不该看到额外的 usage 帧。
+fn client_requested_include_usage(body: Option<&Value>) -> bool {
+    body.and_then(|v| v.pointer("/stream_options/include_usage"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+}
+
+/// 给 Chat Completions 流式请求补上 `stream_options.include_usage=true`。
+/// 改写成功返回 true。非 JSON 或不是 stream 请求时原样返回 false。
+fn ensure_chat_stream_include_usage(body: &mut Bytes) -> bool {
+    let Ok(mut v) = serde_json::from_slice::<Value>(body) else {
+        return false;
+    };
+    if v.get("stream").and_then(|s| s.as_bool()) != Some(true) {
+        return false;
+    }
+    let Some(obj) = v.as_object_mut() else {
+        return false;
+    };
+    let opts = obj
+        .entry("stream_options")
+        .or_insert_with(|| Value::Object(serde_json::Map::new()));
+    if let Some(o) = opts.as_object_mut() {
+        o.insert("include_usage".into(), Value::Bool(true));
+    } else {
+        *opts = serde_json::json!({ "include_usage": true });
+    }
+    match serde_json::to_vec(&v) {
+        Ok(bytes) => {
+            *body = Bytes::from(bytes);
+            true
+        }
+        Err(_) => false,
+    }
+}
+
+fn stamp_first_visible(meta: &mut RequestMeta, is_first: bool) {
+    if is_first && meta.first_byte_ms.is_none() {
+        meta.first_byte_ms = Some((chrono::Utc::now().timestamp_millis() - meta.started_ms).max(0));
+    }
+}
+
+fn usage_from_converter(
+    input: i64,
+    output: i64,
+    cache_creation: i64,
+    cache_read: i64,
+    observed: &usage::OutputObserver,
+) -> usage::TokenUsage {
+    usage::apply_output_estimate(
+        usage::TokenUsage {
+            input,
+            output,
+            cache_creation,
+            cache_read,
+            output_estimated: false,
+        },
+        observed,
+    )
+}
+
 /// 非流式直通：缓冲响应体 → 按上游格式解析真实 usage 记录统计 → 原样回传。
 async fn relay_buffered_response(
     resp: reqwest::Response,
@@ -1156,7 +1233,7 @@ async fn relay_buffered_response(
         Err(e) => return json_error(StatusCode::BAD_GATEWAY, &format!("读取上游响应失败: {e}")),
     };
     let tu = serde_json::from_slice::<Value>(&bytes)
-        .map(|j| usage::from_response(&j, format))
+        .map(|j| usage::apply_body_output_estimate(usage::from_response(&j, format), &j, format))
         .unwrap_or_default();
     stats.record(meta.into_record(Some(status.as_u16() as i64), false, tu));
     let mut response = Response::new(Body::from(bytes));
@@ -1166,11 +1243,13 @@ async fn relay_buffered_response(
 }
 
 /// 流式直通：转发原始 SSE 字节同时累积真实 usage，流结束记录统计。
+/// `strip_unrequested_usage`：Chat 直通替客户端打开了 include_usage，但客户端没要 usage 帧。
 fn relay_stream_response(
     resp: reqwest::Response,
     stats: Arc<StatsAggregator>,
     meta: RequestMeta,
     format: UpstreamFormat,
+    strip_unrequested_usage: bool,
 ) -> Response {
     let status = StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
     let out = copy_response_headers(&resp);
@@ -1178,28 +1257,38 @@ fn relay_stream_response(
     tokio::spawn(async move {
         let mut meta = meta;
         let mut acc = usage::UsageAccumulator::new(format);
+        let mut stripper = usage::SseUsageStripper::new(strip_unrequested_usage);
         let mut stream = resp.bytes_stream();
-        let mut first = true;
         let mut stream_error = false;
+        let mut downstream_open = true;
         // reqwest 的 read_timeout（client 级空闲超时）覆盖每个 chunk 读取，超时以 Err 进来。
+        // 客户端先断开时继续读完上游，把 usage 收齐（sub2api 同样在断开后 drain）。
         while let Some(item) = stream.next().await {
             let chunk = match item {
                 Ok(c) => c,
                 Err(e) => {
                     // 不静默吞掉读取错误：向下游传播并标记失败（issue #13）
                     stream_error = true;
-                    abort_downstream(&tx, e).await;
+                    if downstream_open {
+                        abort_downstream(&tx, e).await;
+                    }
                     break;
                 }
             };
-            if first {
-                // 首个内容分片到达 → 更精确的首字延迟，覆盖响应头时刻。
-                meta.first_byte_ms = Some(chrono::Utc::now().timestamp_millis() - meta.started_ms);
-                first = false;
-            }
+            let seen = acc.has_visible_output();
             acc.feed(&chunk);
-            if tx.send(Ok(chunk)).await.is_err() {
-                break;
+            stamp_first_visible(&mut meta, !seen && acc.has_visible_output());
+            if downstream_open {
+                let forward = stripper.push(&chunk);
+                if !forward.is_empty() && tx.send(Ok(Bytes::from(forward))).await.is_err() {
+                    downstream_open = false;
+                }
+            }
+        }
+        if downstream_open {
+            let tail = stripper.finish();
+            if !tail.is_empty() {
+                let _ = tx.send(Ok(Bytes::from(tail))).await;
             }
         }
         let tu = acc.finish();
@@ -1234,7 +1323,11 @@ async fn transform_buffered_response(
     };
     match serde_json::from_str::<Value>(&text) {
         Ok(openai) => {
-            let tu = usage::from_response(&openai, UpstreamFormat::OpenAiChat);
+            let tu = usage::apply_body_output_estimate(
+                usage::from_response(&openai, UpstreamFormat::OpenAiChat),
+                &openai,
+                UpstreamFormat::OpenAiChat,
+            );
             stats.record(meta.into_record(Some(200), false, tu));
             (
                 StatusCode::OK,
@@ -1256,23 +1349,22 @@ fn stream_transform_response(
     tokio::spawn(async move {
         let mut meta = meta;
         let mut converter = StreamConverter::new(meta.model.clone().unwrap_or_default(), 0);
+        let mut observed = usage::OutputObserver::default();
         let mut stream = resp.bytes_stream();
         let mut buf = String::new();
-        let mut first = true;
         let mut stream_error = false;
+        let mut downstream_open = true;
         while let Some(item) = stream.next().await {
             let chunk = match item {
                 Ok(c) => c,
                 Err(e) => {
                     stream_error = true;
-                    abort_downstream(&tx, e).await;
+                    if downstream_open {
+                        abort_downstream(&tx, e).await;
+                    }
                     break;
                 }
             };
-            if first {
-                meta.first_byte_ms = Some(chrono::Utc::now().timestamp_millis() - meta.started_ms);
-                first = false;
-            }
             buf.push_str(&String::from_utf8_lossy(&chunk));
             while let Some(nl) = buf.find('\n') {
                 let line: String = buf[..nl].to_string();
@@ -1283,29 +1375,43 @@ fn stream_transform_response(
                 };
                 let data = data.trim();
                 if data == "[DONE]" {
-                    for ev in converter.finish() {
-                        let _ = tx.send(Ok(Bytes::from(ev))).await;
+                    if downstream_open {
+                        for ev in converter.finish() {
+                            if tx.send(Ok(Bytes::from(ev))).await.is_err() {
+                                downstream_open = false;
+                                break;
+                            }
+                        }
                     }
                 } else if !data.is_empty() {
                     if let Ok(j) = serde_json::from_str::<Value>(data) {
-                        for ev in converter.process_chunk(&j) {
-                            let _ = tx.send(Ok(Bytes::from(ev))).await;
+                        stamp_first_visible(
+                            &mut meta,
+                            observed.observe(&j, UpstreamFormat::OpenAiChat),
+                        );
+                        let events = converter.process_chunk(&j);
+                        if downstream_open {
+                            for ev in events {
+                                if tx.send(Ok(Bytes::from(ev))).await.is_err() {
+                                    downstream_open = false;
+                                    break;
+                                }
+                            }
                         }
                     }
                 }
             }
         }
         // 上游未发 [DONE] 时兜底收尾（finish 幂等）
-        for ev in converter.finish() {
-            let _ = tx.send(Ok(Bytes::from(ev))).await;
+        if downstream_open {
+            for ev in converter.finish() {
+                if tx.send(Ok(Bytes::from(ev))).await.is_err() {
+                    break;
+                }
+            }
         }
         let (input, output, cache_creation, cache_read) = converter.usage();
-        let tu = usage::TokenUsage {
-            input,
-            output,
-            cache_creation,
-            cache_read,
-        };
+        let tu = usage_from_converter(input, output, cache_creation, cache_read, &observed);
         if stream_error {
             stats.record(meta.into_record_with_error_body(
                 Some(502),
@@ -1472,6 +1578,33 @@ Content-Type: image/png\r\n\
         );
         assert_eq!(body2["output_config"]["effort"], serde_json::json!("max"));
     }
+
+    #[test]
+    fn chat_stream_include_usage_is_forced_and_preserves_other_options() {
+        let mut body = Bytes::from_static(
+            br#"{"model":"gpt-4o","stream":true,"stream_options":{"include_usage":false}}"#,
+        );
+        assert!(super::ensure_chat_stream_include_usage(&mut body));
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            v["stream_options"]["include_usage"],
+            serde_json::json!(true)
+        );
+        assert!(!super::client_requested_include_usage(Some(
+            &serde_json::json!({"stream":true,"stream_options":{"include_usage":false}})
+        )));
+        assert!(super::client_requested_include_usage(Some(
+            &serde_json::json!({"stream_options":{"include_usage":true}})
+        )));
+    }
+
+    #[test]
+    fn chat_stream_include_usage_skips_non_stream_and_non_json() {
+        let mut body = Bytes::from_static(br#"{"model":"gpt-4o","stream":false}"#);
+        assert!(!super::ensure_chat_stream_include_usage(&mut body));
+        let mut raw = Bytes::from_static(b"not-json");
+        assert!(!super::ensure_chat_stream_include_usage(&mut raw));
+    }
 }
 
 /// 非流式（Claude 入站 + codex 端点）：出站已强制流式，缓冲全部 SSE 后取最终
@@ -1506,7 +1639,11 @@ async fn buffered_claude_from_responses(
         return json_error(StatusCode::BAD_GATEWAY, msg);
     }
     let model = meta.model.clone().unwrap_or_default();
-    let tu = usage::from_response(&r, UpstreamFormat::OpenAiResponses);
+    let tu = usage::apply_body_output_estimate(
+        usage::from_response(&r, UpstreamFormat::OpenAiResponses),
+        &r,
+        UpstreamFormat::OpenAiResponses,
+    );
     stats.record(meta.into_record(Some(200), false, tu));
     (
         StatusCode::OK,
@@ -1526,23 +1663,22 @@ fn stream_claude_from_responses(
     tokio::spawn(async move {
         let mut meta = meta;
         let mut converter = ResponsesToClaudeConverter::new(meta.model.clone().unwrap_or_default());
+        let mut observed = usage::OutputObserver::default();
         let mut stream = resp.bytes_stream();
         let mut buf = String::new();
-        let mut first = true;
         let mut stream_error = false;
+        let mut downstream_open = true;
         while let Some(item) = stream.next().await {
             let chunk = match item {
                 Ok(c) => c,
                 Err(e) => {
                     stream_error = true;
-                    abort_downstream(&tx, e).await;
+                    if downstream_open {
+                        abort_downstream(&tx, e).await;
+                    }
                     break;
                 }
             };
-            if first {
-                meta.first_byte_ms = Some(chrono::Utc::now().timestamp_millis() - meta.started_ms);
-                first = false;
-            }
             buf.push_str(&String::from_utf8_lossy(&chunk));
             while let Some(nl) = buf.find('\n') {
                 let line: String = buf[..nl].to_string();
@@ -1556,23 +1692,32 @@ fn stream_claude_from_responses(
                     continue;
                 }
                 if let Ok(j) = serde_json::from_str::<Value>(data) {
-                    for ev in converter.process_event(&j) {
-                        let _ = tx.send(Ok(Bytes::from(ev))).await;
+                    stamp_first_visible(
+                        &mut meta,
+                        observed.observe(&j, UpstreamFormat::OpenAiResponses),
+                    );
+                    let events = converter.process_event(&j);
+                    if downstream_open {
+                        for ev in events {
+                            if tx.send(Ok(Bytes::from(ev))).await.is_err() {
+                                downstream_open = false;
+                                break;
+                            }
+                        }
                     }
                 }
             }
         }
         // 上游未发 response.completed 时兜底收尾（finish 幂等）
-        for ev in converter.finish() {
-            let _ = tx.send(Ok(Bytes::from(ev))).await;
+        if downstream_open {
+            for ev in converter.finish() {
+                if tx.send(Ok(Bytes::from(ev))).await.is_err() {
+                    break;
+                }
+            }
         }
         let (input, output, cache_creation, cache_read) = converter.usage();
-        let tu = usage::TokenUsage {
-            input,
-            output,
-            cache_creation,
-            cache_read,
-        };
+        let tu = usage_from_converter(input, output, cache_creation, cache_read, &observed);
         // 与 buffered_claude_from_responses 对齐：上游 SSE 失败不当成功。
         // 优先判定网络层中断（超时/读取错误），再判定上游 SSE 失败事件，最后才算成功。
         if stream_error {
@@ -1616,7 +1761,11 @@ async fn buffered_responses_from_chat(
     match serde_json::from_str::<Value>(&text) {
         Ok(chat) => {
             let model = meta.model.clone().unwrap_or_default();
-            let tu = usage::from_response(&chat, UpstreamFormat::OpenAiChat);
+            let tu = usage::apply_body_output_estimate(
+                usage::from_response(&chat, UpstreamFormat::OpenAiChat),
+                &chat,
+                UpstreamFormat::OpenAiChat,
+            );
             stats.record(meta.into_record(Some(200), false, tu));
             (
                 StatusCode::OK,
@@ -1639,23 +1788,22 @@ fn stream_responses_from_chat(
         let mut meta = meta;
         let mut converter =
             ResponsesStreamConverter::new(meta.model.clone().unwrap_or_default(), 0);
+        let mut observed = usage::OutputObserver::default();
         let mut stream = resp.bytes_stream();
         let mut buf = String::new();
-        let mut first = true;
         let mut stream_error = false;
+        let mut downstream_open = true;
         while let Some(item) = stream.next().await {
             let chunk = match item {
                 Ok(c) => c,
                 Err(e) => {
                     stream_error = true;
-                    abort_downstream(&tx, e).await;
+                    if downstream_open {
+                        abort_downstream(&tx, e).await;
+                    }
                     break;
                 }
             };
-            if first {
-                meta.first_byte_ms = Some(chrono::Utc::now().timestamp_millis() - meta.started_ms);
-                first = false;
-            }
             buf.push_str(&String::from_utf8_lossy(&chunk));
             while let Some(nl) = buf.find('\n') {
                 let line: String = buf[..nl].to_string();
@@ -1666,29 +1814,43 @@ fn stream_responses_from_chat(
                 };
                 let data = data.trim();
                 if data == "[DONE]" {
-                    for ev in converter.finish() {
-                        let _ = tx.send(Ok(Bytes::from(ev))).await;
+                    if downstream_open {
+                        for ev in converter.finish() {
+                            if tx.send(Ok(Bytes::from(ev))).await.is_err() {
+                                downstream_open = false;
+                                break;
+                            }
+                        }
                     }
                 } else if !data.is_empty() {
                     if let Ok(j) = serde_json::from_str::<Value>(data) {
-                        for ev in converter.process_chunk(&j) {
-                            let _ = tx.send(Ok(Bytes::from(ev))).await;
+                        stamp_first_visible(
+                            &mut meta,
+                            observed.observe(&j, UpstreamFormat::OpenAiChat),
+                        );
+                        let events = converter.process_chunk(&j);
+                        if downstream_open {
+                            for ev in events {
+                                if tx.send(Ok(Bytes::from(ev))).await.is_err() {
+                                    downstream_open = false;
+                                    break;
+                                }
+                            }
                         }
                     }
                 }
             }
         }
         // 上游未发 [DONE] 时兜底收尾（finish 幂等）
-        for ev in converter.finish() {
-            let _ = tx.send(Ok(Bytes::from(ev))).await;
+        if downstream_open {
+            for ev in converter.finish() {
+                if tx.send(Ok(Bytes::from(ev))).await.is_err() {
+                    break;
+                }
+            }
         }
         let (input, output, cache_creation, cache_read) = converter.usage();
-        let tu = usage::TokenUsage {
-            input,
-            output,
-            cache_creation,
-            cache_read,
-        };
+        let tu = usage_from_converter(input, output, cache_creation, cache_read, &observed);
         if stream_error {
             stats.record(meta.into_record_with_error_body(
                 Some(502),

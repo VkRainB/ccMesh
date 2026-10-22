@@ -191,6 +191,8 @@ const MIGRATIONS: &[&str] = &[
         json TEXT NOT NULL,
         fetched_at INTEGER NOT NULL
      );",
+    // v20：request_logs 标记输出 token 是否为字符估算。旧行默认 0（真实 usage）。
+    "ALTER TABLE request_logs ADD COLUMN output_estimated INTEGER NOT NULL DEFAULT 0;",
 ];
 
 /// 幂等执行迁移：读取 `schema_version` 当前版本，仅应用尚未执行的脚本。
@@ -289,6 +291,18 @@ mod tests {
         };
         assert!(cols.contains(&"inbound_path".to_string()));
         assert!(cols.contains(&"upstream_path".to_string()));
+    }
+
+    #[test]
+    fn v20_adds_output_estimated_column() {
+        let c = Connection::open_in_memory().unwrap();
+        run_migrations(&c).unwrap();
+        let cols: Vec<String> = {
+            let mut stmt = c.prepare("PRAGMA table_info(request_logs)").unwrap();
+            let rows = stmt.query_map([], |r| r.get::<_, String>(1)).unwrap();
+            rows.filter_map(Result::ok).collect()
+        };
+        assert!(cols.contains(&"output_estimated".to_string()));
     }
 
     #[test]

@@ -231,7 +231,11 @@ impl StreamConverter {
                     .or_else(|| usage.get("output_tokens"))
                     .and_then(|v| v.as_i64())
                 {
-                    self.ctx.output_tokens = ot;
+                    self.ctx.output_tokens =
+                        crate::modules::usage::output_with_reasoning(usage, ot);
+                } else {
+                    self.ctx.output_tokens =
+                        crate::modules::usage::output_with_reasoning(usage, self.ctx.output_tokens);
                 }
                 if let Some(cc) = usage
                     .get("cache_creation_input_tokens")
@@ -478,6 +482,21 @@ mod tests {
         assert!(done.contains("\"output_tokens\":7"));
         // prompt_tokens(3) 已含 cached_tokens(2)，净输入 3 - 2 = 1
         assert_eq!(c.usage(), (1, 7, 0, 2));
+    }
+
+    #[test]
+    fn usage_adds_reasoning_tokens_when_total_excludes_them() {
+        let mut c = StreamConverter::new("m".into(), 0);
+        c.process_chunk(&json!({
+            "choices": [],
+            "usage": {
+                "prompt_tokens": 32,
+                "completion_tokens": 9,
+                "total_tokens": 135,
+                "completion_tokens_details": { "reasoning_tokens": 94 }
+            }
+        }));
+        assert_eq!(c.usage().1, 103);
     }
 
     #[test]

@@ -135,7 +135,10 @@ impl StatsAggregator {
                 d.errors += 1;
             }
             d.input_tokens += rec.usage.input;
-            d.output_tokens += rec.usage.output;
+            // 字符估算只给监控看速率，不进日聚合。
+            if !rec.usage.output_estimated {
+                d.output_tokens += rec.usage.output;
+            }
             d.cache_creation_tokens += rec.usage.cache_creation;
             d.cache_read_tokens += rec.usage.cache_read;
         }
@@ -157,6 +160,7 @@ impl StatsAggregator {
             model: rec.model,
             duration_ms: rec.duration_ms,
             first_byte_ms: rec.first_byte_ms,
+            output_estimated: rec.usage.output_estimated,
             actual_model: rec.actual_model,
             error_body: rec.error_body,
         };
