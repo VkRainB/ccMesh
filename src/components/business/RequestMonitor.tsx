@@ -308,7 +308,7 @@ export function LatencyCell({ log }: { log: RequestLog }) {
             className="justify-self-start text-left font-mono tabular-nums tracking-tight text-foreground"
             title={
               label === "TPS" && value.startsWith("≈")
-                ? "分母含等首字时间，或输出 token 按字符估算"
+                ? "分母为总用时（生成窗口过短或无首字），或输出 token 按字符估算"
                 : undefined
             }
           >

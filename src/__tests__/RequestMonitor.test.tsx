@@ -104,8 +104,8 @@ describe("RequestLogTable", () => {
     expect(screen.queryByRole("columnheader", { name: "首字" })).not.toBeInTheDocument();
     expect(screen.getByText("0.12s")).toBeInTheDocument(); // 用时 120ms
     expect(screen.getByText("0.08s")).toBeInTheDocument(); // 首字 80ms
-    // 生成窗口只有 40ms，速度留空，不用短横线
-    expect(screen.getByText("TPS").nextElementSibling).toHaveTextContent("");
+    // 生成窗口只有 40ms，退回总用时估算：5 token / 0.12s
+    expect(screen.getByText("TPS").nextElementSibling).toHaveTextContent("≈41.7 tok/s");
     expect(screen.queryByText("—")).not.toBeInTheDocument();
   });
 
@@ -152,7 +152,7 @@ describe("RequestLogTable", () => {
     expect(screen.getByText("≈20.0 tok/s")).toBeInTheDocument();
     expect(screen.getByText("≈20.0 tok/s")).toHaveAttribute(
       "title",
-      "分母含等首字时间，或输出 token 按字符估算",
+      "分母为总用时（生成窗口过短或无首字），或输出 token 按字符估算",
     );
     // 没有首字计时：首字留空
     expect(screen.getByText("首字").nextElementSibling).toHaveTextContent("");

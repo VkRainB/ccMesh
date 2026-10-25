@@ -99,11 +99,18 @@ describe("formatOutputTps", () => {
     expect(formatOutputTps(20, 2_000, 400)).toBe("12.5 tok/s");
   });
 
-  it("生成窗口太短、生成时间为 0 或时间缺失时不计算", () => {
-    // 窗口 40ms，时钟噪声
-    expect(formatOutputTps(5, 120, 80)).toBeNull();
-    expect(formatOutputTps(200, 5_360, 5_360)).toBeNull();
+  it("生成窗口过短或为 0 时退回总用时，不再留空", () => {
+    // 窗口 40ms：5 / 0.12s
+    expect(formatOutputTps(5, 120, 80)).toBe("≈41.7 tok/s");
+    // 首字等于结束：200 / 5.36s
+    expect(formatOutputTps(200, 5_360, 5_360)).toBe("≈37.3 tok/s");
+    // 窗口 1ms 的 32 token 请求，按窗口算会是 32000 tok/s，这里退回端到端
+    expect(formatOutputTps(32, 4_184, 4_183)).toBe("≈7.6 tok/s");
+  });
+
+  it("时间缺失或无效、没有输出时不计算", () => {
     expect(formatOutputTps(200, null, 5_360)).toBeNull();
+    expect(formatOutputTps(200, 0, 5_360)).toBeNull();
     expect(formatOutputTps(Number.NaN, 1_000, 100)).toBeNull();
     expect(formatOutputTps(0, 2_000, 100)).toBeNull();
   });
@@ -112,10 +119,13 @@ describe("formatOutputTps", () => {
     // 等首字的时间算进分母，所以偏低
     expect(formatOutputTps(200, 10_000, null)).toBe("≈20.0 tok/s");
     expect(formatOutputTps(199, 10_000, null)).toBe("≈19.9 tok/s");
-    expect(formatOutputTps(20, 150, null)).toBeNull();
+    // 总用时不足 200ms 也照算
+    expect(formatOutputTps(20, 150, null)).toBe("≈133.3 tok/s");
   });
 
   it("输出 token 是估算值时即使有首字也标约等", () => {
     expect(formatOutputTps(20, 2_000, 400, true)).toBe("≈12.5 tok/s");
+    // 窗口过短退回总用时，也只带一个约等号
+    expect(formatOutputTps(20, 2_000, 1_900, true)).toBe("≈10.0 tok/s");
   });
 });
