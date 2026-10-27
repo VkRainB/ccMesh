@@ -32,6 +32,14 @@ describe("toolSessions utils", () => {
         sample({ title: undefined, projectDir: "E:\\\\work\\\\demo" }),
       ),
     ).toBe("demo");
+    expect(
+      formatSessionTitle(
+        sample({
+          title: "<local-command-stdout>Set model to gpt-5.5</local-command-stdout>",
+          projectDir: "E:\\\\work\\\\demo",
+        }),
+      ),
+    ).toBe("demo");
   });
 
   it("matchesSessionSearch checks metadata fields", () => {

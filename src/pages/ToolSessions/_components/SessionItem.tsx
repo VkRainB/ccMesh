@@ -1,5 +1,4 @@
 import { memo } from "react";
-import { ChevronRight, Clock } from "lucide-react";
 import { ClaudeCode, Codex, OpenCode } from "@lobehub/icons";
 
 import ompLogoUrl from "@/assets/svg/about/omp-logo.svg";
@@ -84,7 +83,7 @@ export const SessionItem = memo(function SessionItem({
     <div
       className={cn(
         "group flex items-start gap-2 rounded-lg border px-3 py-2.5 transition-all",
-        "[content-visibility:auto] [contain-intrinsic-size:auto_4.5rem]",
+        "[content-visibility:auto] [contain-intrinsic-size:auto_2.75rem]",
         isSelected
           ? "border-primary/30 bg-primary/10"
           : "border-transparent hover:bg-muted/60",
@@ -104,29 +103,17 @@ export const SessionItem = memo(function SessionItem({
       <button
         type="button"
         onClick={() => onSelect(sessionKey)}
-        className="min-w-0 flex-1 text-left"
+        className="flex min-w-0 flex-1 items-center gap-2 text-left"
       >
-        <div className="mb-1 flex items-center gap-2">
-          <span
-            className="shrink-0"
-            title={getProviderLabel(session.providerId)}
-          >
-            <ProviderGlyph providerId={session.providerId} />
-          </span>
-          <span className="line-clamp-2 flex-1 text-sm font-medium">
-            {searchQuery ? highlightText(title, searchQuery) : title}
-          </span>
-          <ChevronRight
-            className={cn(
-              "size-4 shrink-0 text-muted-foreground/50 transition-transform",
-              isSelected && "rotate-90 text-primary",
-            )}
-          />
-        </div>
-        <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
-          <Clock className="size-3" />
-          <span>{formatRelativeTime(lastActive)}</span>
-        </div>
+        <span className="shrink-0" title={getProviderLabel(session.providerId)}>
+          <ProviderGlyph providerId={session.providerId} />
+        </span>
+        <span className="min-w-0 flex-1 truncate text-sm">
+          {searchQuery ? highlightText(title, searchQuery) : title}
+        </span>
+        <span className="shrink-0 text-[11px] text-muted-foreground">
+          {formatRelativeTime(lastActive)}
+        </span>
       </button>
     </div>
   );

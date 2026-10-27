@@ -103,16 +103,46 @@ pub fn extract_text(content: &Value) -> String {
     }
 }
 
+fn tool_input_summary(input: &Value) -> Option<String> {
+    let obj = input.as_object()?;
+    for key in [
+        "file_path",
+        "path",
+        "command",
+        "pattern",
+        "query",
+        "url",
+        "description",
+        "prompt",
+    ] {
+        if let Some(text) = obj.get(key).and_then(Value::as_str) {
+            let trimmed = text.trim();
+            if !trimmed.is_empty() {
+                return Some(truncate_summary(trimmed, 80));
+            }
+        }
+    }
+    None
+}
+
 fn extract_text_from_item(item: &Value) -> Option<String> {
     let item_type = item.get("type").and_then(Value::as_str).unwrap_or("");
 
-    // tool_use: show tool name
+    // tool_use: 名称 + 一句输入摘要，供会话里折叠成一行。
     if item_type == "tool_use" {
         let name = item
             .get("name")
             .and_then(Value::as_str)
             .unwrap_or("unknown");
-        return Some(format!("[Tool: {name}]"));
+        let summary = item
+            .get("input")
+            .and_then(tool_input_summary)
+            .unwrap_or_default();
+        return Some(if summary.is_empty() {
+            format!("[Tool: {name}]")
+        } else {
+            format!("[Tool: {name}] {summary}")
+        });
     }
 
     // tool_result: extract nested content

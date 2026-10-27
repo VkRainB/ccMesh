@@ -86,10 +86,16 @@ export const getRoleLabel = (role: string) => {
   return role;
 };
 
-export const formatSessionTitle = (session: ToolSessionMeta) =>
-  session.title ||
-  getBaseName(session.projectDir) ||
-  session.sessionId.slice(0, 8);
+const CLAUDE_CHROME = /<local-command-|<command-name>|<command-message>/;
+
+export const formatSessionTitle = (session: ToolSessionMeta) => {
+  const title = session.title
+    ?.replace(/\u001b\[[0-9;]*m/g, "")
+    .replace(/\[\d+m/g, "")
+    .trim();
+  if (title && !CLAUDE_CHROME.test(title)) return title;
+  return getBaseName(session.projectDir) || session.sessionId.slice(0, 8);
+};
 
 export const groupSessionsByProviderAndDirectory = (
   sessions: ToolSessionMeta[],
@@ -189,6 +195,12 @@ const extractCodexPromptFromIdeContext = (content: string) => {
 
 export const extractCodexPromptPreview = (content: string) =>
   extractCodexPromptFromIdeContext(content) ?? content;
+
+/** Codex 正文：环境包装和 IDE 上下文只留真正的请求，其余按原文。 */
+export const codexDisplayContent = (content: string) => {
+  if (shouldHideCodexMessageFromToc(content)) return "";
+  return extractCodexPromptPreview(content);
+};
 
 export const formatSessionMessagePreview = (content: string, maxLength = 50) =>
   content.slice(0, maxLength) + (content.length > maxLength ? "..." : "");

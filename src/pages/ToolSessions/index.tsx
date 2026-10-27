@@ -5,9 +5,6 @@ import {
   CheckSquareIcon,
   ChevronDownIcon,
   ChevronRightIcon,
-  CopyIcon,
-  FileTextIcon,
-  FolderOpenIcon,
   ListIcon,
   ListTreeIcon,
   RefreshCwIcon,
@@ -51,9 +48,10 @@ import {
 } from "@/services/modules/toolSessions";
 import { useLayoutStore } from "@/stores";
 
+import { ClaudeTranscript } from "./_components/ClaudeMessageItem";
 import { ProviderLogo, SessionItem } from "./_components/SessionItem";
-import { SessionMessageItem } from "./_components/SessionMessageItem";
 import {
+  codexDisplayContent,
   extractCodexPromptPreview,
   formatSessionMessagePreview,
   formatSessionTitle,
@@ -152,10 +150,14 @@ export function ToolSessions() {
   const [deleteTargets, setDeleteTargets] = useState<ToolSessionMeta[] | null>(
     null,
   );
-  const [tocOpen, setTocOpen] = useState(false);
-  const [activeMessageIndex, setActiveMessageIndex] = useState<number | null>(
-    null,
-  );
+  const [tocHover, setTocHover] = useState<{
+    index: number;
+    preview: string;
+    top: number;
+    left: number;
+  } | null>(null);
+  const [currentTocIndex, setCurrentTocIndex] = useState<number | null>(null);
+  const messageScrollRef = useRef<HTMLDivElement>(null);
   const [messageWindow, setMessageWindow] = useState(INITIAL_VISIBLE_MESSAGES);
   const pendingScrollIndex = useRef<number | null>(null);
   const messageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
@@ -212,7 +214,8 @@ export function ToolSessions() {
 
   useEffect(() => {
     setMessageWindow(INITIAL_VISIBLE_MESSAGES);
-    setActiveMessageIndex(null);
+    setCurrentTocIndex(null);
+    setTocHover(null);
   }, [activeKey]);
 
   useEffect(() => {
@@ -238,14 +241,17 @@ export function ToolSessions() {
             shouldHideCodexMessageFromToc(m.content)
           ),
       )
-      .map(({ m, index }) => ({
-        index,
-        preview: formatSessionMessagePreview(
+      .map(({ m, index }) => {
+        const text =
           activeSession?.providerId === "codex"
             ? extractCodexPromptPreview(m.content)
-            : m.content,
-        ),
-      }));
+            : m.content;
+        return {
+          index,
+          preview: formatSessionMessagePreview(text),
+          weight: text.trim().length,
+        };
+      });
   }, [messages, activeSession?.providerId]);
 
   const deleteMutation = useMutation({
@@ -314,9 +320,26 @@ export function ToolSessions() {
     });
   };
 
+  const syncCurrentToc = useCallback(() => {
+    const root = messageScrollRef.current;
+    if (!root || tocEntries.length === 0) return;
+    const edge = root.getBoundingClientRect().top + 8;
+    let current = tocEntries[0].index;
+    for (const entry of tocEntries) {
+      const el = messageRefs.current.get(entry.index);
+      if (!el) continue;
+      if (el.getBoundingClientRect().top <= edge) current = entry.index;
+    }
+    setCurrentTocIndex((prev) => (prev === current ? prev : current));
+  }, [tocEntries]);
+
+  useEffect(() => {
+    const id = requestAnimationFrame(() => syncCurrentToc());
+    return () => cancelAnimationFrame(id);
+  }, [syncCurrentToc, visibleMessages.length]);
+
   const scrollToMessage = (index: number) => {
-    setActiveMessageIndex(index);
-    setTocOpen(false);
+    setCurrentTocIndex(index);
     if (index < hiddenBefore) {
       pendingScrollIndex.current = index;
       startTransition(() => setMessageWindow(messages.length));
@@ -416,7 +439,7 @@ export function ToolSessions() {
           </Button>
           <h1 className="text-2xl font-light tracking-tight">会话管理</h1>
           <span className="text-xs text-ink-mute">
-            本机 Claude / Codex / OpenCode / pi / omp 工具会话（与应用内对话无关）
+            本机 Claude / Codex / OpenCode / pi / omp 工具会话
           </span>
         </header>
 
@@ -609,29 +632,30 @@ export function ToolSessions() {
               </div>
             ) : (
               <>
-                <CardHeader className="space-y-3 border-b px-4 py-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex min-w-0 items-center gap-3">
-                      <ProviderIcon
-                        providerId={activeSession.providerId}
-                        size={28}
-                      />
-                      <h2 className="truncate text-lg font-medium">
-                        {formatSessionTitle(activeSession)}
-                      </h2>
-                    </div>
+                <CardHeader className="gap-1 border-b px-3 py-2">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <ProviderIcon providerId={activeSession.providerId} size={16} />
+                    <h2
+                      className="min-w-0 flex-1 truncate text-sm font-medium"
+                      title={formatSessionTitle(activeSession)}
+                    >
+                      {formatSessionTitle(activeSession)}
+                    </h2>
+                    <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                      {messages.length}
+                    </span>
                     <Button
-                      variant="destructive"
-                      size="sm"
-                      className="shrink-0"
+                      variant="ghost"
+                      size="icon"
+                      className="size-7 shrink-0 text-destructive hover:text-destructive"
+                      aria-label="删除会话"
                       onClick={() => setDeleteTargets([activeSession])}
                     >
                       <Trash2Icon className="size-3.5" />
-                      删除会话
                     </Button>
                   </div>
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                    <span>
+                  <div className="flex min-w-0 items-center gap-2 text-[11px] text-muted-foreground">
+                    <span className="shrink-0">
                       {formatTimestamp(
                         activeSession.lastActiveAt || activeSession.createdAt,
                       )}
@@ -639,47 +663,21 @@ export function ToolSessions() {
                     {activeSession.projectDir ? (
                       <button
                         type="button"
-                        className="inline-flex max-w-full items-center gap-1 hover:text-foreground"
+                        className="min-w-0 truncate hover:text-foreground"
                         title={activeSession.projectDir}
                         onClick={() =>
                           void copyText(activeSession.projectDir!, "已复制路径")
                         }
                       >
-                        <FolderOpenIcon className="size-3.5 shrink-0" />
-                        <span className="truncate">
-                          {getBaseName(activeSession.projectDir) ||
-                            activeSession.projectDir}
-                        </span>
+                        {getBaseName(activeSession.projectDir) ||
+                          activeSession.projectDir}
                       </button>
                     ) : null}
-                    {activeSession.sourcePath ? (
+                    {messagesQuery.isFetching ? <span>加载中…</span> : null}
+                    {activeSession.resumeCommand ? (
                       <button
                         type="button"
-                        className="inline-flex max-w-[240px] items-center gap-1 hover:text-foreground"
-                        title={activeSession.sourcePath}
-                        onClick={() =>
-                          void copyText(
-                            activeSession.sourcePath!,
-                            "已复制文件名",
-                          )
-                        }
-                      >
-                        <FileTextIcon className="size-3.5 shrink-0" />
-                        <span className="truncate">
-                          {getBaseName(activeSession.sourcePath)}
-                        </span>
-                      </button>
-                    ) : null}
-                  </div>
-                  {activeSession.resumeCommand ? (
-                    <div className="flex items-center gap-2 rounded-md bg-muted px-3 py-2 font-mono text-xs">
-                      <code className="min-w-0 flex-1 truncate">
-                        {activeSession.resumeCommand}
-                      </code>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-7 shrink-0"
+                        className="ml-auto shrink-0 hover:text-foreground"
                         onClick={() =>
                           void copyText(
                             activeSession.resumeCommand!,
@@ -687,23 +685,68 @@ export function ToolSessions() {
                           )
                         }
                       >
-                        <CopyIcon className="size-3.5" />
-                      </Button>
-                    </div>
-                  ) : null}
+                        复制恢复命令
+                      </button>
+                    ) : null}
+                  </div>
                 </CardHeader>
 
-                <div className="flex items-center gap-2 border-b px-4 py-2">
-                  <h3 className="text-sm font-medium">对话记录</h3>
-                  <Badge variant="secondary" className="text-xs">
-                    {messages.length}
-                  </Badge>
-                  {messagesQuery.isFetching ? (
-                    <span className="text-xs text-muted-foreground">加载中…</span>
-                  ) : null}
-                </div>
-
-                <CardContent className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+                <div className="flex min-h-0 flex-1">
+                {tocEntries.length > 0 ? (
+                  <div
+                    className="flex h-full w-8 shrink-0 flex-col overflow-y-auto py-2 pl-1.5"
+                    onMouseLeave={() => setTocHover(null)}
+                  >
+                    {(() => {
+                      const hoverAt = tocHover
+                        ? tocEntries.findIndex((item) => item.index === tocHover.index)
+                        : -1;
+                      return (
+                      <div key="valley" className="my-auto flex w-full flex-col gap-0.5">
+                      {tocEntries.map((entry, i) => {
+                      const dist = hoverAt < 0 ? -1 : Math.abs(i - hoverAt);
+                      const dark =
+                        dist === 0 || (hoverAt < 0 && entry.index === currentTocIndex);
+                      const extra = dist === 0 ? 42 : dist === 1 ? 22 : dist === 2 ? 10 : 0;
+                      const width = Math.min(100, 46 + extra);
+                      return (
+                        <button
+                          key={entry.index}
+                          type="button"
+                          aria-label={entry.preview}
+                          aria-current={entry.index === currentTocIndex || undefined}
+                          className="flex h-2 w-full shrink-0 items-center"
+                          onClick={() => scrollToMessage(entry.index)}
+                          onMouseEnter={(e) => {
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            setTocHover({
+                              index: entry.index,
+                              preview: entry.preview,
+                              top: rect.top + rect.height / 2,
+                              left: rect.right + 8,
+                            });
+                          }}
+                        >
+                          <span
+                            className={cn(
+                              "h-[3px] rounded-full transition-[width]",
+                              dark ? "bg-foreground" : "bg-foreground/25",
+                            )}
+                            style={{ width: `${width}%` }}
+                          />
+                        </button>
+                      );
+                      })}
+                      </div>
+                      );
+                    })()}
+                  </div>
+                ) : null}
+                <CardContent
+                  ref={messageScrollRef}
+                  onScroll={syncCurrentToc}
+                  className="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 py-2"
+                >
                   {messagesQuery.isError ? (
                     <p className="text-sm text-destructive">
                       {(messagesQuery.error as Error).message || "加载消息失败"}
@@ -725,65 +768,40 @@ export function ToolSessions() {
                           加载更早的 {hiddenBefore} 条消息
                         </button>
                       ) : null}
-                      {visibleMessages.map((message, offset) => {
-                        const index = hiddenBefore + offset;
-                        return (
-                          <div
-                            key={`${index}-${message.ts ?? 0}`}
-                            ref={(el) => {
-                              if (el) messageRefs.current.set(index, el);
-                              else messageRefs.current.delete(index);
-                            }}
-                          >
-                            <SessionMessageItem
-                              message={message}
-                              isActive={activeMessageIndex === index}
-                              searchQuery={search}
-                              onCopy={(content) => void copyText(content)}
-                            />
-                          </div>
-                        );
-                      })}
+                      <ClaudeTranscript
+                        speaker={getProviderLabel(activeSession.providerId)}
+                        items={visibleMessages.map((message, offset) => ({
+                          index: hiddenBefore + offset,
+                          role: message.role,
+                          content:
+                            activeSession.providerId === "codex"
+                              ? codexDisplayContent(message.content)
+                              : message.content,
+                          ts: message.ts,
+                        }))}
+                        searchQuery={search}
+                        registerRef={(index, el) => {
+                          if (el) messageRefs.current.set(index, el);
+                          else messageRefs.current.delete(index);
+                        }}
+                      />
                     </>
                   )}
                 </CardContent>
-
-                {tocEntries.length > 0 ? (
-                  <Button
-                    size="icon"
-                    className="absolute right-4 bottom-4 size-11 rounded-full shadow-lg"
-                    onClick={() => setTocOpen(true)}
-                    title="对话目录"
+                </div>
+                {tocHover ? (
+                  <div
+                    className="pointer-events-none fixed z-50 max-w-xs -translate-y-1/2 rounded-md border border-edge bg-card px-2.5 py-1.5 text-xs leading-5 text-foreground shadow-level-2"
+                    style={{ top: tocHover.top, left: tocHover.left }}
                   >
-                    <ListIcon className="size-5" />
-                  </Button>
+                    {tocHover.preview}
+                  </div>
                 ) : null}
               </>
             )}
           </Card>
         </div>
       </div>
-
-      <Dialog open={tocOpen} onOpenChange={setTocOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>对话目录</DialogTitle>
-            <DialogDescription>跳转到用户消息</DialogDescription>
-          </DialogHeader>
-          <div className="max-h-[50vh] space-y-1 overflow-y-auto">
-            {tocEntries.map((entry) => (
-              <button
-                key={entry.index}
-                type="button"
-                className="block w-full rounded-md px-3 py-2 text-left text-sm hover:bg-muted"
-                onClick={() => scrollToMessage(entry.index)}
-              >
-                {entry.preview}
-              </button>
-            ))}
-          </div>
-        </DialogContent>
-      </Dialog>
 
       <Dialog
         open={!!deleteTargets}

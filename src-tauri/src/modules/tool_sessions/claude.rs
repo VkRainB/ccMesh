@@ -127,6 +127,15 @@ pub fn delete_session(_root: &Path, path: &Path, session_id: &str) -> Result<boo
     Ok(true)
 }
 
+/// 本地斜杠命令和命令回显不是用户说的话，不能当会话标题。
+fn is_claude_chrome(text: &str) -> bool {
+    text.contains("<local-command-caveat>")
+        || text.contains("<local-command-stdout>")
+        || text.contains("<local-command-stderr>")
+        || text.contains("<command-name>")
+        || text.contains("<command-message>")
+}
+
 fn parse_session(path: &Path) -> Option<SessionMeta> {
     if is_agent_session(path) {
         return None;
@@ -173,10 +182,7 @@ fn parse_session(path: &Path) -> Option<SessionMeta> {
                 if let Some(message) = value.get("message") {
                     let text = message.get("content").map(extract_text).unwrap_or_default();
                     let trimmed = text.trim();
-                    if !trimmed.is_empty()
-                        && !trimmed.contains("<local-command-caveat>")
-                        && !trimmed.starts_with("<command-name>")
-                    {
+                    if !trimmed.is_empty() && !is_claude_chrome(trimmed) {
                         first_user_message = Some(trimmed.to_string());
                     }
                 }
@@ -354,7 +360,7 @@ mod tests {
         let msgs = load_messages(&path).expect("load");
         assert_eq!(msgs.len(), 2);
         assert_eq!(msgs[0].role, "assistant");
-        assert!(msgs[0].content.contains("[Tool: Write]"));
+        assert!(msgs[0].content.contains("[Tool: Write] a.txt"));
         assert_eq!(msgs[1].role, "tool");
         assert_eq!(msgs[1].content, "File written");
     }
@@ -503,5 +509,23 @@ mod tests {
 
         let meta = parse_session(&path).unwrap();
         assert_eq!(meta.title.as_deref(), Some("帮我看看工作区的改动"));
+    }
+
+    #[test]
+    fn parse_session_skips_local_command_stdout_as_title() {
+        let temp = tempdir().expect("tempdir");
+        let path = temp.path().join("session-stdout.jsonl");
+        std::fs::write(
+            &path,
+            concat!(
+                "{\"sessionId\":\"session-stdout\",\"cwd\":\"/tmp/project\",\"timestamp\":\"2026-03-06T10:00:00Z\"}\n",
+                "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"<local-command-stdout>Set model to gpt-5.5</local-command-stdout>\"},\"timestamp\":\"2026-03-06T10:00:01Z\"}\n",
+                "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"hi\"},\"timestamp\":\"2026-03-06T10:00:02Z\"}\n",
+            ),
+        )
+        .expect("write");
+
+        let meta = parse_session(&path).unwrap();
+        assert_eq!(meta.title.as_deref(), Some("hi"));
     }
 }
