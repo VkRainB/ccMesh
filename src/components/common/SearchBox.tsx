@@ -40,7 +40,7 @@ export function SearchBox({
           variant: "ghost",
           size: "icon",
           className:
-            "h-9 w-9 shrink-0 rounded-xl text-muted-foreground transition-none hover:bg-transparent hover:text-foreground",
+            "pointer-events-auto h-9 w-9 shrink-0 rounded-xl text-muted-foreground transition-none hover:bg-transparent hover:text-foreground",
         })}
       >
         <motion.span layout="position">
@@ -54,7 +54,7 @@ export function SearchBox({
     <motion.div
       layoutId={layoutId}
       className={cn(
-        "flex h-9 w-64 shrink-0 items-center gap-2 rounded-xl border border-input bg-surface-raised px-3",
+        "pointer-events-auto flex h-9 w-64 shrink-0 items-center gap-2 rounded-xl border border-input bg-surface-raised px-3",
         className,
       )}
       transition={{ type: "spring", stiffness: 400, damping: 30 }}
