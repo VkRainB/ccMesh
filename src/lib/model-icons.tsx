@@ -1,5 +1,7 @@
 import type { ComponentType } from "react";
 import { Cpu, MousePointer2 } from "lucide-react";
+
+import { cn } from "@/lib/utils";
 import {
   Aws,
   Azure,
@@ -47,6 +49,24 @@ import {
 /** @lobehub/icons 每个品牌是 CompoundedIcon：默认=Mono 单色，.Color=彩色纯图标（品牌色，无背景圆），.Avatar=带背景圆头像。这里用 .Color 彩色图标。 */
 type IconComponent = ComponentType<{ size?: number; className?: string }>;
 
+/**
+ * 5.10 的 Kimi.Color 把字形写死 #fff，亮色底上是白的。
+ * 6.10 起官方改为 currentColor。蓝点保留，字形跟前景色（亮黑 / 暗白）。
+ */
+function KimiMark({ size, className }: { size?: number; className?: string }) {
+  return (
+    <Kimi.Color
+      size={size}
+      className={cn("text-foreground [&_path:last-of-type]:fill-current", className)}
+    />
+  );
+}
+
+/** OpenAI 只有单色（currentColor）。暗色主题用白色，对齐官网单色图标。 */
+function OpenAIMark({ size, className }: { size?: number; className?: string }) {
+  return <OpenAI size={size} className={cn("dark:text-white", className)} />;
+}
+
 type ModelIconConfig = {
   prefixes: string[];
   Icon: IconComponent;
@@ -55,7 +75,7 @@ type ModelIconConfig = {
 /** 模型名前缀 → 品牌彩色图标映射（覆盖 40 组品牌前缀）。 */
 const MODEL_ICON_PATTERNS: ModelIconConfig[] = [
   // OpenAI - GPT series（OpenAI 无 Color 组件，用默认 Mono）
-  { prefixes: ["gpt-", "o1", "o3", "o4", "chatgpt", "text-embedding", "dall-e", "openai", "codex"], Icon: OpenAI },
+  { prefixes: ["gpt-", "o1", "o3", "o4", "chatgpt", "text-embedding", "dall-e", "openai", "codex"], Icon: OpenAIMark },
   // Anthropic - Claude series
   { prefixes: ["claude", "anthropic"], Icon: Claude.Color },
   // Google - Gemini / Gemma / PaLM
@@ -73,7 +93,7 @@ const MODEL_ICON_PATTERNS: ModelIconConfig[] = [
   // MiniMax
   { prefixes: ["minimax", "abab"], Icon: Minimax.Color },
   // Moonshot / Kimi
-  { prefixes: ["moonshot", "kimi"], Icon: Kimi.Color },
+  { prefixes: ["moonshot", "kimi"], Icon: KimiMark },
   // Mistral
   { prefixes: ["mistral", "mixtral", "codestral", "pixtral"], Icon: Mistral.Color },
   // Meta - Llama
