@@ -156,6 +156,7 @@ function BlockView({
       />
     );
   }
+  if (block.kind !== "output") return null;
   const first = block.text.split("\n")[0] ?? "";
   return (
     <Fold
