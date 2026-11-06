@@ -167,10 +167,6 @@ describe("RequestLogTable", () => {
     };
     render(<RequestLogTable items={[estimated]} />);
     expect(screen.getByText("≈20.0 tok/s")).toBeInTheDocument();
-    expect(screen.getByText("≈20.0 tok/s")).toHaveAttribute(
-      "title",
-      "分母为总用时（生成窗口过短或无首字），或输出 token 按字符估算",
-    );
     // 没有首字计时：首字留空
     expect(screen.getByText("首字").nextElementSibling).toHaveTextContent("");
   });

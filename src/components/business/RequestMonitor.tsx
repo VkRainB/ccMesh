@@ -238,7 +238,6 @@ export function RequestLogTable({ items, preferences = DEFAULT_PREFERENCES, toda
   return (
     <div className="min-w-0 overflow-x-auto rounded-lg border border-edge">
       <table className="w-full table-fixed text-sm" style={{ minWidth: `${minWidth}rem` }}>
-        {!preferences.hiddenColumns.includes("tokens") && <caption className="caption-bottom border-t border-edge px-3 py-2 text-left text-xs text-ink-mute">本地估算，非渠道扣款账单。仅完整用量与已配置价格的请求计价。</caption>}
         <thead>
           <tr className="border-b border-edge text-xs text-ink-secondary">
             {columns.map(([id, label, width]) => (
@@ -317,11 +316,6 @@ export function LatencyCell({ log }: { log: RequestLog }) {
           <span className="text-left text-ink-mute">{label}</span>
           <span
             className="min-w-0 max-w-full truncate justify-self-start text-left font-mono tabular-nums tracking-tight text-foreground"
-            title={
-              label === "TPS" && value.startsWith("≈")
-                ? "分母为总用时（生成窗口过短或无首字），或输出 token 按字符估算"
-                : undefined
-            }
           >
             {value}
           </span>
@@ -512,7 +506,7 @@ export function TokenDetail({ log, total }: { log: RequestLog; total: number }) 
       {rows.map(([k, v]) => (
         <div key={k} className="flex items-center justify-between gap-4">
           <span className="text-ink-secondary">{k}</span>
-          <span title={k === "输出" && log.outputEstimated ? "按输出字符估算" : v.toLocaleString()}>
+          <span title={v.toLocaleString()}>
             <TabularText>
               {k === "输出" && log.outputEstimated && v > 0 ? `≈${formatTokenK(v)}` : formatTokenK(v)}
             </TabularText>

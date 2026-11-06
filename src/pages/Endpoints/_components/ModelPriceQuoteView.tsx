@@ -75,6 +75,5 @@ export function ModelPriceQuoteView({ endpointId, modelId }: { endpointId: numbe
         <p className="text-xs text-ink-mute">报价时刻：{new Date(quote.at).toLocaleString()}（本机时区）</p>
         {quote.nextChangeAt != null && <p className="text-xs text-ink-mute">下次变化：{new Date(quote.nextChangeAt).toLocaleString()}（本机时区）</p>}
       </> : <p className="text-sm text-ink-mute">未配置价格</p>}
-    <p className="text-xs leading-relaxed text-ink-mute">按每周规则估算，不含节假日例外，以渠道账单为准。<br />本地估算，非渠道扣款账单。</p>
   </section>;
 }

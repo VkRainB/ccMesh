@@ -95,7 +95,6 @@ export function CostDetail({ log }: { log: RequestLog }) {
           <span className="break-all text-right font-mono font-semibold tabular-nums">{log.costStatus === "priced" && log.cost ? `$${log.cost.total}` : "—"}</span>
         </div>
       </div>
-      <p className="text-xs leading-5 text-ink-mute">本地估算，非渠道扣款账单。费率冻结于上游尝试开始，后续改价不重算历史。按每周规则估算，不含节假日例外，以渠道账单为准。</p>
     </section>
   );
 }
@@ -125,7 +124,6 @@ function RequestDetail({ log }: { log: RequestLog }) {
         <DetailRow label="缓存读取">{log.cacheReadTokens.toLocaleString()}</DetailRow>
         <DetailRow label="缓存创建">{log.cacheCreationTokens.toLocaleString()}</DetailRow>
         <div className="border-t border-edge pt-3"><DetailRow label="合计">{estimated}{total.toLocaleString()}</DetailRow></div>
-        {log.outputEstimated && <div className="text-xs text-ink-mute">输出按字符估算，不参与成本计价。</div>}
       </DetailSection>
       <CostDetail log={log} />
       <DetailSection title="性能">
@@ -133,7 +131,6 @@ function RequestDetail({ log }: { log: RequestLog }) {
           <DetailRow label="首字">{log.firstByteMs != null ? formatDuration(log.firstByteMs) : "未记录"}</DetailRow>
           <DetailRow label="用时">{log.durationMs != null ? formatDuration(log.durationMs) : "未记录"}</DetailRow>
           <DetailRow label="TPS">{tps ?? "未记录"}</DetailRow>
-          {tps?.startsWith("≈") && <div className="text-xs leading-5 text-ink-mute">≈ 表示按总用时估算（无首字或生成窗口过短），或输出 token 按字符估算。</div>}
         </>}
       </DetailSection>
       {log.errorBody && <ErrorDetail errorBody={log.errorBody} />}
