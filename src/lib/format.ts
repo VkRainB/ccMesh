@@ -46,15 +46,15 @@ export function formatTokenMetric(n: number): string {
 
 /**
  * Token 数量紧凑展示（千位 k 单位）：
- * - |n| ≥ 1000：取整千 → `1k`、`102k`、`110k`
+ * - |n| ≥ 1000：最多一位小数 → `1k`、`10.4k`、`191k`
  * - 否则：原始整数
- * 用于悬停明细等空间紧凑处。负数保留符号。
+ * 用于请求列表和悬停明细。负数保留符号。
  */
 export function formatTokenK(n: number): string {
   if (!Number.isFinite(n)) return "0";
   const sign = n < 0 ? "-" : "";
   const abs = Math.abs(n);
-  if (abs >= 1000) return `${sign}${Math.round(abs / 1000)}k`;
+  if (abs >= 1000) return `${sign}${Math.round(abs / 100) / 10}k`;
   return String(Math.round(n));
 }
 

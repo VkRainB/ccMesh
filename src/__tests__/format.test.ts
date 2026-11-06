@@ -61,16 +61,18 @@ describe("formatTokenK", () => {
     expect(formatTokenK(999)).toBe("999");
   });
 
-  it("达到 1000 取整千 k", () => {
+  it("达到 1000 使用 k，最多一位小数且不保留末尾零", () => {
     expect(formatTokenK(1000)).toBe("1k");
     expect(formatTokenK(1025)).toBe("1k");
     expect(formatTokenK(2000)).toBe("2k");
-    expect(formatTokenK(102291)).toBe("102k");
+    expect(formatTokenK(10_400)).toBe("10.4k");
+    expect(formatTokenK(102291)).toBe("102.3k");
     expect(formatTokenK(110000)).toBe("110k");
   });
 
   it("负数保留符号，非有限值为 0", () => {
     expect(formatTokenK(-2000)).toBe("-2k");
+    expect(formatTokenK(-1450)).toBe("-1.5k");
     expect(formatTokenK(Number.NaN)).toBe("0");
   });
 });

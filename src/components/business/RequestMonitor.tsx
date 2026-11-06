@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { InfoIcon, ArrowDownRightIcon, TriangleAlertIcon, Trash2Icon, Settings2Icon } from "lucide-react";
+import { ArrowDownRightIcon, TriangleAlertIcon, Trash2Icon, Settings2Icon } from "lucide-react";
 import { Anthropic, Codex, OpenAI } from "@lobehub/icons";
 import type { ComponentType } from "react";
 
@@ -431,10 +431,10 @@ function RequestRow({ log, preferences, todayStart, onOpenDetail }: {
           <HoverCardTrigger asChild>
             <button
               type="button"
-              className="inline-flex max-w-full items-center gap-1 text-ink-secondary transition-colors hover:text-foreground"
+              aria-label={`Token 用量：${total.toLocaleString()}`}
+              className="inline-flex max-w-full items-center text-ink-secondary transition-colors hover:text-foreground"
             >
-              <TabularText className="truncate">{total}</TabularText>
-              <InfoIcon className="size-3.5 shrink-0" />
+              <TabularText className="truncate">{formatTokenK(total)}</TabularText>
             </button>
           </HoverCardTrigger>
           <HoverCardContent align="end" className="w-56">
