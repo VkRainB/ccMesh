@@ -129,6 +129,7 @@ pub async fn import(
             model: pick_lock_model(&p.models_hint, &model_ids),
             models: model_ids.clone(),
             active_models: vec![],
+            model_pricing: vec![],
             model_mappings: vec![],
             model_mappings_enabled: true,
             header_overrides: vec![],

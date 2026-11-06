@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::models::pricing::{CostBreakdown, CostStatus, PricingSnapshot};
+
 /// 单端点单日统计行（对应 `daily_stats`）。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -12,6 +14,9 @@ pub struct DailyStat {
     pub output_tokens: i64,
     pub cache_creation_tokens: i64,
     pub cache_read_tokens: i64,
+    pub priced_cost: String,
+    pub priced_requests: i64,
+    pub unpriced_requests: i64,
 }
 
 /// 某端点在一个周期内的聚合。
@@ -25,6 +30,9 @@ pub struct EndpointStat {
     pub output_tokens: i64,
     pub cache_creation_tokens: i64,
     pub cache_read_tokens: i64,
+    pub priced_cost: String,
+    pub priced_requests: i64,
+    pub unpriced_requests: i64,
 }
 
 /// 单周期聚合（总量 + 每端点明细）。
@@ -37,6 +45,9 @@ pub struct PeriodStats {
     pub output_tokens: i64,
     pub cache_creation_tokens: i64,
     pub cache_read_tokens: i64,
+    pub priced_cost: String,
+    pub priced_requests: i64,
+    pub unpriced_requests: i64,
     pub endpoints: Vec<EndpointStat>,
 }
 
@@ -93,6 +104,14 @@ pub struct RequestLog {
     pub actual_model: Option<String>,
     /// 错误响应体（仅错误请求，限长写入）。旧行/无响应体为 None。
     pub error_body: Option<String>,
+    pub endpoint_id: Option<i64>,
+    pub pricing_model: Option<String>,
+    pub pricing_at: Option<i64>,
+    pub pricing_snapshot: Option<PricingSnapshot>,
+    #[serde(default)]
+    pub cost_status: CostStatus,
+    pub cost_reason: Option<String>,
+    pub cost: Option<CostBreakdown>,
 }
 
 /// 按本地小时聚合的调用趋势行（跨端点求和）。`date` 为 `YYYY-MM-DD HH:00`。

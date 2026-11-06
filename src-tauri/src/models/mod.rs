@@ -9,6 +9,7 @@ pub mod endpoint;
 pub mod omp_config;
 pub mod pet;
 pub mod pi_config;
+pub mod pricing;
 pub mod proxy;
 pub mod stats;
 pub mod tool_config;

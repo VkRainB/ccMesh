@@ -3,6 +3,8 @@ use std::path::Path;
 use rusqlite::{params_from_iter, Connection};
 
 use crate::error::AppResult;
+use crate::models::pricing::ModelPricing;
+use crate::modules::pricing::validate_model_pricing;
 use crate::modules::storage::config_repo::SAFE_CONFIG_KEYS;
 
 fn sql_quote(path: &Path) -> String {
@@ -49,6 +51,16 @@ pub fn merge_from_backup(
     let result = (|| -> AppResult<()> {
         let mode = if overwrite { "OR REPLACE" } else { "OR IGNORE" };
         let tx = conn.transaction()?;
+        {
+            let mut stmt = tx.prepare(
+                "SELECT model_pricing FROM backup.endpoints WHERE ?1 OR name NOT IN (SELECT name FROM main.endpoints)",
+            )?;
+            let rows = stmt.query_map([overwrite], |row| row.get::<_, String>(0))?;
+            for row in rows {
+                let prices: Vec<ModelPricing> = serde_json::from_str(&row?)?;
+                validate_model_pricing(&prices)?;
+            }
+        }
 
         tx.execute(
             &format!(
@@ -64,11 +76,11 @@ pub fn merge_from_backup(
             &format!(
                 "INSERT {mode} INTO endpoints
                     (name, api_url, api_key, auth_mode, enabled, use_proxy, transformer,
-                     model, models, active_models, model_mappings, model_mappings_enabled,
+                     model, models, active_models, model_pricing, model_mappings, model_mappings_enabled,
                      header_overrides, header_overrides_enabled, remark,
                      sort_order, fast, fast_sort_order, test_status, archived)
                  SELECT name, api_url, api_key, auth_mode, enabled, use_proxy, transformer,
-                     model, models, active_models, model_mappings, model_mappings_enabled,
+                     model, models, active_models, model_pricing, model_mappings, model_mappings_enabled,
                      header_overrides, header_overrides_enabled, remark,
                      sort_order, fast, fast_sort_order, test_status, archived
                  FROM backup.endpoints"

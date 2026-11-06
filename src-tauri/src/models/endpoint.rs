@@ -2,6 +2,8 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::models::pricing::ModelPricing;
+
 /// 单条模型映射：入站模型名 `from` → 出站（上游真实）模型名 `to`。
 /// `reasoning_effort` 非空时，转发按上游形态覆盖出站推理强度（空=跟随客户端请求）。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -43,6 +45,8 @@ pub struct Endpoint {
     /// 点亮（对外公布）的模型子集：`models` 的子集。空数组表示全部公布（向后兼容旧端点）；
     /// 非空时仅这些模型对外公布与可路由，其余视为保留不公布。
     pub active_models: Vec<String>,
+    #[serde(default)]
+    pub model_pricing: Vec<ModelPricing>,
     /// 入站→出站模型映射。客户端用入站名请求 → 路由匹配 + 改写为出站名转发上游。
     pub model_mappings: Vec<ModelMapping>,
     /// 是否启用模型映射。关闭时保留 `model_mappings` 配置，但不公布入站别名、不改写出站。
@@ -105,6 +109,8 @@ pub struct CreateEndpointRequest {
     #[serde(default)]
     pub active_models: Vec<String>,
     #[serde(default)]
+    pub model_pricing: Vec<ModelPricing>,
+    #[serde(default)]
     pub model_mappings: Vec<ModelMapping>,
     #[serde(default = "default_true")]
     pub model_mappings_enabled: bool,
@@ -131,6 +137,7 @@ pub struct UpdateEndpointRequest {
     pub model: Option<String>,
     pub models: Option<Vec<String>>,
     pub active_models: Option<Vec<String>>,
+    pub model_pricing: Option<Vec<ModelPricing>>,
     pub model_mappings: Option<Vec<ModelMapping>>,
     pub model_mappings_enabled: Option<bool>,
     pub header_overrides: Option<Vec<HeaderOverride>>,
@@ -166,6 +173,7 @@ mod tests {
             model: String::new(),
             models: Vec::new(),
             active_models: Vec::new(),
+            model_pricing: Vec::new(),
             model_mappings: Vec::new(),
             model_mappings_enabled: true,
             header_overrides: items

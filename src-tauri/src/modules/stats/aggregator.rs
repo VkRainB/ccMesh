@@ -1,10 +1,15 @@
 use std::collections::HashMap;
+use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use rusqlite::{Connection, TransactionBehavior};
+use rust_decimal::Decimal;
 use tauri::{AppHandle, Emitter};
 
 use crate::error::AppResult;
+use crate::models::pricing::{CostStatus, RequestPricing};
+use crate::modules::pricing::calculate_cost;
 use crate::models::stats::{RequestLog, StatsOverview, TrendCompare};
 use crate::modules::stats::periods;
 use crate::modules::storage::{db::DbPool, request_logs_repo, stats_repo};
@@ -48,6 +53,9 @@ struct Delta {
     output_tokens: i64,
     cache_creation_tokens: i64,
     cache_read_tokens: i64,
+    priced_cost: Decimal,
+    priced_requests: i64,
+    unpriced_requests: i64,
 }
 
 /// 一次请求结果的完整记录（由代理转发汇聚点构造）。
@@ -69,6 +77,108 @@ pub struct RequestRecord {
     pub first_byte_ms: Option<i64>,
     pub actual_model: Option<String>,
     pub error_body: Option<String>,
+    pub pricing: RequestPricing,
+}
+
+#[derive(Default)]
+struct Pending {
+    deltas: HashMap<(String, String), Delta>,
+    logs: Vec<RequestLog>,
+}
+
+impl Pending {
+    fn record(&mut self, rec: RequestRecord, date: String, ts: i64) -> RequestLog {
+        let d = self.deltas.entry((rec.endpoint_name.clone(), date)).or_default();
+        let (mut cost_status, mut cost_reason, mut cost) = if let Some(error) = &rec.pricing.error {
+            (CostStatus::CalculationError, Some(error.clone()), None)
+        } else if let Some(snapshot) = &rec.pricing.snapshot {
+            if !rec.usage.complete || rec.usage.output_estimated {
+                (CostStatus::IncompleteUsage, Some("用量不完整，未计价".into()), None)
+            } else {
+                match calculate_cost(&snapshot.rates, &rec.usage) {
+                    Ok(cost) => (CostStatus::Priced, None, Some(cost)),
+                    Err(error) => (CostStatus::CalculationError, Some(error.to_string()), None),
+                }
+            }
+        } else {
+            (CostStatus::Unpriced, Some("未配置渠道模型价格".into()), None)
+        };
+        if let Some(value) = &cost {
+            match Decimal::from_str(&value.total).ok().and_then(|value| d.priced_cost.checked_add(value)) {
+                Some(total) => d.priced_cost = total,
+                None => {
+                    cost_status = CostStatus::CalculationError;
+                    cost_reason = Some("已计价金额累计溢出".into());
+                    cost = None;
+                }
+            }
+        }
+        d.requests += 1;
+        d.errors += i64::from(rec.is_error);
+        d.input_tokens += rec.usage.input;
+        // 字符估算只给监控看速率，不进日聚合。
+        if !rec.usage.output_estimated {
+            d.output_tokens += rec.usage.output;
+        }
+        d.cache_creation_tokens += rec.usage.cache_creation;
+        d.cache_read_tokens += rec.usage.cache_read;
+        if cost.is_some() {
+            d.priced_requests += 1;
+        } else {
+            d.unpriced_requests += 1;
+        }
+        let log = RequestLog {
+            id: 0,
+            ts,
+            endpoint_name: rec.endpoint_name,
+            inbound_format: rec.inbound_format,
+            transformer: rec.transformer,
+            upstream_url: rec.upstream_url,
+            inbound_path: rec.inbound_path,
+            upstream_path: rec.upstream_path,
+            status_code: rec.status_code,
+            is_error: rec.is_error,
+            input_tokens: rec.usage.input,
+            output_tokens: rec.usage.output,
+            cache_creation_tokens: rec.usage.cache_creation,
+            cache_read_tokens: rec.usage.cache_read,
+            model: rec.model,
+            duration_ms: rec.duration_ms,
+            first_byte_ms: rec.first_byte_ms,
+            output_estimated: rec.usage.output_estimated,
+            actual_model: rec.actual_model,
+            error_body: rec.error_body,
+            endpoint_id: rec.pricing.endpoint_id,
+            pricing_model: rec.pricing.model_id,
+            pricing_at: rec.pricing.at,
+            pricing_snapshot: rec.pricing.snapshot,
+            cost_status,
+            cost_reason,
+            cost,
+        };
+        self.logs.push(log.clone());
+        log
+    }
+
+    fn commit(&mut self, conn: &mut Connection, device_id: &str) -> AppResult<()> {
+        if self.logs.is_empty() {
+            return Ok(());
+        }
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        for ((endpoint, date), d) in &self.deltas {
+            stats_repo::upsert(
+                &tx, endpoint, date, device_id, d.requests, d.errors, d.input_tokens,
+                d.output_tokens, d.cache_creation_tokens, d.cache_read_tokens,
+                d.priced_cost, d.priced_requests, d.unpriced_requests,
+            )?;
+        }
+        request_logs_repo::insert_batch(&tx, &self.logs, device_id)?;
+        tx.commit()?;
+        // 只有提交成功才能丢弃批次；任何错误均由事务回滚并保留原批次。
+        self.deltas.clear();
+        self.logs.clear();
+        Ok(())
+    }
 }
 
 /// 统计聚合器：内存累加 + 2 秒防抖批量落库 + 零延迟事件推送。
@@ -79,8 +189,7 @@ pub struct StatsAggregator {
     db_pool: DbPool,
     app_handle: AppHandle,
     device_id: String,
-    pending: Mutex<HashMap<(String, String), Delta>>,
-    pending_logs: Mutex<Vec<RequestLog>>,
+    pending: Mutex<Pending>,
     last_prune: Mutex<Option<Instant>>,
 }
 
@@ -90,8 +199,7 @@ impl StatsAggregator {
             db_pool,
             app_handle,
             device_id,
-            pending: Mutex::new(HashMap::new()),
-            pending_logs: Mutex::new(Vec::new()),
+            pending: Mutex::new(Pending::default()),
             last_prune: Mutex::new(None),
         });
         // 2 秒防抖刷新循环；聚合器被释放后自动退出
@@ -127,47 +235,7 @@ impl StatsAggregator {
         }
         let date = periods::today();
         let ts = chrono::Utc::now().timestamp_millis();
-        {
-            let mut p = self.pending.lock().unwrap();
-            let d = p.entry((rec.endpoint_name.clone(), date)).or_default();
-            d.requests += 1;
-            if rec.is_error {
-                d.errors += 1;
-            }
-            d.input_tokens += rec.usage.input;
-            // 字符估算只给监控看速率，不进日聚合。
-            if !rec.usage.output_estimated {
-                d.output_tokens += rec.usage.output;
-            }
-            d.cache_creation_tokens += rec.usage.cache_creation;
-            d.cache_read_tokens += rec.usage.cache_read;
-        }
-        let log = RequestLog {
-            id: 0,
-            ts,
-            endpoint_name: rec.endpoint_name,
-            inbound_format: rec.inbound_format,
-            transformer: rec.transformer,
-            upstream_url: rec.upstream_url,
-            inbound_path: rec.inbound_path,
-            upstream_path: rec.upstream_path,
-            status_code: rec.status_code,
-            is_error: rec.is_error,
-            input_tokens: rec.usage.input,
-            output_tokens: rec.usage.output,
-            cache_creation_tokens: rec.usage.cache_creation,
-            cache_read_tokens: rec.usage.cache_read,
-            model: rec.model,
-            duration_ms: rec.duration_ms,
-            first_byte_ms: rec.first_byte_ms,
-            output_estimated: rec.usage.output_estimated,
-            actual_model: rec.actual_model,
-            error_body: rec.error_body,
-        };
-        {
-            let mut pl = self.pending_logs.lock().unwrap();
-            pl.push(log.clone());
-        }
+        let log = self.pending.lock().unwrap().record(rec, date, ts);
         let _ = self.app_handle.emit(STATS_EVENT, ());
         let _ = self.app_handle.emit(REQUEST_LOG_EVENT, &log);
     }
@@ -185,42 +253,20 @@ impl StatsAggregator {
 
     /// 将内存增量批量写入 DB（幂等：无增量且无需清理时直接返回）。
     pub fn flush(&self) -> AppResult<()> {
-        let drained: Vec<((String, String), Delta)> = {
-            let mut p = self.pending.lock().unwrap();
-            p.drain().collect()
-        };
-        let drained_logs: Vec<RequestLog> = {
-            let mut pl = self.pending_logs.lock().unwrap();
-            pl.drain(..).collect()
-        };
+        // ponytail: 同一锁覆盖记录和提交，避免拆批/重入重复。写库阻塞记录；吞吐成为瓶颈时升级为专用账本写线程。
+        let mut pending = self.pending.lock().unwrap();
         let prune = self.should_prune();
-        if drained.is_empty() && drained_logs.is_empty() && !prune {
+        if pending.logs.is_empty() && !prune {
             return Ok(());
         }
         let mut conn = self.db_pool.get()?;
-        for ((endpoint, date), d) in drained {
-            stats_repo::upsert(
-                &conn,
-                &endpoint,
-                &date,
-                &self.device_id,
-                d.requests,
-                d.errors,
-                d.input_tokens,
-                d.output_tokens,
-                d.cache_creation_tokens,
-                d.cache_read_tokens,
-            )?;
-        }
-        if !drained_logs.is_empty() {
-            request_logs_repo::insert_batch(&mut conn, &drained_logs, &self.device_id)?;
-        }
+        pending.commit(&mut conn, &self.device_id)?;
         if prune {
             let cutoff = retention_cutoff_ms();
-            if let Err(e) = request_logs_repo::prune_older_than(&conn, cutoff) {
-                tracing::warn!("请求明细清理失败: {e}");
+            match request_logs_repo::prune_older_than(&conn, cutoff) {
+                Ok(_) => self.mark_pruned(),
+                Err(e) => tracing::warn!("请求明细清理失败: {e}"),
             }
-            self.mark_pruned();
         }
         Ok(())
     }
@@ -257,7 +303,129 @@ impl StatsAggregator {
 
 #[cfg(test)]
 mod tests {
-    use super::should_skip_inbound_path;
+    use super::*;
+    use crate::models::pricing::{PriceRates, PricingSnapshot};
+    use crate::modules::storage::migration::run_migrations;
+
+    fn record() -> RequestRecord {
+        RequestRecord {
+            endpoint_name: "channel".into(),
+            model: Some("alias".into()),
+            inbound_format: "openai".into(),
+            transformer: Some("openai".into()),
+            upstream_url: "https://example.com".into(),
+            inbound_path: "/v1/chat/completions".into(),
+            upstream_path: "/v1/chat/completions".into(),
+            status_code: Some(200),
+            is_error: false,
+            usage: TokenUsage { input: 1_000_000, complete: true, ..TokenUsage::default() },
+            duration_ms: Some(20),
+            first_byte_ms: None,
+            actual_model: Some("exact/model".into()),
+            error_body: None,
+            pricing: RequestPricing {
+                endpoint_id: Some(42),
+                model_id: Some("exact/model".into()),
+                at: Some(100),
+                snapshot: Some(PricingSnapshot {
+                    model_id: "exact/model".into(),
+                    timezone: "Asia/Shanghai".into(),
+                    source: "window".into(),
+                    rule_id: Some("night".into()),
+                    rule_name: Some("谷价".into()),
+                    rates: PriceRates {
+                        input: "0.1".into(), output: "2".into(),
+                        cache_read: "0.01".into(), cache_write: "0.2".into(),
+                    },
+                }),
+                error: None,
+            },
+        }
+    }
+
+    #[test]
+    fn zero_missing_estimated_and_error_usage_have_distinct_costs() {
+        let mut pending = Pending::default();
+        let mut zero = record();
+        zero.usage.input = 0;
+        let priced = pending.record(zero, "2026-01-01".into(), 1);
+        assert!(matches!(priced.cost_status, CostStatus::Priced));
+        assert_eq!(Decimal::from_str(&priced.cost.unwrap().total).unwrap(), Decimal::ZERO);
+
+        let mut missing = record();
+        missing.pricing.snapshot = None;
+        let missing = pending.record(missing, "2026-01-01".into(), 2);
+        assert!(matches!(missing.cost_status, CostStatus::Unpriced));
+        assert!(missing.cost.is_none());
+
+        let mut incomplete = record();
+        incomplete.usage.complete = false;
+        let incomplete = pending.record(incomplete, "2026-01-01".into(), 3);
+        assert!(matches!(incomplete.cost_status, CostStatus::IncompleteUsage));
+        assert!(incomplete.cost.is_none());
+
+        let mut estimated = record();
+        estimated.usage.output_estimated = true;
+        let estimated = pending.record(estimated, "2026-01-01".into(), 4);
+        assert!(matches!(estimated.cost_status, CostStatus::IncompleteUsage));
+        assert!(estimated.cost.is_none());
+
+        let mut failed = record();
+        failed.is_error = true;
+        failed.status_code = Some(500);
+        let failed = pending.record(failed, "2026-01-01".into(), 5);
+        assert!(matches!(failed.cost_status, CostStatus::Priced));
+        assert_eq!(Decimal::from_str(&failed.cost.unwrap().total).unwrap(), Decimal::new(1, 1));
+
+        let mut bad = record();
+        bad.pricing.error = Some("invalid persisted rates".into());
+        let bad = pending.record(bad, "2026-01-01".into(), 6);
+        assert!(matches!(bad.cost_status, CostStatus::CalculationError));
+        assert!(bad.cost.is_none());
+        let d = pending.deltas.values().next().unwrap();
+        assert_eq!((d.priced_requests, d.unpriced_requests), (2, 4));
+    }
+
+    #[test]
+    fn failed_batch_rolls_back_retains_and_retries_exactly_once() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+        let mut pending = Pending::default();
+        let first = pending.record(record(), "2026-01-01".into(), 1);
+        let mut second = record();
+        second.pricing.snapshot.as_mut().unwrap().rates.input = "0.2".into();
+        pending.record(second, "2026-01-01".into(), 2);
+        // 日表先写成功，第二条日志故意失败：第一条日志和日金额都必须回滚。
+        conn.execute_batch("CREATE TRIGGER fail_log BEFORE INSERT ON request_logs
+            WHEN NEW.ts = 2 BEGIN SELECT RAISE(ABORT, 'injected failure'); END;").unwrap();
+        assert!(pending.commit(&mut conn, "dev").is_err());
+        assert_eq!(pending.logs.len(), 2);
+        assert_eq!(request_logs_repo::query_page(&conn, None, None, None, 10, 0).unwrap().1, 0);
+        assert_eq!(stats_repo::period_stats(&conn, "2026-01-01", "2026-01-01").unwrap().requests, 0);
+
+        conn.execute_batch("DROP TRIGGER fail_log;").unwrap();
+        pending.commit(&mut conn, "dev").unwrap();
+        pending.commit(&mut conn, "dev").unwrap();
+        assert!(pending.logs.is_empty());
+        assert!(pending.deltas.is_empty());
+        let (logs, count) = request_logs_repo::query_page(&conn, None, None, None, 10, 0).unwrap();
+        assert_eq!(count, 2);
+        assert_eq!(logs[1].endpoint_id, Some(42));
+        assert_eq!(logs[1].pricing_model.as_deref(), Some("exact/model"));
+        assert_eq!(logs[1].pricing_at, Some(100));
+        assert_eq!(serde_json::to_value(&logs[1].pricing_snapshot).unwrap(), serde_json::to_value(&first.pricing_snapshot).unwrap());
+        assert_eq!(serde_json::to_value(&logs[1].cost).unwrap(), serde_json::to_value(&first.cost).unwrap());
+        assert!(matches!(logs[1].cost_status, CostStatus::Priced));
+        let stats = stats_repo::period_stats(&conn, "2026-01-01", "2026-01-01").unwrap();
+        assert_eq!((stats.requests, stats.priced_requests, stats.unpriced_requests), (2, 2, 0));
+        assert_eq!(stats.priced_cost, "0.3");
+
+        assert_eq!(request_logs_repo::prune_older_than(&conn, 2).unwrap(), 1);
+        assert_eq!(request_logs_repo::clear_all(&conn).unwrap(), 1);
+        let stats = stats_repo::period_stats(&conn, "2026-01-01", "2026-01-01").unwrap();
+        assert_eq!(stats.priced_cost, "0.3");
+        assert_eq!(stats.priced_requests, 2);
+    }
 
     #[test]
     fn skips_claude_desktop_hello() {

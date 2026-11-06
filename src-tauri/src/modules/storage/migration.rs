@@ -193,6 +193,23 @@ const MIGRATIONS: &[&str] = &[
      );",
     // v20：request_logs 标记输出 token 是否为字符估算。旧行默认 0（真实 usage）。
     "ALTER TABLE request_logs ADD COLUMN output_estimated INTEGER NOT NULL DEFAULT 0;",
+    // v21：渠道模型价格、不可变请求费率快照与十进制日金额。旧数据不按当前价回填。
+    "ALTER TABLE endpoints ADD COLUMN model_pricing TEXT NOT NULL DEFAULT '[]';
+     ALTER TABLE request_logs ADD COLUMN endpoint_id INTEGER;
+     ALTER TABLE request_logs ADD COLUMN pricing_model TEXT;
+     ALTER TABLE request_logs ADD COLUMN pricing_at INTEGER;
+     ALTER TABLE request_logs ADD COLUMN pricing_snapshot TEXT;
+     ALTER TABLE request_logs ADD COLUMN cost_status TEXT NOT NULL DEFAULT 'legacy_unknown';
+     ALTER TABLE request_logs ADD COLUMN cost_reason TEXT;
+     ALTER TABLE request_logs ADD COLUMN cost_input TEXT;
+     ALTER TABLE request_logs ADD COLUMN cost_output TEXT;
+     ALTER TABLE request_logs ADD COLUMN cost_cache_read TEXT;
+     ALTER TABLE request_logs ADD COLUMN cost_cache_write TEXT;
+     ALTER TABLE request_logs ADD COLUMN cost_total TEXT;
+     ALTER TABLE daily_stats ADD COLUMN priced_cost TEXT NOT NULL DEFAULT '0';
+     ALTER TABLE daily_stats ADD COLUMN priced_requests INTEGER NOT NULL DEFAULT 0;
+     ALTER TABLE daily_stats ADD COLUMN unpriced_requests INTEGER NOT NULL DEFAULT 0;
+     UPDATE daily_stats SET unpriced_requests = requests;",
 ];
 
 /// 幂等执行迁移：读取 `schema_version` 当前版本，仅应用尚未执行的脚本。
@@ -213,8 +230,10 @@ pub fn run_migrations(conn: &Connection) -> AppResult<()> {
     for (idx, script) in MIGRATIONS.iter().enumerate() {
         let version = (idx + 1) as i64;
         if version > current {
-            conn.execute_batch(script)?;
-            conn.execute("INSERT INTO schema_version(version) VALUES (?1)", [version])?;
+            let tx = conn.unchecked_transaction()?;
+            tx.execute_batch(script)?;
+            tx.execute("INSERT INTO schema_version(version) VALUES (?1)", [version])?;
+            tx.commit()?;
             tracing::info!(version, "已应用数据库迁移");
         }
     }
@@ -225,6 +244,35 @@ pub fn run_migrations(conn: &Connection) -> AppResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn v20_upgrade_preserves_unknown_history_and_is_idempotent() {
+        let c = Connection::open_in_memory().unwrap();
+        c.execute_batch("CREATE TABLE schema_version(version INTEGER NOT NULL);").unwrap();
+        for (index, script) in MIGRATIONS[..20].iter().enumerate() {
+            c.execute_batch(script).unwrap();
+            c.execute("INSERT INTO schema_version VALUES (?1)", [index as i64 + 1]).unwrap();
+        }
+        c.execute("INSERT INTO endpoints(name,api_url) VALUES ('old','https://example.com')", []).unwrap();
+        c.execute("INSERT INTO daily_stats(endpoint_name,date,requests) VALUES ('old','2026-01-01',7)", []).unwrap();
+        c.execute("INSERT INTO request_logs(ts,endpoint_name) VALUES (1,'old')", []).unwrap();
+        run_migrations(&c).unwrap();
+        run_migrations(&c).unwrap();
+        let pricing: String = c.query_row("SELECT model_pricing FROM endpoints", [], |r| r.get(0)).unwrap();
+        assert_eq!(pricing, "[]");
+        let (cost, priced, unpriced): (String, i64, i64) = c.query_row(
+            "SELECT priced_cost,priced_requests,unpriced_requests FROM daily_stats", [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        ).unwrap();
+        assert_eq!((cost.as_str(), priced, unpriced), ("0", 0, 7));
+        let (status, cost, snapshot): (String, Option<String>, Option<String>) = c.query_row(
+            "SELECT cost_status,cost_total,pricing_snapshot FROM request_logs", [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        ).unwrap();
+        assert_eq!(status, "legacy_unknown");
+        assert!(cost.is_none());
+        assert!(snapshot.is_none());
+    }
 
     #[test]
     fn migrations_are_idempotent() {

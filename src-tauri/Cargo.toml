@@ -38,6 +38,8 @@ tokio = { version = "1.52.3", features = ["full"] }
 reqwest = { version = "0.13.4", features = ["gzip", "json", "stream"] }
 rusqlite = { version = "0.39.0", features = ["bundled"] }
 chrono = { version = "0.4.45", features = ["serde"] }
+chrono-tz = "0.10"
+rust_decimal = "1"
 uuid = { version = "1.23.2", features = ["v4"] }
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 tokio-util = "0.7.18"

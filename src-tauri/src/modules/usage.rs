@@ -11,6 +11,8 @@ pub struct TokenUsage {
     pub cache_read: i64,
     /// 输出 token 来自字符估算（上游没给 usage）。日聚合不计入，监控里用 ≈ 标出。
     pub output_estimated: bool,
+    /// 上游明确报告输入/输出，且流式已收到终止事件；缺失值不能当作免费用量。
+    pub complete: bool,
 }
 
 /// 从非流式上游响应体解析真实 token 用量，按端点上游格式区分字段名。
@@ -22,6 +24,7 @@ pub struct TokenUsage {
 /// 对齐。这样下游合计 `input + output + cache_creation + cache_read` 不会双重计算缓存。
 pub fn from_response(body: &Value, format: UpstreamFormat) -> TokenUsage {
     let usage = body.get("usage");
+    let complete = usage.is_some_and(has_complete_usage);
     match format {
         UpstreamFormat::Claude => {
             let usage_val = usage.unwrap_or(&Value::Null);
@@ -34,6 +37,7 @@ pub fn from_response(body: &Value, format: UpstreamFormat) -> TokenUsage {
                 cache_creation: field(usage, "cache_creation_input_tokens"),
                 cache_read: cache_read_tokens(usage),
                 output_estimated: false,
+                complete,
             }
         }
         UpstreamFormat::OpenAiChat => {
@@ -51,6 +55,7 @@ pub fn from_response(body: &Value, format: UpstreamFormat) -> TokenUsage {
                 cache_creation: field(usage, "cache_creation_input_tokens"),
                 cache_read,
                 output_estimated: false,
+                complete,
             }
         }
         // Responses：usage.input_tokens / output_tokens / input_tokens_details.cached_tokens。
@@ -69,9 +74,21 @@ pub fn from_response(body: &Value, format: UpstreamFormat) -> TokenUsage {
                 cache_creation: field(usage, "cache_creation_input_tokens"),
                 cache_read,
                 output_estimated: false,
+                complete,
             }
         }
     }
+}
+
+fn has_token(usage: &Value, keys: &[&str]) -> bool {
+    keys.iter()
+        .find_map(|key| usage.get(key).and_then(Value::as_i64))
+        .is_some_and(|value| value >= 0)
+}
+
+fn has_complete_usage(usage: &Value) -> bool {
+    has_token(usage, &["input_tokens", "prompt_tokens"])
+        && has_token(usage, &["output_tokens", "completion_tokens"])
 }
 
 /// OpenAI 风格的净输入：`prompt_tokens`/`input_tokens` 已含 `cached_tokens`，
@@ -149,9 +166,9 @@ fn include_independent_reasoning(raw_input: i64, output: i64, total: i64, reason
     output + gap.min(reasoning)
 }
 
-/// 上游 usage 的 output 仍为 0 时，用已看到的输出字符估算，并打上 `output_estimated`。
+/// 缺少完整 usage 且 output 为 0 时才按字符估算；上游明确报告的零保持原样。
 pub fn apply_output_estimate(mut tu: TokenUsage, observed: &OutputObserver) -> TokenUsage {
-    if tu.output > 0 {
+    if tu.complete || tu.output > 0 {
         return tu;
     }
     let est = observed.estimated_tokens();
@@ -168,7 +185,7 @@ pub fn apply_body_output_estimate(
     body: &Value,
     format: UpstreamFormat,
 ) -> TokenUsage {
-    if tu.output > 0 {
+    if tu.complete || tu.output > 0 {
         return tu;
     }
     let mut obs = OutputObserver::default();
@@ -496,6 +513,9 @@ pub struct UsageAccumulator {
     cache_creation: i64,
     cache_read: i64,
     observer: OutputObserver,
+    input_reported: bool,
+    output_reported: bool,
+    terminal: bool,
 }
 
 impl UsageAccumulator {
@@ -508,6 +528,9 @@ impl UsageAccumulator {
             cache_creation: 0,
             cache_read: 0,
             observer: OutputObserver::default(),
+            input_reported: false,
+            output_reported: false,
+            terminal: false,
         }
     }
 
@@ -526,7 +549,11 @@ impl UsageAccumulator {
                 continue;
             };
             let data = data.trim();
-            if data.is_empty() || data == "[DONE]" {
+            if data == "[DONE]" {
+                self.mark_done();
+                continue;
+            }
+            if data.is_empty() {
                 continue;
             }
             if let Ok(j) = serde_json::from_str::<Value>(data) {
@@ -535,8 +562,42 @@ impl UsageAccumulator {
         }
     }
 
-    fn feed_json(&mut self, j: &Value) {
+    pub(crate) fn mark_done(&mut self) {
+        self.terminal = true;
+    }
+
+    pub(crate) fn feed_json(&mut self, j: &Value) {
         self.observer.observe(j, self.format);
+        let event = j.get("type").and_then(Value::as_str);
+        match self.format {
+            UpstreamFormat::Claude => {
+                let u = if event == Some("message_start") {
+                    j.pointer("/message/usage")
+                } else {
+                    j.get("usage")
+                };
+                if let Some(u) = u {
+                    self.input_reported |= has_token(u, &["input_tokens"]);
+                    if event == Some("message_delta") {
+                        self.output_reported |= has_token(u, &["output_tokens"]);
+                    }
+                }
+                self.terminal |= event == Some("message_stop");
+            }
+            UpstreamFormat::OpenAiChat => {
+                if let Some(u) = j.get("usage") {
+                    self.input_reported |= has_token(u, &["prompt_tokens", "input_tokens"]);
+                    self.output_reported |= has_token(u, &["completion_tokens", "output_tokens"]);
+                }
+            }
+            UpstreamFormat::OpenAiResponses => {
+                if let Some(u) = j.pointer("/response/usage").or_else(|| j.get("usage")) {
+                    self.input_reported |= has_token(u, &["input_tokens"]);
+                    self.output_reported |= has_token(u, &["output_tokens"]);
+                }
+                self.terminal |= matches!(event, Some("response.completed" | "response.incomplete" | "response.failed"));
+            }
+        }
         match self.format {
             UpstreamFormat::Claude => match j.get("type").and_then(|v| v.as_str()) {
                 // message_start 的 output_tokens 是占位（常见为 0 或 1），最终值在 message_delta。
@@ -630,6 +691,9 @@ impl UsageAccumulator {
                         if cache_read > 0 {
                             self.cache_read = cache_read;
                         }
+                        if let Some(c) = u.get("cache_creation_input_tokens").and_then(Value::as_i64) {
+                            self.cache_creation = c;
+                        }
                         if let Some(i) = u.get("input_tokens").and_then(|v| v.as_i64()) {
                             // input_tokens 已含 cached_tokens，扣除后为净输入
                             self.input = net_input(i, self.cache_read);
@@ -653,6 +717,7 @@ impl UsageAccumulator {
                 cache_creation: self.cache_creation,
                 cache_read: self.cache_read,
                 output_estimated: false,
+                complete: self.input_reported && self.output_reported && self.terminal,
             },
             &self.observer,
         )
@@ -671,7 +736,51 @@ mod tests {
             cache_creation,
             cache_read,
             output_estimated: false,
+            complete: true,
         }
+    }
+
+    #[test]
+    fn zero_usage_is_authoritative_but_missing_usage_is_not() {
+        for format in [UpstreamFormat::Claude, UpstreamFormat::OpenAiChat, UpstreamFormat::OpenAiResponses] {
+            let zero = json!({"usage":{"input_tokens":0,"output_tokens":0},"choices":[{"message":{"content":"hello"}}]});
+            let got = apply_body_output_estimate(from_response(&zero, format), &zero, format);
+            assert!(got.complete);
+            assert_eq!(got.output, 0);
+            assert!(!got.output_estimated);
+            assert!(!from_response(&json!({"usage":{"input_tokens":0}}), format).complete);
+            assert!(!from_response(&json!({}), format).complete);
+        }
+    }
+
+    #[test]
+    fn stream_usage_requires_final_fields_and_terminal_event() {
+        let mut chat = UsageAccumulator::new(UpstreamFormat::OpenAiChat);
+        chat.feed(b"data: {\"usage\":{\"prompt_tokens\":0,\"completion_tokens\":0}}\n\n");
+        assert!(!chat.finish().complete);
+        let mut chat = UsageAccumulator::new(UpstreamFormat::OpenAiChat);
+        chat.feed(b"data: {\"usage\":{\"prompt_tokens\":0,\"completion_tokens\":0}}\n\ndata: [DONE]\n\n");
+        assert!(chat.finish().complete);
+        let mut claude = UsageAccumulator::new(UpstreamFormat::Claude);
+        claude.feed(b"data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":10,\"output_tokens\":1}}}\n\ndata: {\"type\":\"message_stop\"}\n\n");
+        assert!(!claude.finish().complete);
+        let mut claude = UsageAccumulator::new(UpstreamFormat::Claude);
+        claude.feed(b"data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":10}}}\n\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":0}}\n\ndata: {\"type\":\"message_stop\"}\n\n");
+        assert!(claude.finish().complete);
+        let mut responses = UsageAccumulator::new(UpstreamFormat::OpenAiResponses);
+        responses.feed(b"data: {\"type\":\"response.failed\",\"response\":{\"usage\":{\"input_tokens\":10,\"output_tokens\":2}}}\n\n");
+        assert!(responses.finish().complete);
+    }
+
+    #[test]
+    fn responses_stream_preserves_all_four_usage_buckets() {
+        let response = json!({"usage":{"input_tokens":100,"output_tokens":10,
+            "input_tokens_details":{"cached_tokens":20},"cache_creation_input_tokens":5}});
+        let expected = from_response(&response, UpstreamFormat::OpenAiResponses);
+        let mut acc = UsageAccumulator::new(UpstreamFormat::OpenAiResponses);
+        acc.feed_json(&json!({"type":"response.completed","response":response}));
+        assert_eq!(acc.finish(), expected);
+        assert_eq!(expected, tu(80, 10, 5, 20));
     }
 
     #[test]
@@ -738,7 +847,7 @@ mod tests {
     fn missing_usage_is_zero() {
         assert_eq!(
             from_response(&json!({}), UpstreamFormat::Claude),
-            tu(0, 0, 0, 0)
+            TokenUsage::default()
         );
     }
 
@@ -778,6 +887,7 @@ mod tests {
         let mut acc = UsageAccumulator::new(UpstreamFormat::OpenAiChat);
         acc.feed(b"data: {\"usage\":{\"prompt_tokens\":5,");
         acc.feed(b"\"completion_tokens\":7}}\n\n");
+        acc.feed(b"data: [DONE]\n\n");
         assert_eq!(acc.finish(), tu(5, 7, 0, 0));
     }
 

@@ -5,9 +5,10 @@ use rusqlite::{params, Connection, OptionalExtension};
 use crate::error::{AppError, AppResult};
 use crate::models::backup::{ConfigBundle, CredentialItem, EndpointExport, ImportSummary};
 use crate::modules::storage::{config_repo, endpoint_repo};
+use crate::modules::pricing::validate_model_pricing;
 
 const BUNDLE_TYPE: &str = "ccmesh-config";
-const BUNDLE_VERSION: u32 = 1;
+const BUNDLE_VERSION: u32 = 2;
 
 /// 迁移用配置键：取 `SAFE_CONFIG_KEYS` 去掉 webdav_* 同步凭证（换机重填，避免明文外泄）。
 const MIGRATION_CONFIG_KEYS: &[&str] = &[
@@ -62,6 +63,7 @@ pub fn build_config_bundle(conn: &Connection) -> AppResult<ConfigBundle> {
             model: e.model,
             models: e.models,
             active_models: e.active_models,
+            model_pricing: e.model_pricing,
             model_mappings: e.model_mappings,
             model_mappings_enabled: e.model_mappings_enabled,
             header_overrides: e.header_overrides,
@@ -120,6 +122,10 @@ pub fn import_config_bundle(
             )
             .optional()?;
 
+        if existing.is_none() || overwrite {
+            validate_model_pricing(&ep.model_pricing)?;
+        }
+        let pricing_json = serde_json::to_string(&ep.model_pricing)?;
         let models_json = serde_json::to_string(&ep.models).unwrap_or_else(|_| "[]".to_string());
         // 点亮子集规整为 models 子集后再持久化，避免迁移包脏数据。
         let active: Vec<String> = ep
@@ -140,7 +146,7 @@ pub fn import_config_bundle(
                         use_proxy=?5, transformer=?6, model=?7, models=?8, active_models=?9,
                         model_mappings=?10, model_mappings_enabled=?11,
                         header_overrides=?12, header_overrides_enabled=?13, remark=?14,
-                        sort_order=?15, updated_at=datetime('now') WHERE id=?16",
+                        sort_order=?15, model_pricing=?17, updated_at=datetime('now') WHERE id=?16",
                     params![
                         ep.api_url,
                         ep.api_key,
@@ -158,6 +164,7 @@ pub fn import_config_bundle(
                         ep.remark,
                         ep.sort_order,
                         id,
+                        pricing_json,
                     ],
                 )?;
                 tx.execute(
@@ -176,8 +183,8 @@ pub fn import_config_bundle(
                     "INSERT INTO endpoints
                         (name, api_url, api_key, auth_mode, enabled, use_proxy, transformer, model,
                          models, active_models, model_mappings, model_mappings_enabled,
-                         header_overrides, header_overrides_enabled, remark, sort_order)
-                     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",
+                         header_overrides, header_overrides_enabled, remark, sort_order, model_pricing)
+                     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",
                     params![
                         ep.name,
                         ep.api_url,
@@ -195,6 +202,7 @@ pub fn import_config_bundle(
                         ep.header_overrides_enabled as i64,
                         ep.remark,
                         ep.sort_order,
+                        pricing_json,
                     ],
                 )?;
                 s.endpoints_added += 1;

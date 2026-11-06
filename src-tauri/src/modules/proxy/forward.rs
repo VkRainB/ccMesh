@@ -17,6 +17,8 @@ use crate::models::endpoint::Endpoint;
 use crate::modules::proxy::circuit_breaker::{self, BreakerRegistry, FailureKind};
 use crate::modules::proxy::inbound::InboundProtocol;
 use crate::modules::proxy::resolver;
+use crate::models::pricing::RequestPricing;
+use crate::modules::pricing;
 use crate::modules::proxy::rotation::{self, Rotation};
 use crate::modules::stats::aggregator::{RequestRecord, StatsAggregator};
 use crate::modules::storage::{db::DbPool, endpoint_repo};
@@ -149,6 +151,7 @@ struct RequestMeta {
     first_byte_ms: Option<i64>,
     /// 实际(出站)模型：映射/锁定改写后与入站不同才有值，透传为 None。
     actual_model: Option<String>,
+    pricing: RequestPricing,
 }
 
 impl RequestMeta {
@@ -184,6 +187,7 @@ impl RequestMeta {
             first_byte_ms: self.first_byte_ms,
             actual_model: self.actual_model.clone(),
             error_body,
+            pricing: self.pricing.clone(),
         }
     }
 }
@@ -588,6 +592,8 @@ pub async fn handle_proxy(
     let mut last_upstream_path = String::new();
     // 最后一次实际尝试端点的 transformer：全部失败兜底记录时填入，用于前端按端点类型显示品牌图标。
     let mut last_transformer: Option<String> = None;
+    let mut last_pricing = RequestPricing::default();
+    let mut last_usage = usage::TokenUsage::default();
     // thinking 签名整流一次性标志：命中后清洗重试，仅一次，防死循环。
     let mut sig_rectified = false;
     // 映射覆盖的出站推理强度：按端点计算，端点名变化时重算；降级重试时就地降一级（不重算，避免盖回原值空转）。
@@ -740,6 +746,24 @@ pub async fn handle_proxy(
             );
         }
 
+        let pricing_model = if outbound_model.is_empty() {
+            model.as_deref().unwrap_or("")
+        } else {
+            &outbound_model
+        };
+        let pricing_at = chrono::Utc::now().timestamp_millis();
+        let (snapshot, pricing_error) = match pricing::resolve_price(&ep, pricing_model, pricing_at) {
+            Ok(snapshot) => (snapshot, None),
+            Err(error) => (None, Some(error.to_string())),
+        };
+        last_pricing = RequestPricing {
+            endpoint_id: Some(ep.id),
+            model_id: Some(pricing_model.to_string()),
+            at: Some(pricing_at),
+            snapshot,
+            error: pricing_error,
+        };
+        last_usage = usage::TokenUsage::default();
         let token = st.active.start(&ep.name);
         let result = tokio::select! {
             r = send_upstream(&st, &ep, &method, upstream_path, &headers, &attempt_body) => Some(r),
@@ -787,6 +811,7 @@ pub async fn handle_proxy(
                     // 流式在看见第一个非空输出 token 时再写。
                     first_byte_ms: None,
                     actual_model,
+                    pricing: last_pricing.clone(),
                 };
                 if status == 200 {
                     // 成功：闭合熔断（半开恢复时回传许可）；转换则通知前端
@@ -858,6 +883,9 @@ pub async fn handle_proxy(
                     let resp_headers = copy_response_headers(&resp);
                     let err_bytes = resp.bytes().await.unwrap_or_default();
                     let err_text = String::from_utf8_lossy(&err_bytes);
+                    let error_usage = serde_json::from_slice::<Value>(&err_bytes)
+                        .map(|body| usage::from_response(&body, format))
+                        .unwrap_or_default();
 
                     if may_downgrade_effort || may_rectify_sig {
                         if may_downgrade_effort && is_unsupported_reasoning_effort_error(&err_text)
@@ -905,7 +933,7 @@ pub async fn handle_proxy(
                         st.stats.record(meta.into_record_with_error_body(
                             Some(status as i64),
                             status >= 400,
-                            usage::TokenUsage::default(),
+                            error_usage,
                             error_body_from_bytes(&err_bytes),
                         ));
                         return relay_buffered_error(status, resp_headers, err_bytes);
@@ -914,7 +942,7 @@ pub async fn handle_proxy(
                     st.stats.record(meta.into_record_with_error_body(
                         Some(status as i64),
                         status >= 400,
-                        usage::TokenUsage::default(),
+                        error_usage,
                         error_body_from_bytes(&err_bytes),
                     ));
                     return relay_buffered_error(status, resp_headers, err_bytes);
@@ -923,6 +951,9 @@ pub async fn handle_proxy(
                 last_status = Some(status);
                 let err_bytes = resp.bytes().await.unwrap_or_default();
                 last_error_body = error_body_from_bytes(&err_bytes);
+                last_usage = serde_json::from_slice::<Value>(&err_bytes)
+                    .map(|body| usage::from_response(&body, format))
+                    .unwrap_or_default();
                 attempts_on_current += 1;
                 if attempts_on_current >= rotation::CONSECUTIVE_FAIL_SWITCH && !use_specific {
                     st.rotation.advance(n);
@@ -969,11 +1000,12 @@ pub async fn handle_proxy(
             upstream_path: last_upstream_path.clone(),
             status_code: last_status.map(i64::from),
             is_error: true,
-            usage: usage::TokenUsage::default(),
+            usage: last_usage,
             duration_ms: Some(chrono::Utc::now().timestamp_millis() - started_ms),
             first_byte_ms: None,
             actual_model: None,
             error_body: last_error_body,
+            pricing: last_pricing,
         });
     }
     json_error(
@@ -1199,24 +1231,6 @@ fn stamp_first_visible(meta: &mut RequestMeta, is_first: bool) {
     }
 }
 
-fn usage_from_converter(
-    input: i64,
-    output: i64,
-    cache_creation: i64,
-    cache_read: i64,
-    observed: &usage::OutputObserver,
-) -> usage::TokenUsage {
-    usage::apply_output_estimate(
-        usage::TokenUsage {
-            input,
-            output,
-            cache_creation,
-            cache_read,
-            output_estimated: false,
-        },
-        observed,
-    )
-}
 
 /// 非流式直通：缓冲响应体 → 按上游格式解析真实 usage 记录统计 → 原样回传。
 async fn relay_buffered_response(
@@ -1349,7 +1363,7 @@ fn stream_transform_response(
     tokio::spawn(async move {
         let mut meta = meta;
         let mut converter = StreamConverter::new(meta.model.clone().unwrap_or_default(), 0);
-        let mut observed = usage::OutputObserver::default();
+        let mut acc = usage::UsageAccumulator::new(UpstreamFormat::OpenAiChat);
         let mut stream = resp.bytes_stream();
         let mut buf = String::new();
         let mut stream_error = false;
@@ -1375,6 +1389,7 @@ fn stream_transform_response(
                 };
                 let data = data.trim();
                 if data == "[DONE]" {
+                    acc.mark_done();
                     if downstream_open {
                         for ev in converter.finish() {
                             if tx.send(Ok(Bytes::from(ev))).await.is_err() {
@@ -1385,10 +1400,9 @@ fn stream_transform_response(
                     }
                 } else if !data.is_empty() {
                     if let Ok(j) = serde_json::from_str::<Value>(data) {
-                        stamp_first_visible(
-                            &mut meta,
-                            observed.observe(&j, UpstreamFormat::OpenAiChat),
-                        );
+                        let seen = acc.has_visible_output();
+                        acc.feed_json(&j);
+                        stamp_first_visible(&mut meta, !seen && acc.has_visible_output());
                         let events = converter.process_chunk(&j);
                         if downstream_open {
                             for ev in events {
@@ -1410,8 +1424,7 @@ fn stream_transform_response(
                 }
             }
         }
-        let (input, output, cache_creation, cache_read) = converter.usage();
-        let tu = usage_from_converter(input, output, cache_creation, cache_read, &observed);
+        let tu = acc.finish();
         if stream_error {
             stats.record(meta.into_record_with_error_body(
                 Some(502),
@@ -1633,7 +1646,7 @@ async fn buffered_claude_from_responses(
         stats.record(meta.into_record_with_error_body(
             Some(502),
             true,
-            usage::TokenUsage::default(),
+            usage::from_response(&r, UpstreamFormat::OpenAiResponses),
             Some(msg.to_string()),
         ));
         return json_error(StatusCode::BAD_GATEWAY, msg);
@@ -1663,7 +1676,7 @@ fn stream_claude_from_responses(
     tokio::spawn(async move {
         let mut meta = meta;
         let mut converter = ResponsesToClaudeConverter::new(meta.model.clone().unwrap_or_default());
-        let mut observed = usage::OutputObserver::default();
+        let mut acc = usage::UsageAccumulator::new(UpstreamFormat::OpenAiResponses);
         let mut stream = resp.bytes_stream();
         let mut buf = String::new();
         let mut stream_error = false;
@@ -1692,10 +1705,9 @@ fn stream_claude_from_responses(
                     continue;
                 }
                 if let Ok(j) = serde_json::from_str::<Value>(data) {
-                    stamp_first_visible(
-                        &mut meta,
-                        observed.observe(&j, UpstreamFormat::OpenAiResponses),
-                    );
+                    let seen = acc.has_visible_output();
+                    acc.feed_json(&j);
+                    stamp_first_visible(&mut meta, !seen && acc.has_visible_output());
                     let events = converter.process_event(&j);
                     if downstream_open {
                         for ev in events {
@@ -1716,8 +1728,7 @@ fn stream_claude_from_responses(
                 }
             }
         }
-        let (input, output, cache_creation, cache_read) = converter.usage();
-        let tu = usage_from_converter(input, output, cache_creation, cache_read, &observed);
+        let tu = acc.finish();
         // 与 buffered_claude_from_responses 对齐：上游 SSE 失败不当成功。
         // 优先判定网络层中断（超时/读取错误），再判定上游 SSE 失败事件，最后才算成功。
         if stream_error {
@@ -1788,7 +1799,7 @@ fn stream_responses_from_chat(
         let mut meta = meta;
         let mut converter =
             ResponsesStreamConverter::new(meta.model.clone().unwrap_or_default(), 0);
-        let mut observed = usage::OutputObserver::default();
+        let mut acc = usage::UsageAccumulator::new(UpstreamFormat::OpenAiChat);
         let mut stream = resp.bytes_stream();
         let mut buf = String::new();
         let mut stream_error = false;
@@ -1814,6 +1825,7 @@ fn stream_responses_from_chat(
                 };
                 let data = data.trim();
                 if data == "[DONE]" {
+                    acc.mark_done();
                     if downstream_open {
                         for ev in converter.finish() {
                             if tx.send(Ok(Bytes::from(ev))).await.is_err() {
@@ -1824,10 +1836,9 @@ fn stream_responses_from_chat(
                     }
                 } else if !data.is_empty() {
                     if let Ok(j) = serde_json::from_str::<Value>(data) {
-                        stamp_first_visible(
-                            &mut meta,
-                            observed.observe(&j, UpstreamFormat::OpenAiChat),
-                        );
+                        let seen = acc.has_visible_output();
+                        acc.feed_json(&j);
+                        stamp_first_visible(&mut meta, !seen && acc.has_visible_output());
                         let events = converter.process_chunk(&j);
                         if downstream_open {
                             for ev in events {
@@ -1849,8 +1860,7 @@ fn stream_responses_from_chat(
                 }
             }
         }
-        let (input, output, cache_creation, cache_read) = converter.usage();
-        let tu = usage_from_converter(input, output, cache_creation, cache_read, &observed);
+        let tu = acc.finish();
         if stream_error {
             stats.record(meta.into_record_with_error_body(
                 Some(502),

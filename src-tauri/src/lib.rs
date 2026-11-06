@@ -233,6 +233,7 @@ pub fn run() {
             commands::cc_switch::import_cc_switch_providers,
             commands::models::get_models,
             commands::models::fetch_endpoint_models,
+            commands::pricing::get_endpoint_model_prices,
             commands::tokens::count_tokens,
             commands::logs::get_recent_logs,
             commands::logs::set_log_level,

@@ -26,16 +26,6 @@ impl StreamConverter {
         }
     }
 
-    /// 当前累积的真实 token 用量，供流结束后统计记录。
-    pub fn usage(&self) -> (i64, i64, i64, i64) {
-        (
-            self.ctx.input_tokens,
-            self.ctx.output_tokens,
-            self.ctx.cache_creation_tokens,
-            self.ctx.cache_read_tokens,
-        )
-    }
-
     fn message_start(&mut self, id: &Value, events: &mut Vec<String>) {
         if self.ctx.message_start_sent {
             return;
@@ -480,8 +470,6 @@ mod tests {
         }));
         let done = join(c.finish());
         assert!(done.contains("\"output_tokens\":7"));
-        // prompt_tokens(3) 已含 cached_tokens(2)，净输入 3 - 2 = 1
-        assert_eq!(c.usage(), (1, 7, 0, 2));
     }
 
     #[test]
@@ -496,7 +484,7 @@ mod tests {
                 "completion_tokens_details": { "reasoning_tokens": 94 }
             }
         }));
-        assert_eq!(c.usage().1, 103);
+        assert!(join(c.finish()).contains("\"output_tokens\":103"));
     }
 
     #[test]

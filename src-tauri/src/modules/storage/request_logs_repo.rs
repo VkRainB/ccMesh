@@ -1,50 +1,56 @@
 use rusqlite::{params, params_from_iter, types::Value as SqlValue, Connection};
 
 use crate::error::AppResult;
+use crate::models::pricing::{CostBreakdown, CostStatus};
 use crate::models::stats::{HourlyStat, RequestLog};
 
-/// 批量插入请求明细（同一设备）。空切片为空操作。
-pub fn insert_batch(conn: &mut Connection, logs: &[RequestLog], device_id: &str) -> AppResult<()> {
+/// 批量插入请求明细；由调用方事务与日汇总一起提交，不在此嵌套事务。
+pub fn insert_batch(conn: &Connection, logs: &[RequestLog], device_id: &str) -> AppResult<()> {
     if logs.is_empty() {
         return Ok(());
     }
-    let tx = conn.transaction()?;
-    {
-        let mut stmt = tx.prepare(
-            "INSERT INTO request_logs(
-                ts, endpoint_name, inbound_format, transformer, upstream_url, inbound_path, upstream_path,
-                status_code, is_error, input_tokens, output_tokens, cache_creation_tokens,
-                cache_read_tokens, model, duration_ms, first_byte_ms, actual_model, error_body,
-                output_estimated, device_id)
-             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)",
-        )?;
-        for l in logs {
-            stmt.execute(params![
-                l.ts,
-                l.endpoint_name,
-                l.inbound_format,
-                l.transformer,
-                l.upstream_url,
-                l.inbound_path,
-                l.upstream_path,
-                l.status_code,
-                l.is_error as i64,
-                l.input_tokens,
-                l.output_tokens,
-                l.cache_creation_tokens,
-                l.cache_read_tokens,
-                l.model,
-                l.duration_ms,
-                l.first_byte_ms,
-                l.actual_model,
-                l.error_body,
-                l.output_estimated as i64,
-                device_id,
-            ])?;
-        }
+    let mut stmt = conn.prepare(
+        "INSERT INTO request_logs(
+            ts, endpoint_name, inbound_format, transformer, upstream_url, inbound_path, upstream_path,
+            status_code, is_error, input_tokens, output_tokens, cache_creation_tokens,
+            cache_read_tokens, model, duration_ms, first_byte_ms, actual_model, error_body,
+            output_estimated, device_id, endpoint_id, pricing_model, pricing_at, pricing_snapshot,
+            cost_status, cost_reason, cost_input, cost_output, cost_cache_read, cost_cache_write, cost_total)
+         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,
+                ?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31)",
+    )?;
+    for l in logs {
+        let snapshot = l.pricing_snapshot.as_ref().map(serde_json::to_string).transpose()?;
+        let status = match l.cost_status {
+            CostStatus::Priced => "priced",
+            CostStatus::Unpriced => "unpriced",
+            CostStatus::IncompleteUsage => "incomplete_usage",
+            CostStatus::CalculationError => "calculation_error",
+            CostStatus::LegacyUnknown => "legacy_unknown",
+        };
+        stmt.execute(params![
+            l.ts, l.endpoint_name, l.inbound_format, l.transformer, l.upstream_url,
+            l.inbound_path, l.upstream_path, l.status_code, l.is_error as i64,
+            l.input_tokens, l.output_tokens, l.cache_creation_tokens, l.cache_read_tokens,
+            l.model, l.duration_ms, l.first_byte_ms, l.actual_model, l.error_body,
+            l.output_estimated as i64, device_id, l.endpoint_id, l.pricing_model, l.pricing_at,
+            snapshot, status, l.cost_reason,
+            l.cost.as_ref().map(|c| c.input.as_str()),
+            l.cost.as_ref().map(|c| c.output.as_str()),
+            l.cost.as_ref().map(|c| c.cache_read.as_str()),
+            l.cost.as_ref().map(|c| c.cache_write.as_str()),
+            l.cost.as_ref().map(|c| c.total.as_str()),
+        ])?;
     }
-    tx.commit()?;
     Ok(())
+}
+
+fn json_column<T: serde::de::DeserializeOwned>(r: &rusqlite::Row, index: usize) -> rusqlite::Result<Option<T>> {
+    r.get::<_, Option<String>>(index)?.map(|value| {
+        serde_json::from_str(&value).map_err(|e| {
+            rusqlite::Error::FromSqlConversionFailure(index, rusqlite::types::Type::Text, Box::new(e))
+        })
+    }).transpose()
 }
 
 fn row_to_log(r: &rusqlite::Row) -> rusqlite::Result<RequestLog> {
@@ -69,6 +75,24 @@ fn row_to_log(r: &rusqlite::Row) -> rusqlite::Result<RequestLog> {
         actual_model: r.get(17)?,
         error_body: r.get(18)?,
         output_estimated: r.get::<_, i64>(19)? != 0,
+        endpoint_id: r.get(20)?,
+        pricing_model: r.get(21)?,
+        pricing_at: r.get(22)?,
+        pricing_snapshot: json_column(r, 23)?,
+        cost_status: serde_json::from_value(serde_json::Value::String(r.get(24)?)).map_err(|e| {
+            rusqlite::Error::FromSqlConversionFailure(24, rusqlite::types::Type::Text, Box::new(e))
+        })?,
+        cost_reason: r.get(25)?,
+        cost: match r.get::<_, Option<String>>(30)? {
+            Some(total) => Some(CostBreakdown {
+                input: r.get(26)?,
+                output: r.get(27)?,
+                cache_read: r.get(28)?,
+                cache_write: r.get(29)?,
+                total,
+            }),
+            None => None,
+        },
     })
 }
 
@@ -110,7 +134,9 @@ pub fn query_page(
     let sql = format!(
         "SELECT id, ts, endpoint_name, inbound_format, transformer, upstream_url, status_code, is_error,
                 input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, model, duration_ms,
-                inbound_path, upstream_path, first_byte_ms, actual_model, error_body, output_estimated
+                inbound_path, upstream_path, first_byte_ms, actual_model, error_body, output_estimated,
+                endpoint_id, pricing_model, pricing_at, pricing_snapshot, cost_status, cost_reason,
+                cost_input, cost_output, cost_cache_read, cost_cache_write, cost_total
          FROM request_logs{where_sql}
          ORDER BY ts DESC, id DESC LIMIT ? OFFSET ?"
     );
@@ -213,6 +239,7 @@ mod tests {
             actual_model: None,
             error_body: None,
             output_estimated: false,
+            ..RequestLog::default()
         }
     }
 

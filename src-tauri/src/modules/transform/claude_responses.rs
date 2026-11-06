@@ -486,16 +486,6 @@ impl ResponsesToClaudeConverter {
         }
     }
 
-    /// 当前累积 token 用量 `(input, output, cache_creation, cache_read)`，供流结束后统计。
-    pub fn usage(&self) -> (i64, i64, i64, i64) {
-        (
-            self.input_tokens,
-            self.output_tokens,
-            0,
-            self.cache_read_tokens,
-        )
-    }
-
     /// 流内是否收到上游失败事件。
     pub fn error_message(&self) -> Option<&str> {
         self.error_message.as_deref()
@@ -1028,7 +1018,6 @@ mod tests {
         assert!(e2.contains("\"input_tokens\":60"));
         assert!(e2.contains("\"cache_read_input_tokens\":40"));
         assert!(e2.contains("event: message_stop"));
-        assert_eq!(c.usage(), (60, 7, 0, 40));
         // finish 幂等
         assert!(c.finish().is_empty());
     }

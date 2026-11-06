@@ -174,6 +174,7 @@ mod tests {
             model: String::new(),
             models: Vec::new(),
             active_models: Vec::new(),
+            model_pricing: Vec::new(),
             model_mappings: Vec::new(),
             model_mappings_enabled: true,
             header_overrides: Vec::new(),

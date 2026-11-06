@@ -481,11 +481,6 @@ impl ResponsesStreamConverter {
         }
     }
 
-    /// 当前累积 token 用量 `(input, output, cache_creation, cache_read)`，供流结束后统计。
-    pub fn usage(&self) -> (i64, i64, i64, i64) {
-        (self.input_tokens, self.output_tokens, 0, self.cache_read)
-    }
-
     fn next_seq(&mut self) -> i64 {
         let s = self.seq;
         self.seq += 1;
@@ -1195,29 +1190,8 @@ mod tests {
         let done = join(c.finish());
         assert!(done.contains("\"input_tokens\":11"));
         assert!(done.contains("\"output_tokens\":4"));
-        assert_eq!(c.usage(), (11, 4, 0, 0));
     }
 
-    #[test]
-    fn stream_usage_chunk_deducts_cache_read_from_input() {
-        // 复现图片场景：OpenAI 末尾 usage 的 prompt_tokens 已含 cached_tokens，
-        // 转换器需扣除 cache_read 得到净输入，避免合计双重计算。
-        // prompt_tokens=16987, cached=16832 → 净 input=155, output=279
-        let mut c = ResponsesStreamConverter::new("m".into(), 0);
-        c.process_chunk(&json!({ "id": "x", "choices": [{ "delta": { "content": "y" } }] }));
-        c.process_chunk(&json!({
-            "choices": [],
-            "usage": {
-                "prompt_tokens": 16987,
-                "completion_tokens": 279,
-                "prompt_tokens_details": { "cached_tokens": 16832 }
-            }
-        }));
-        assert_eq!(c.usage(), (155, 279, 0, 16832));
-        // 合计 = 155 + 279 + 0 + 16832 = 17266，与上游 total_tokens 一致
-        let (i, o, cc, cr) = c.usage();
-        assert_eq!(i + o + cc + cr, 17266);
-    }
 
     #[test]
     fn stream_finish_is_idempotent() {

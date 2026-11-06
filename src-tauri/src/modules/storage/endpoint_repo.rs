@@ -6,8 +6,9 @@ use crate::error::{AppError, AppResult};
 use crate::models::endpoint::{
     CreateEndpointRequest, Endpoint, HeaderOverride, UpdateEndpointRequest,
 };
+use crate::modules::pricing::validate_model_pricing;
 
-const COLS: &str = "id, name, api_url, api_key, auth_mode, enabled, use_proxy, transformer, model, models, active_models, model_mappings, model_mappings_enabled, header_overrides, header_overrides_enabled, remark, sort_order, fast, fast_sort_order, test_status, created_at, updated_at, archived";
+const COLS: &str = "id, name, api_url, api_key, auth_mode, enabled, use_proxy, transformer, model, models, active_models, model_mappings, model_mappings_enabled, header_overrides, header_overrides_enabled, remark, sort_order, fast, fast_sort_order, test_status, created_at, updated_at, archived, model_pricing";
 
 /// 认证头与连接控制头不允许覆写（与转发层剔除口径对齐）。
 const FORBIDDEN_OVERRIDE_HEADERS: &[&str] = &[
@@ -38,6 +39,20 @@ fn row_to_endpoint(row: &Row) -> rusqlite::Result<Endpoint> {
         active_models: {
             let s: String = row.get("active_models")?;
             serde_json::from_str(&s).unwrap_or_default()
+        },
+        model_pricing: {
+            let s: String = row.get("model_pricing")?;
+            let prices = serde_json::from_str::<Vec<crate::models::pricing::ModelPricing>>(&s)
+                .map_err(|error| rusqlite::Error::FromSqlConversionFailure(
+                    row.as_ref().column_index("model_pricing").unwrap_or(23),
+                    rusqlite::types::Type::Text, Box::new(error),
+                ))?;
+            validate_model_pricing(&prices).map_err(|error| rusqlite::Error::FromSqlConversionFailure(
+                row.as_ref().column_index("model_pricing").unwrap_or(23),
+                rusqlite::types::Type::Text,
+                Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, error.to_string())),
+            ))?;
+            prices
         },
         model_mappings: {
             let s: String = row.get("model_mappings")?;
@@ -161,10 +176,11 @@ pub fn create(conn: &Connection, req: &CreateEndpointRequest) -> AppResult<Endpo
     // 点亮子集规整为 models 的子集（去除已不存在的模型，避免脏数据）。
     let active = sanitize_active(&req.models, &req.active_models);
     let header_overrides = sanitize_header_overrides(&req.header_overrides)?;
+    validate_model_pricing(&req.model_pricing)?;
     conn.execute(
         "INSERT INTO endpoints
-            (name, api_url, api_key, auth_mode, enabled, use_proxy, transformer, model, models, active_models, model_mappings, model_mappings_enabled, header_overrides, header_overrides_enabled, remark, sort_order, fast, fast_sort_order)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+            (name, api_url, api_key, auth_mode, enabled, use_proxy, transformer, model, models, active_models, model_mappings, model_mappings_enabled, header_overrides, header_overrides_enabled, remark, sort_order, fast, fast_sort_order, model_pricing)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
         params![
             req.name,
             req.api_url,
@@ -184,6 +200,7 @@ pub fn create(conn: &Connection, req: &CreateEndpointRequest) -> AppResult<Endpo
             next_order,
             (req.enabled && req.fast) as i64,
             next_order,
+            serde_json::to_string(&req.model_pricing)?,
         ],
     )?;
     require(conn, conn.last_insert_rowid())
@@ -230,6 +247,10 @@ pub fn update(conn: &Connection, id: i64, req: &UpdateEndpointRequest) -> AppRes
     if let Some(ref v) = req.active_models {
         e.active_models = v.clone();
     }
+    if let Some(v) = &req.model_pricing {
+        validate_model_pricing(v)?;
+        e.model_pricing = v.clone();
+    }
     if let Some(ref v) = req.model_mappings {
         e.model_mappings = v.clone();
     }
@@ -260,7 +281,7 @@ pub fn update(conn: &Connection, id: i64, req: &UpdateEndpointRequest) -> AppRes
             use_proxy = ?6, transformer = ?7, model = ?8, models = ?9, active_models = ?10,
             model_mappings = ?11, model_mappings_enabled = ?12,
             header_overrides = ?13, header_overrides_enabled = ?14, remark = ?15, fast = ?16,
-            updated_at = datetime('now')
+            model_pricing = ?18, updated_at = datetime('now')
          WHERE id = ?17",
         params![
             e.name,
@@ -280,6 +301,7 @@ pub fn update(conn: &Connection, id: i64, req: &UpdateEndpointRequest) -> AppRes
             e.remark,
             e.fast as i64,
             id,
+            serde_json::to_string(&e.model_pricing)?,
         ],
     )?;
     require(conn, id)
@@ -452,6 +474,7 @@ mod tests {
             model: String::new(),
             models: Vec::new(),
             active_models: Vec::new(),
+            model_pricing: Vec::new(),
             model_mappings: Vec::new(),
             model_mappings_enabled: true,
             header_overrides: Vec::new(),
@@ -466,6 +489,64 @@ mod tests {
             enabled,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn pricing_is_channel_exact_persisted_and_snapshot_frozen() {
+        use crate::models::endpoint::ModelMapping;
+        use crate::models::pricing::{ModelPricing, PriceRates};
+        use crate::modules::pricing::{quote_models, resolve_price};
+
+        let c = db();
+        let mut original = req("priced");
+        original.models = vec!["vendor/model".into(), "missing".into()];
+        original.model_mappings.push(ModelMapping {
+            from: "alias".into(), to: "vendor/model".into(), ..Default::default()
+        });
+        original.model_pricing = vec![ModelPricing {
+            model_id: "vendor/model".into(), timezone: "Asia/Shanghai".into(),
+            base_rates: PriceRates { input: "1".into(), output: "2".into(), cache_read: "0".into(), cache_write: "3".into() },
+            windows: Vec::new(),
+        }];
+        let first = create(&c, &original).unwrap();
+        let at = 1_783_296_000_000;
+        let frozen = resolve_price(&first, "vendor/model", at).unwrap().unwrap();
+        assert!(resolve_price(&first, "model", at).unwrap().is_none());
+        assert!(resolve_price(&first, "Vendor/model", at).unwrap().is_none());
+        original.name = "copy".into();
+        let copied = create(&c, &original).unwrap();
+        let mut changed = first.model_pricing.clone();
+        changed[0].base_rates.input = "0".into();
+        let updated = update(&c, first.id, &UpdateEndpointRequest {
+            model_pricing: Some(changed), ..Default::default()
+        }).unwrap();
+        assert_eq!(resolve_price(&updated, "vendor/model", at).unwrap().unwrap().rates.input, "0");
+        assert_eq!(resolve_price(&get_by_id(&c, copied.id).unwrap().unwrap(), "vendor/model", at).unwrap().unwrap().rates.input, "1");
+        assert_eq!(frozen.rates.input, "1");
+        let quotes = quote_models(&updated, Some(vec!["ALIAS".into(), "missing".into()]), at).unwrap();
+        assert_eq!(quotes[0].requested_model, "ALIAS");
+        assert_eq!(quotes[0].model_id, "vendor/model");
+        assert_eq!(quotes[0].effective_rates.as_ref().unwrap().input, "0");
+        assert!(quotes[1].effective_rates.is_none());
+        let mut locked = updated.clone();
+        locked.model = "vendor/model".into();
+        assert_eq!(quote_models(&locked, Some(vec!["anything".into()]), at).unwrap()[0].model_id, "vendor/model");
+        assert!(quote_models(&updated, None, at).unwrap().iter().any(|q| q.requested_model == "missing"));
+        delete(&c, first.id).unwrap();
+        assert_eq!(frozen.rates.input, "1");
+    }
+
+    #[test]
+    fn invalid_or_corrupt_pricing_is_never_silently_free() {
+        let c = db();
+        let endpoint = create(&c, &req("corrupt")).unwrap();
+        c.execute("UPDATE endpoints SET model_pricing = 'not-json' WHERE id = ?1", [endpoint.id]).unwrap();
+        assert!(get_by_id(&c, endpoint.id).is_err());
+        c.execute("UPDATE endpoints SET model_pricing = ?1 WHERE id = ?2", params![
+            r#"[{"modelId":"m","timezone":"UTC","baseRates":{"input":"-1","output":"0","cacheRead":"0","cacheWrite":"0"},"windows":[]}]"#,
+            endpoint.id,
+        ]).unwrap();
+        assert!(get_by_id(&c, endpoint.id).is_err());
     }
 
     #[test]
