@@ -1,6 +1,7 @@
 import type { UnlistenFn } from "@tauri-apps/api/event";
 
 import { Events, request, subscribe } from "../request";
+import type { CostBreakdown, CostStatus, PricingSnapshot } from "./pricing";
 
 export interface EndpointStat {
   endpointName: string;
@@ -10,6 +11,9 @@ export interface EndpointStat {
   outputTokens: number;
   cacheCreationTokens: number;
   cacheReadTokens: number;
+  pricedCost: string;
+  pricedRequests: number;
+  unpricedRequests: number;
 }
 
 export interface PeriodStats {
@@ -19,6 +23,9 @@ export interface PeriodStats {
   outputTokens: number;
   cacheCreationTokens: number;
   cacheReadTokens: number;
+  pricedCost: string;
+  pricedRequests: number;
+  unpricedRequests: number;
   endpoints: EndpointStat[];
 }
 
@@ -45,6 +52,9 @@ export interface DailyStat {
   outputTokens: number;
   cacheCreationTokens: number;
   cacheReadTokens: number;
+  pricedCost: string;
+  pricedRequests: number;
+  unpricedRequests: number;
 }
 
 /** 逐条请求明细。事件推送时 id 为 0（尚未落库），列表以 ts 作为 key。 */
@@ -77,6 +87,13 @@ export interface RequestLog {
   actualModel: string | null;
   /** 错误响应体（仅错误请求，限长写入）。旧行/无响应体为 null。 */
   errorBody: string | null;
+  endpointId: number | null;
+  pricingModel: string | null;
+  pricingAt: number | null;
+  pricingSnapshot: PricingSnapshot | null;
+  costStatus: CostStatus;
+  costReason: string | null;
+  cost: CostBreakdown | null;
 }
 
 export interface RequestLogPage {

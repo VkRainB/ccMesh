@@ -49,6 +49,9 @@ describe("aggregateRange", () => {
     outputTokens: 5,
     cacheCreationTokens: 1,
     cacheReadTokens: 2,
+    pricedCost: "0",
+    pricedRequests: 0,
+    unpricedRequests: requests,
   });
 
   it("按日期闭区间过滤并按端点合并，端点按请求数降序", () => {
@@ -65,6 +68,19 @@ describe("aggregateRange", () => {
     expect(s.cacheReadTokens).toBe(6);
     expect(s.endpoints.map((e) => e.endpointName)).toEqual(["b", "a"]);
     expect(s.endpoints[1].requests).toBe(5); // a: 2+3
+  });
+
+  it("按十进制精确累计金额及覆盖计数，不能丢失小于一美分的费用", () => {
+    const rows = [
+      { ...row("a", "2026-08-10", 2), pricedCost: "9999999999999999.000000000001", pricedRequests: 1, unpricedRequests: 1 },
+      { ...row("a", "2026-08-11", 1), pricedCost: "0.000000000009", pricedRequests: 1, unpricedRequests: 0 },
+      row("b", "2026-08-11", 3),
+    ];
+    const result = aggregateRange(rows, "2026-08-10", "2026-08-11");
+    expect(result.pricedCost).toBe("9999999999999999.00000000001");
+    expect(result.pricedRequests).toBe(2);
+    expect(result.unpricedRequests).toBe(4);
+    expect(result.endpoints.find((endpoint) => endpoint.endpointName === "a")?.pricedCost).toBe(result.pricedCost);
   });
 
   it("空区间返回全零", () => {

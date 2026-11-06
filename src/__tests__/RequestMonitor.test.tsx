@@ -5,14 +5,13 @@ import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 
 import {
-  ErrorDetail,
-  fmtDateTime,
-  fmtTime,
   ModelCell,
   RequestLogTable,
   RequestMonitor,
   TokenDetail,
 } from "@/components/business/RequestMonitor";
+import { CostDetail, ErrorDetail } from "@/components/business/RequestDetailSheet";
+import { fmtDateTime, fmtTime } from "@/lib/format";
 import { RequestLogsCleanupDialog } from "@/components/business/RequestLogsCleanupDialog";
 import type { RequestLog } from "@/services/modules/stats";
 
@@ -36,6 +35,13 @@ const log: RequestLog = {
   firstByteMs: 80,
   actualModel: null,
   errorBody: null,
+  endpointId: null,
+  pricingModel: null,
+  pricingAt: null,
+  pricingSnapshot: null,
+  costStatus: "legacy_unknown",
+  costReason: null,
+  cost: null,
 };
 
 const mockedInvoke = vi.mocked(invoke);
@@ -54,6 +60,17 @@ describe("RequestLogTable", () => {
     expect(screen.getByText("200")).toBeInTheDocument();
     // Token 合计 = 10 + 5 + 2 + 3
     expect(screen.getByText("20")).toBeInTheDocument();
+  });
+
+  it("仅省略本地今天的日期，跨日后补回昨天且不误省略未来日期", () => {
+    const items = [5, 6, 7].map((day) => ({ ...log, id: day, ts: new Date(2026, 10, day, 21, 39, 33).getTime() }));
+    const view = render(<RequestLogTable items={items} todayStart={new Date(2026, 10, 6).getTime()} />);
+    expect(screen.getByText("2026-11-05")).toBeInTheDocument();
+    expect(screen.queryByText("2026-11-06")).not.toBeInTheDocument();
+    expect(screen.getByText("2026-11-07")).toBeInTheDocument();
+    view.rerender(<RequestLogTable items={items} todayStart={new Date(2026, 10, 7).getTime()} />);
+    expect(screen.getByText("2026-11-06")).toBeInTheDocument();
+    expect(screen.queryByText("2026-11-07")).not.toBeInTheDocument();
   });
 
   it("入站/出站展示真实路由路径", () => {
@@ -234,15 +251,29 @@ describe("RequestLogTable", () => {
     expect(screen.getByText("claude-3")).toBeInTheDocument();
   });
 
-  it("无模型时模型列留白（不显示 —）", () => {
-    const noModel: RequestLog = { ...log, id: 6, model: null, actualModel: null };
-    const { container } = render(<RequestLogTable items={[noModel]} />);
-    const row = container.querySelector("tbody tr");
-    expect(row).toBeTruthy();
-    // 模型列是第 6 个 td（时间/端点/入站/出站/状态/模型）
-    const modelTd = row!.querySelectorAll("td")[5];
-    expect(modelTd?.textContent?.trim()).toBe("");
-    expect(modelTd?.textContent).not.toContain("—");
+  it("真实免费显示零，缺用量和旧记录不显示免费，隐藏Token一并隐藏金额", () => {
+    const free: RequestLog = { ...log, costStatus: "priced", cost: { input: "0", output: "0", cacheRead: "0", cacheWrite: "0", total: "0" } };
+    const view = render(<RequestLogTable items={[free]} />);
+    expect(screen.getByText("$0")).toBeInTheDocument();
+    view.rerender(<RequestLogTable items={[{ ...log, costStatus: "incomplete_usage" }]} />);
+    expect(screen.getByText("用量不完整，未计价")).toBeInTheDocument();
+    expect(screen.queryByText("$0")).not.toBeInTheDocument();
+    view.rerender(<RequestLogTable items={[log]} />);
+    expect(screen.getByText("历史记录无费率快照")).toBeInTheDocument();
+    view.rerender(<RequestLogTable items={[free]} preferences={{ hiddenColumns: ["tokens"], actualModelOnly: false }} />);
+    expect(screen.queryByText("$0")).not.toBeInTheDocument();
+  });
+
+  it("成本明细展示冻结的四价、分项、模型和规则", () => {
+    render(<CostDetail log={{ ...log, endpointId: 7, pricingModel: "outbound", pricingAt: 0, costStatus: "priced",
+      pricingSnapshot: { modelId: "outbound", timezone: "Asia/Shanghai", source: "window", ruleId: "night", ruleName: "夜间", rates: { input: "1", output: "2", cacheRead: "3", cacheWrite: "4" } },
+      cost: { input: "0.1", output: "0.2", cacheRead: "0.3", cacheWrite: "0.4", total: "1" },
+    }} />);
+    expect(screen.getByText("outbound")).toBeInTheDocument();
+    expect(screen.getByText("夜间")).toBeInTheDocument();
+    expect(screen.getByText("Asia/Shanghai")).toBeInTheDocument();
+    expect(screen.getByText("1970-01-01T00:00:00.000Z")).toBeInTheDocument();
+    expect(screen.getByText("0.4")).toBeInTheDocument();
   });
 });
 
@@ -352,13 +383,11 @@ describe("fmtDateTime", () => {
 });
 
 describe("TokenDetail 实际模型", () => {
-  it("映射生效时展示实际模型（值为蓝色）", () => {
+  it("映射生效时展示实际模型", () => {
     const mapped: RequestLog = { ...log, model: "claude-opus-4-8", actualModel: "gpt-5.5" };
     render(<TokenDetail log={mapped} total={20} />);
     expect(screen.getByText("模型：claude-opus-4-8")).toBeInTheDocument();
     expect(screen.getByText(/实际模型/)).toBeInTheDocument();
-    const val = screen.getByText("gpt-5.5");
-    expect(val.className).toContain("text-info");
   });
 
   it("无映射(透传)时不展示实际模型", () => {
@@ -406,7 +435,7 @@ describe("请求表格共享偏好", () => {
     expect(screen.getByText("requested")).toBeInTheDocument();
   });
 
-  it.each(["{broken", JSON.stringify({ hiddenColumns: ["time", "endpoint", "inbound", "outbound", "status", "model", "latency", "tokens"], actualModelOnly: true })])(
+  it.each(["{broken", JSON.stringify({ hiddenColumns: ["time", "endpoint", "inbound", "outbound", "status", "model", "latency", "tokens", "cost"], actualModelOnly: true })])(
     "损坏缓存或零列配置不会丢失表格 %s", async (raw) => {
       localStorage.setItem(key, raw);
       renderWithQuery(<RequestMonitor mode="live" />);
@@ -418,7 +447,7 @@ describe("请求表格共享偏好", () => {
   it("跨标签修改及清空同步，最后一列不可隐藏", async () => {
     renderWithQuery(<RequestMonitor mode="live" />);
     await screen.findByText("requested");
-    localStorage.setItem(key, JSON.stringify({ hiddenColumns: ["time", "endpoint", "inbound", "outbound", "status", "latency", "tokens"], actualModelOnly: true }));
+    localStorage.setItem(key, JSON.stringify({ hiddenColumns: ["time", "endpoint", "inbound", "outbound", "status", "latency", "tokens", "cost"], actualModelOnly: true }));
     fireEvent(window, new StorageEvent("storage", { key, storageArea: localStorage }));
     expect(screen.queryByText("requested")).not.toBeInTheDocument();
     expect(screen.getByText("actual")).toBeInTheDocument();

@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { InfoIcon, ArrowDownRightIcon, TriangleAlertIcon, Trash2Icon, Settings2Icon } from "lucide-react";
 import { Anthropic, Codex, OpenAI } from "@lobehub/icons";
@@ -19,8 +19,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Switch } from "@/components/ui/switch";
 import { DateRangePicker } from "@/components/business/DateRangePicker";
 import { RequestLogsCleanupDialog } from "@/components/business/RequestLogsCleanupDialog";
-import { rangeValueMs, startOfTodayMs, type RangeValue } from "@/lib/range";
-import { formatDuration, formatOutputTps, formatTokenK } from "@/lib/format";
+import { COST_LABELS, ErrorDetail, RequestDetailSheet } from "@/components/business/RequestDetailSheet";
+import { rangeValueMs, startOfTodayMs, ymd, type RangeValue } from "@/lib/range";
+import { fmtDateTime, fmtTime, formatDuration, formatOutputTps, formatTokenK } from "@/lib/format";
 import { statsApi, type RequestLog } from "@/services/modules/stats";
 
 const COLUMNS = [
@@ -71,6 +72,13 @@ export function RequestMonitor({
 }: Props) {
   const [page, setPage] = useState(1);
   const [preferences, setPreferences] = useCache(CACHE_KEY, { defaultValue: DEFAULT_PREFERENCES, parse: parsePreferences });
+  const [selectedLog, setSelectedLog] = useState<RequestLog | null>(null);
+  const detailTrigger = useRef<HTMLElement | null>(null);
+  const settingsButton = useRef<HTMLButtonElement>(null);
+  const openDetail = (log: RequestLog, trigger: HTMLElement) => {
+    detailTrigger.current = trigger;
+    setSelectedLog(log);
+  };
   const [ownRange, setOwnRange] = useState<RangeValue>({
     kind: "preset",
     key: "today",
@@ -78,13 +86,34 @@ export function RequestMonitor({
   const rangeValue = controlledRange ?? ownRange;
   const [cleanupOpen, setCleanupOpen] = useState(false);
   // 按天对齐的稳定锚点：同一天内多次渲染得到相同区间，避免 queryKey 逐帧漂移导致无限重取。
-  const todayStart = startOfTodayMs();
+  const [todayStart, setTodayStart] = useState(startOfTodayMs);
+  useEffect(() => {
+    let timer: number;
+    const refreshDay = () => {
+      window.clearTimeout(timer);
+      const now = new Date();
+      setTodayStart(startOfTodayMs(now.getTime()));
+      const tomorrow = new Date(now);
+      tomorrow.setHours(24, 0, 0, 0);
+      timer = window.setTimeout(refreshDay, Math.max(1, tomorrow.getTime() - now.getTime()));
+    };
+    const onVisible = () => { if (!document.hidden) refreshDay(); };
+    refreshDay();
+    window.addEventListener("focus", refreshDay);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("focus", refreshDay);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, []);
   const range = useMemo(
     () => (mode === "ranged" ? rangeValueMs(rangeValue, todayStart) : {}),
     [mode, rangeValue, todayStart],
   );
   // 范围变化（含外部受控变化）时回到第 1 页
   useEffect(() => setPage(1), [rangeValue]);
+  useEffect(() => setSelectedLog(null), [mode, page, range.startMs, range.endMs, endpointFilter]);
 
   const { data, isLoading } = useRequestLogs({
     mode,
@@ -102,10 +131,10 @@ export function RequestMonitor({
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
 
-  if (hideWhenEmpty && !isLoading && total === 0) return null;
+  if (hideWhenEmpty && !isLoading && total === 0 && !selectedLog) return null;
 
   return (
-    <section className="flex flex-col gap-3">
+    <section className="flex min-w-0 flex-col gap-3">
       <div className="flex items-start justify-between gap-3">
         <h2 className="text-sm font-medium text-ink-secondary">
           {title ?? (mode === "live" ? "实时请求监控" : "端点请求记录")}
@@ -116,7 +145,7 @@ export function RequestMonitor({
           )}
           <Popover>
             <PopoverTrigger asChild>
-              <Button size="sm" variant="ghost" className="h-8 w-8 p-0" aria-label="配置请求表格">
+              <Button ref={settingsButton} size="sm" variant="ghost" className="h-8 w-8 p-0" aria-label="配置请求表格">
                 <Settings2Icon className="size-4" />
               </Button>
             </PopoverTrigger>
@@ -163,13 +192,22 @@ export function RequestMonitor({
         open={cleanupOpen}
         onOpenChange={setCleanupOpen}
         retentionDays={retentionDays}
-        onCleaned={() => setPage(1)}
+        onCleaned={() => { setSelectedLog(null); setPage(1); }}
+      />
+      <RequestDetailSheet
+        log={selectedLog}
+        onClose={() => setSelectedLog(null)}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          const target = detailTrigger.current;
+          (target?.isConnected ? target : settingsButton.current)?.focus({ preventScroll: true });
+        }}
       />
 
       {isLoading ? (
         <p className="text-sm text-ink-mute">加载中…</p>
       ) : (
-        <RequestLogTable items={items} preferences={preferences} />
+        <RequestLogTable items={items} preferences={preferences} todayStart={todayStart} onOpenDetail={openDetail} />
       )}
 
       {total > pageSize && (
@@ -185,23 +223,29 @@ export function RequestMonitor({
 }
 
 /** 纯展示：请求明细表（空态自处理），便于复用与单测。 */
-export function RequestLogTable({ items, preferences = DEFAULT_PREFERENCES }: { items: RequestLog[]; preferences?: TablePreferences }) {
+export function RequestLogTable({ items, preferences = DEFAULT_PREFERENCES, todayStart = startOfTodayMs(), onOpenDetail }: {
+  items: RequestLog[];
+  preferences?: TablePreferences;
+  todayStart?: number;
+  onOpenDetail?: (log: RequestLog, trigger: HTMLElement) => void;
+}) {
   if (items.length === 0) {
     return <p className="text-sm text-ink-mute">暂无请求记录</p>;
   }
   return (
-    <div className="overflow-hidden rounded-lg border border-edge">
+    <div className="min-w-0 overflow-x-auto rounded-lg border border-edge">
       <table className="w-full text-sm">
+        {!preferences.hiddenColumns.includes("tokens") && <caption className="caption-bottom border-t border-edge px-3 py-2 text-left text-xs text-ink-mute">本地估算，非渠道扣款账单。仅完整用量与已配置价格的请求计价。</caption>}
         <thead>
           <tr className="border-b border-edge text-xs text-ink-secondary">
             {COLUMNS.filter(([id]) => !preferences.hiddenColumns.includes(id)).map(([id, label]) => (
-              <th key={id} className={`px-3 py-2 font-medium ${id === "tokens" ? "text-right" : "text-left"} ${id === "model" ? "w-[8rem] max-w-[8rem]" : id === "status" ? "w-[5.5rem]" : ""}`}>{label}</th>
+              <th key={id} className={`px-3 py-2 text-left font-medium whitespace-nowrap ${id === "model" ? "w-[12rem] max-w-[12rem]" : id === "status" ? "w-[4.5rem]" : ""}`}>{label}</th>
             ))}
           </tr>
         </thead>
         <tbody>
           {items.map((r) => (
-            <RequestRow key={r.id || r.ts} log={r} preferences={preferences} />
+            <RequestRow key={r.id || r.ts} log={r} preferences={preferences} todayStart={todayStart} onOpenDetail={onOpenDetail} />
           ))}
         </tbody>
       </table>
@@ -209,24 +253,6 @@ export function RequestLogTable({ items, preferences = DEFAULT_PREFERENCES }: { 
   );
 }
 
-/** 请求时间按 24 小时制 时:分:秒（零填充）展示，避免地区设置带来的上午/下午前缀。 */
-export function fmtTime(ts: number): string {
-  const d = new Date(ts);
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
-}
-
-/** 请求日期 年-月-日（零填充，本地时区）。 */
-export function fmtDate(ts: number): string {
-  const d = new Date(ts);
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-}
-
-/** 请求时间完整展示：年-月-日 时:分:秒（24 小时制）。 */
-export function fmtDateTime(ts: number): string {
-  return `${fmtDate(ts)} ${fmtTime(ts)}`;
-}
 
 function statusDot(code: number | null): "success" | "warning" | "danger" {
   if (code == null) return "danger";
@@ -235,24 +261,6 @@ function statusDot(code: number | null): "success" | "warning" | "danger" {
   return "danger";
 }
 
-export function formatErrorBody(errorBody: string): string {
-  try {
-    return JSON.stringify(JSON.parse(errorBody), null, 2);
-  } catch {
-    return errorBody;
-  }
-}
-
-export function ErrorDetail({ errorBody }: { errorBody: string }) {
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="text-sm font-medium">错误详情</div>
-      <pre className="whitespace-pre-wrap break-words font-mono text-xs text-ink-secondary">
-        {formatErrorBody(errorBody)}
-      </pre>
-    </div>
-  );
-}
 
 /** 旧行无真实路径时，按入站协议推断兜底路由。 */
 function inferPath(format: string): string {
@@ -320,7 +328,12 @@ export function LatencyCell({ log }: { log: RequestLog }) {
   );
 }
 
-function RequestRow({ log, preferences }: { log: RequestLog; preferences: TablePreferences }) {
+function RequestRow({ log, preferences, todayStart, onOpenDetail }: {
+  log: RequestLog;
+  preferences: TablePreferences;
+  todayStart: number;
+  onOpenDetail?: (log: RequestLog, trigger: HTMLElement) => void;
+}) {
   // 优先 transformer（端点配置类型，更准确），旧行/未记录回退 inboundFormat
   const FormatIcon = getEndpointIcon(log.transformer ?? log.inboundFormat);
   const total =
@@ -329,34 +342,50 @@ function RequestRow({ log, preferences }: { log: RequestLog; preferences: TableP
     log.cacheCreationTokens +
     log.cacheReadTokens;
   return (
-    <tr className="border-b border-edge-subtle last:border-0">
+    <tr
+      className={`border-b border-edge-subtle last:border-0 ${onOpenDetail ? "cursor-pointer transition-colors hover:bg-surface-hover focus-within:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring" : ""}`}
+      tabIndex={onOpenDetail ? 0 : undefined}
+      aria-label={onOpenDetail ? `查看请求详情：${fmtDateTime(log.ts)} ${log.endpointName}` : undefined}
+      onKeyDown={onOpenDetail ? (event) => {
+        if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
+        event.preventDefault();
+        onOpenDetail(log, event.currentTarget);
+      } : undefined}
+      onClick={onOpenDetail ? (event) => {
+        if ((event.target as HTMLElement).closest("button, a, input, select, textarea, [role=button]") || window.getSelection()?.toString()) return;
+        onOpenDetail(log, event.currentTarget);
+      } : undefined}
+    >
       {!preferences.hiddenColumns.includes("time") && (
       <td
-        className="px-3 py-2 whitespace-nowrap"
-        title={new Date(log.ts).toLocaleString()}
+        className="w-px px-3 py-2 whitespace-nowrap"
+        title={fmtDateTime(log.ts)}
       >
-        <TabularText>{fmtDateTime(log.ts)}</TabularText>
+        <time dateTime={new Date(log.ts).toISOString()} className="flex flex-col gap-0.5 font-mono text-xs tabular-nums">
+          {startOfTodayMs(log.ts) !== todayStart && <span className="text-ink-mute">{ymd(log.ts)}</span>}
+          <span>{fmtTime(log.ts)}</span>
+        </time>
       </td>
       )}
       {!preferences.hiddenColumns.includes("endpoint") && (
-      <td className="px-3 py-2">
+      <td className="max-w-[10rem] px-3 py-2">
         <div className="flex items-center gap-1.5">
           <FormatIcon size={14} className="shrink-0" />
-          <span className="truncate">{log.endpointName}</span>
+          <span className="truncate" title={log.endpointName}>{log.endpointName}</span>
         </div>
       </td>
       )}
       {!preferences.hiddenColumns.includes("inbound") && (
       <td
-        className="px-3 py-2 font-mono text-xs text-ink-secondary"
-        title={`入站协议：${log.inboundFormat}`}
+        className="max-w-[16rem] truncate px-3 py-2 font-mono text-xs text-ink-secondary"
+        title={`入站协议：${log.inboundFormat} · ${log.inboundPath || inferPath(log.inboundFormat)}`}
       >
         {log.inboundPath || inferPath(log.inboundFormat)}
       </td>
       )}
       {!preferences.hiddenColumns.includes("outbound") && (
       <td
-        className="max-w-[200px] truncate px-3 py-2 font-mono text-xs text-ink-secondary"
+        className="max-w-[16rem] truncate px-3 py-2 font-mono text-xs text-ink-secondary"
         title={
           log.upstreamUrl
             ? `${log.upstreamUrl}${log.upstreamPath}`
@@ -367,7 +396,7 @@ function RequestRow({ log, preferences }: { log: RequestLog; preferences: TableP
       </td>
       )}
       {!preferences.hiddenColumns.includes("status") && (
-      <td className="w-[5.5rem] px-3 py-2">
+      <td className="w-[4.5rem] px-3 py-2">
         <div className="flex items-center justify-between">
           <span className="inline-flex items-center gap-1.5">
             <StatusDot status={statusDot(log.statusCode)} />
@@ -398,17 +427,17 @@ function RequestRow({ log, preferences }: { log: RequestLog; preferences: TableP
       </td>
       )}
       {!preferences.hiddenColumns.includes("model") && (
-      <td className="w-[8rem] max-w-[8rem] px-3 py-2 align-middle">
+      <td className="w-[12rem] max-w-[12rem] px-3 py-2 align-middle">
         <ModelCell model={log.model} actualModel={log.actualModel} actualModelOnly={preferences.actualModelOnly} />
       </td>
       )}
       {!preferences.hiddenColumns.includes("latency") && (
-      <td className="px-3 py-2 text-left whitespace-nowrap">
+      <td className="w-px px-3 py-2 text-left whitespace-nowrap">
         <LatencyCell log={log} />
       </td>
       )}
       {!preferences.hiddenColumns.includes("tokens") && (
-      <td className="px-3 py-2 text-right">
+      <td className="w-px px-3 py-2 text-left whitespace-nowrap">
         <HoverCard openDelay={100} closeDelay={50}>
           <HoverCardTrigger asChild>
             <button
@@ -423,11 +452,17 @@ function RequestRow({ log, preferences }: { log: RequestLog; preferences: TableP
             <TokenDetail log={log} total={total} />
           </HoverCardContent>
         </HoverCard>
+        {onOpenDetail ? <button type="button" aria-label="查看估算成本明细" onClick={(event) => onOpenDetail(log, event.currentTarget)}
+          className="mt-0.5 block max-w-[10rem] truncate rounded-sm text-xs text-ink-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          title={log.costStatus === "priced" && log.cost ? `$${log.cost.total}` : COST_LABELS[log.costStatus ?? "legacy_unknown"]}>
+          {log.costStatus === "priced" && log.cost ? <span className="font-mono tabular-nums">${log.cost.total}</span> : COST_LABELS[log.costStatus ?? "legacy_unknown"]}
+        </button> : <span className="mt-0.5 block font-mono text-xs tabular-nums">{log.costStatus === "priced" && log.cost ? `$${log.cost.total}` : COST_LABELS[log.costStatus ?? "legacy_unknown"]}</span>}
       </td>
       )}
     </tr>
   );
 }
+
 
 /** 模型列：按共享偏好展示映射链或唯一实际模型；缺实际名回退请求名。 */
 export function ModelCell({
@@ -443,30 +478,15 @@ export function ModelCell({
   const inbound = model?.trim() ? model : null;
   const actual = actualModel?.trim() ? actualModel : null;
   if (!inbound && !actual) return null;
-  if (actualModelOnly) {
-    const name = actual ?? inbound;
-    return <span className="block w-full min-w-0 text-xs text-ink-secondary" title={name ?? undefined}>{name}</span>;
-  }
-  // 仅有实际模型（入站空、出站改写）：仍展示唯一可用名。
-  if (!inbound) {
-    return (
-      <span className="block w-full min-w-0  text-xs text-ink-secondary" title={actual ?? undefined}>
-        {actual}
-      </span>
-    );
-  }
+  const name = actualModelOnly ? actual ?? inbound : inbound ?? actual;
   return (
-    <div className="flex w-full min-w-0 flex-col gap-0.5">
-      <span className="block w-full min-w-0  text-xs text-ink-secondary" title={inbound}>
-        {inbound}
-      </span>
-      {actual && (
-        <>
+    <div className="flex w-40 min-w-0 max-w-full flex-col gap-0.5 text-xs text-ink-secondary">
+      <span className="block truncate" title={name ?? undefined}>{name}</span>
+      {!actualModelOnly && inbound && actual && (
+        <span className="flex min-w-0 items-center gap-1">
           <ArrowDownRightIcon className="size-3 shrink-0 text-ink-mute" aria-hidden />
-          <span className="block w-full min-w-0  text-xs text-ink-secondary" title={actual}>
-            {actual}
-          </span>
-        </>
+          <span className="min-w-0 flex-1 truncate" title={actual}>{actual}</span>
+        </span>
       )}
     </div>
   );

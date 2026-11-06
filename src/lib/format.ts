@@ -1,3 +1,16 @@
+import { ymd } from "./range";
+
+/** 本地时区、24 小时制，午夜显示 00 而非 24。 */
+export function fmtTime(ts: number): string {
+  const d = new Date(ts);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+export function fmtDateTime(ts: number): string {
+  return `${ymd(ts)} ${fmtTime(ts)}`;
+}
+
 /**
  * Token 数量的辅助单位文案：就近取量级，约等号 + 两位小数 + 中文单位。
  * - ≥ 1 亿：`≈1.25亿`

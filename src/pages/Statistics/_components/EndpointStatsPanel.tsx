@@ -61,6 +61,17 @@ export function periodRange(period: PeriodKey, todayStartMs: number): RangeValue
   }
 }
 
+/** 后端金额最多 12 位小数；以整数相加，不经过浮点金额。 */
+function addUsd(left: string, right: string): string {
+  const units = [left, right].map((value) => {
+    if (!/^\d+(?:\.\d{1,12})?$/.test(value)) throw new Error("无效的已计价金额");
+    const [whole, fraction = ""] = value.split(".");
+    return BigInt(whole + fraction.padEnd(12, "0"));
+  });
+  const sum = (units[0] + units[1]).toString().padStart(13, "0");
+  return `${sum.slice(0, -12)}.${sum.slice(-12)}`.replace(/\.?0+$/, "");
+}
+
 /** 按日期区间（YYYY-MM-DD 闭区间）从历史行聚合出周期统计（自定义范围用，天粒度）。 */
 export function aggregateRange(
   rows: DailyStat[],
@@ -74,6 +85,9 @@ export function aggregateRange(
     outputTokens: 0,
     cacheCreationTokens: 0,
     cacheReadTokens: 0,
+    pricedCost: "0",
+    pricedRequests: 0,
+    unpricedRequests: 0,
     endpoints: [],
   };
   const byEndpoint = new Map<string, EndpointStat>();
@@ -85,6 +99,9 @@ export function aggregateRange(
     totals.outputTokens += r.outputTokens;
     totals.cacheCreationTokens += r.cacheCreationTokens;
     totals.cacheReadTokens += r.cacheReadTokens;
+    totals.pricedCost = addUsd(totals.pricedCost, r.pricedCost);
+    totals.pricedRequests += r.pricedRequests;
+    totals.unpricedRequests += r.unpricedRequests;
     const ep = byEndpoint.get(r.endpointName) ?? {
       endpointName: r.endpointName,
       requests: 0,
@@ -93,6 +110,9 @@ export function aggregateRange(
       outputTokens: 0,
       cacheCreationTokens: 0,
       cacheReadTokens: 0,
+      pricedCost: "0",
+      pricedRequests: 0,
+      unpricedRequests: 0,
     };
     ep.requests += r.requests;
     ep.errors += r.errors;
@@ -100,6 +120,9 @@ export function aggregateRange(
     ep.outputTokens += r.outputTokens;
     ep.cacheCreationTokens += r.cacheCreationTokens;
     ep.cacheReadTokens += r.cacheReadTokens;
+    ep.pricedCost = addUsd(ep.pricedCost, r.pricedCost);
+    ep.pricedRequests += r.pricedRequests;
+    ep.unpricedRequests += r.unpricedRequests;
     byEndpoint.set(r.endpointName, ep);
   }
   totals.endpoints = [...byEndpoint.values()].sort((a, b) => b.requests - a.requests);
