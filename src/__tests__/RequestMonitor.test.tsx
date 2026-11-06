@@ -242,11 +242,13 @@ describe("RequestLogTable", () => {
   });
 
   it("隐藏字段同时移除表头和对应数据，保留其他字段", () => {
-    render(<RequestLogTable items={[log]} preferences={{ hiddenColumns: ["endpoint", "tokens"], actualModelOnly: false }} />);
+    render(<RequestLogTable items={[log]} preferences={{ hiddenColumns: ["endpoint", "routes", "tokens"], actualModelOnly: false }} />);
     expect(screen.queryByRole("columnheader", { name: "端点" })).not.toBeInTheDocument();
     expect(screen.queryByText("ep-a")).not.toBeInTheDocument();
     expect(screen.queryByRole("columnheader", { name: "Token" })).not.toBeInTheDocument();
     expect(screen.queryByText("20")).not.toBeInTheDocument();
+    expect(screen.queryByText("/v1/messages")).not.toBeInTheDocument();
+    expect(screen.queryByText("/v1/chat/completions")).not.toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "模型" })).toBeInTheDocument();
     expect(screen.getByText("claude-3")).toBeInTheDocument();
   });
@@ -435,7 +437,7 @@ describe("请求表格共享偏好", () => {
     expect(screen.getByText("requested")).toBeInTheDocument();
   });
 
-  it.each(["{broken", JSON.stringify({ hiddenColumns: ["time", "endpoint", "inbound", "outbound", "status", "model", "latency", "tokens", "cost"], actualModelOnly: true })])(
+  it.each(["{broken", JSON.stringify({ hiddenColumns: ["time", "endpoint", "routes", "status", "model", "latency", "tokens", "cost"], actualModelOnly: true })])(
     "损坏缓存或零列配置不会丢失表格 %s", async (raw) => {
       localStorage.setItem(key, raw);
       renderWithQuery(<RequestMonitor mode="live" />);
@@ -447,7 +449,7 @@ describe("请求表格共享偏好", () => {
   it("跨标签修改及清空同步，最后一列不可隐藏", async () => {
     renderWithQuery(<RequestMonitor mode="live" />);
     await screen.findByText("requested");
-    localStorage.setItem(key, JSON.stringify({ hiddenColumns: ["time", "endpoint", "inbound", "outbound", "status", "latency", "tokens", "cost"], actualModelOnly: true }));
+    localStorage.setItem(key, JSON.stringify({ hiddenColumns: ["time", "endpoint", "routes", "status", "latency", "tokens", "cost"], actualModelOnly: true }));
     fireEvent(window, new StorageEvent("storage", { key, storageArea: localStorage }));
     expect(screen.queryByText("requested")).not.toBeInTheDocument();
     expect(screen.getByText("actual")).toBeInTheDocument();

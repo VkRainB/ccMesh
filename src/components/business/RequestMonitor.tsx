@@ -25,7 +25,7 @@ import { fmtDateTime, fmtTime, formatDuration, formatOutputTps, formatTokenK } f
 import { statsApi, type RequestLog } from "@/services/modules/stats";
 
 const COLUMNS = [
-  ["time", "时间"], ["endpoint", "端点"], ["inbound", "入站"], ["outbound", "出站"],
+  ["time", "时间"], ["endpoint", "端点"], ["routes", "入站 / 出站"],
   ["status", "状态"], ["model", "模型"], ["latency", "延迟"], ["tokens", "Token"],
 ] as const;
 type Column = typeof COLUMNS[number][0];
@@ -375,24 +375,16 @@ function RequestRow({ log, preferences, todayStart, onOpenDetail }: {
         </div>
       </td>
       )}
-      {!preferences.hiddenColumns.includes("inbound") && (
-      <td
-        className="max-w-[16rem] truncate px-3 py-2 font-mono text-xs text-ink-secondary"
-        title={`入站协议：${log.inboundFormat} · ${log.inboundPath || inferPath(log.inboundFormat)}`}
-      >
-        {log.inboundPath || inferPath(log.inboundFormat)}
-      </td>
-      )}
-      {!preferences.hiddenColumns.includes("outbound") && (
-      <td
-        className="max-w-[16rem] truncate px-3 py-2 font-mono text-xs text-ink-secondary"
-        title={
-          log.upstreamUrl
-            ? `${log.upstreamUrl}${log.upstreamPath}`
-            : undefined
-        }
-      >
-        {log.upstreamPath || inferPath(log.inboundFormat)}
+      {!preferences.hiddenColumns.includes("routes") && (
+      <td className="max-w-[16rem] px-3 py-2 font-mono text-xs text-ink-secondary">
+        <div className="flex min-w-0 max-w-[14.5rem] flex-col gap-0.5">
+          <span className="truncate" title={`入站协议：${log.inboundFormat} · ${log.inboundPath || inferPath(log.inboundFormat)}`}>
+            {log.inboundPath || inferPath(log.inboundFormat)}
+          </span>
+          <span className="truncate" title={log.upstreamUrl ? `${log.upstreamUrl}${log.upstreamPath}` : undefined}>
+            {log.upstreamPath || inferPath(log.inboundFormat)}
+          </span>
+        </div>
       </td>
       )}
       {!preferences.hiddenColumns.includes("status") && (
