@@ -7,6 +7,7 @@ import {
   CheckIcon,
   ChevronDownIcon,
   CopyIcon,
+  DollarSignIcon,
   EllipsisVerticalIcon,
   GripVerticalIcon,
   PencilIcon,
@@ -65,6 +66,7 @@ import {
 import { circuitBadgeLabel, type EndpointHealth } from "@/services/modules/health";
 import type { EndpointView } from "@/stores";
 import { ModelMappingDialog } from "./ModelMappingDialog";
+import { ModelPricingDialog } from "./ModelPricingDialog";
 import { TestBadge } from "./TestBadge";
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -436,6 +438,7 @@ export function EndpointCard({
   const [testResult, setTestResult] = useState<EndpointTestResult | null>(null);
   const [testModel, setTestModel] = useState<string>("");
   const [mapOpen, setMapOpen] = useState(false);
+  const [pricingOpen, setPricingOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   // 布局切换后等一帧再启用 transition，避免切换瞬间因 group-hover 触发过渡动画。
   const [toolbarTransition, setToolbarTransition] = useState(false);
@@ -607,6 +610,10 @@ export function EndpointCard({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-40">
+          <DropdownMenuItem onClick={() => setPricingOpen(true)}>
+            <DollarSignIcon />
+            模型价格
+          </DropdownMenuItem>
           <DropdownMenuItem
             disabled={clone.isPending}
             onClick={() => clone.mutate()}
@@ -672,6 +679,7 @@ export function EndpointCard({
       </IconAction>
       {moreMenu}
       <ModelMappingDialog open={mapOpen} onOpenChange={setMapOpen} endpoint={endpoint} />
+      <ModelPricingDialog open={pricingOpen} onOpenChange={setPricingOpen} endpoint={endpoint} />
       <TestResultDialog
         open={testDialogOpen}
         name={endpoint.name}

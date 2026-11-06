@@ -1,6 +1,7 @@
 import type { UnlistenFn } from "@tauri-apps/api/event";
 
 import { Events, request, subscribe } from "../request";
+import type { ModelPricing } from "./pricing";
 
 /** 单条模型映射：入站模型名 from → 出站（上游真实）模型名 to。
  *  reasoningEffort 非空时，转发按上游形态覆盖出站推理强度（空=跟随客户端请求）。 */
@@ -30,6 +31,7 @@ export interface Endpoint {
   /** 点亮（对外公布）的模型子集：`models` 的子集。空数组=全部公布（向后兼容旧端点）。 */
   activeModels: string[];
   modelMappings: ModelMapping[];
+  modelPricing: ModelPricing[];
   /** 是否启用模型映射；关闭时保留配置但不公布入站别名、不改写出站。 */
   modelMappingsEnabled: boolean;
   headerOverrides: HeaderOverride[];
@@ -57,6 +59,7 @@ export interface CreateEndpointRequest {
   models?: string[];
   activeModels?: string[];
   modelMappings?: ModelMapping[];
+  modelPricing?: ModelPricing[];
   modelMappingsEnabled?: boolean;
   headerOverrides?: HeaderOverride[];
   headerOverridesEnabled?: boolean;
