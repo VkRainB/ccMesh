@@ -254,7 +254,6 @@ describe("RequestLogTable", () => {
     const view = render(<RequestLogTable items={[free]} />);
     expect(screen.getByText("$0")).toBeInTheDocument();
     view.rerender(<RequestLogTable items={[{ ...log, costStatus: "incomplete_usage" }]} />);
-    expect(screen.getByText("用量不完整，未计价")).toBeInTheDocument();
     expect(screen.queryByText("$0")).not.toBeInTheDocument();
     view.rerender(<RequestLogTable items={[log]} />);
     expect(screen.getByText("历史记录无费率快照")).toBeInTheDocument();

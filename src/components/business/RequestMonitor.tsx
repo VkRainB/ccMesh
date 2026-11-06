@@ -441,11 +441,13 @@ function RequestRow({ log, preferences, todayStart, onOpenDetail }: {
             <TokenDetail log={log} total={total} />
           </HoverCardContent>
         </HoverCard>
-        {onOpenDetail ? <button type="button" aria-label="查看估算成本明细" onClick={(event) => onOpenDetail(log, event.currentTarget)}
-          className="mt-0.5 block max-w-full truncate rounded-sm text-xs text-ink-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          title={log.costStatus === "priced" && log.cost ? `$${log.cost.total}` : COST_LABELS[log.costStatus ?? "legacy_unknown"]}>
-          {log.costStatus === "priced" && log.cost ? <span className="font-mono tabular-nums">${log.cost.total}</span> : COST_LABELS[log.costStatus ?? "legacy_unknown"]}
-        </button> : <span className="mt-0.5 block max-w-full truncate font-mono text-xs tabular-nums">{log.costStatus === "priced" && log.cost ? `$${log.cost.total}` : COST_LABELS[log.costStatus ?? "legacy_unknown"]}</span>}
+        {log.costStatus !== "unpriced" && log.costStatus !== "incomplete_usage" && (
+          onOpenDetail ? <button type="button" aria-label="查看估算成本明细" onClick={(event) => onOpenDetail(log, event.currentTarget)}
+            className="mt-0.5 block max-w-full truncate rounded-sm text-xs text-ink-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            title={log.costStatus === "priced" && log.cost ? `$${log.cost.total}` : COST_LABELS[log.costStatus ?? "legacy_unknown"]}>
+            {log.costStatus === "priced" && log.cost ? <span className="font-mono tabular-nums">${log.cost.total}</span> : COST_LABELS[log.costStatus ?? "legacy_unknown"]}
+          </button> : <span className="mt-0.5 block max-w-full truncate font-mono text-xs tabular-nums">{log.costStatus === "priced" && log.cost ? `$${log.cost.total}` : COST_LABELS[log.costStatus ?? "legacy_unknown"]}</span>
+        )}
       </td>
       )}
     </tr>
