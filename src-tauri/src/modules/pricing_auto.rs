@@ -20,7 +20,7 @@ use crate::utils::atomic_write::atomic_write_str;
 pub const API_URL: &str = "https://models.dev/api.json";
 pub const CACHE_FILE_NAME: &str = "model-prices.json";
 pub const SYNC_INTERVAL_MS: i64 = 6 * 60 * 60 * 1000;
-const FILE_VERSION: u32 = 1;
+const FILE_VERSION: u32 = 2;
 const FETCH_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// 原厂供应商优先级。只接受列表内的供应商，未列出的转售/聚合渠道不参与自动价。
@@ -60,7 +60,9 @@ impl AutoPriceTable {
     }
 
     pub fn is_stale(&self, now_ms: i64) -> bool {
-        self.fetched_at <= 0 || now_ms.saturating_sub(self.fetched_at) >= SYNC_INTERVAL_MS
+        self.version != FILE_VERSION
+            || self.fetched_at <= 0
+            || now_ms.saturating_sub(self.fetched_at) >= SYNC_INTERVAL_MS
     }
 }
 
@@ -113,11 +115,16 @@ fn price(value: &serde_json::Number) -> Option<String> {
 }
 
 fn build_models(data: &HashMap<String, Provider>) -> HashMap<String, PriceRates> {
-    let mut best: HashMap<String, (usize, PriceRates)> = HashMap::new();
+    let mut first_party: HashMap<String, (usize, PriceRates)> = HashMap::new();
+    // 归一化 ID → (input, output) → (cache_read, cache_write) → 供应商集合。
+    // 仅用于原厂未收录的模型：多个渠道给出同一主价时取共识，避免单个转售价或 0 价误导。
+    let mut resellers: HashMap<
+        String,
+        HashMap<(String, String), HashMap<(String, String), std::collections::HashSet<&str>>>,
+    > = HashMap::new();
+
     for (provider_id, provider) in data {
-        let Some(rank) = first_party_rank(provider_id) else {
-            continue;
-        };
+        let rank = first_party_rank(provider_id);
         for (model_id, model) in &provider.models {
             // 保留 deprecated：代理仍可能转发旧模型 ID，历史请求也需要能计价。
             let Some(cost) = &model.cost else { continue };
@@ -131,31 +138,84 @@ fn build_models(data: &HashMap<String, Provider>) -> HashMap<String, PriceRates>
             if key.is_empty() {
                 continue;
             }
-            let rates = PriceRates {
-                input,
-                output,
-                cache_read: cost
-                    .cache_read
-                    .as_ref()
-                    .and_then(price)
-                    .unwrap_or_else(|| "0".into()),
-                cache_write: cost
-                    .cache_write
-                    .as_ref()
-                    .and_then(price)
-                    .unwrap_or_else(|| "0".into()),
-            };
-            match best.get(&key) {
-                Some((existing, _)) if *existing <= rank => {}
-                _ => {
-                    best.insert(key, (rank, rates));
+            let cache_read = cost
+                .cache_read
+                .as_ref()
+                .and_then(price)
+                .unwrap_or_else(|| "0".into());
+            let cache_write = cost
+                .cache_write
+                .as_ref()
+                .and_then(price)
+                .unwrap_or_else(|| "0".into());
+            if let Some(rank) = rank {
+                let rates = PriceRates {
+                    input,
+                    output,
+                    cache_read,
+                    cache_write,
+                };
+                match first_party.get(&key) {
+                    Some((existing, _)) if *existing <= rank => {}
+                    _ => {
+                        first_party.insert(key, (rank, rates));
+                    }
                 }
+            } else if !(input == "0" && output == "0") {
+                resellers
+                    .entry(key)
+                    .or_default()
+                    .entry((input, output))
+                    .or_default()
+                    .entry((cache_read, cache_write))
+                    .or_default()
+                    .insert(provider_id.as_str());
             }
         }
     }
-    best.into_iter()
+
+    let mut models: HashMap<String, PriceRates> = first_party
+        .into_iter()
         .map(|(key, (_, rates))| (key, rates))
-        .collect()
+        .collect();
+
+    for (key, by_base) in resellers {
+        if models.contains_key(&key) {
+            continue;
+        }
+        // 主价至少两家渠道一致才采用；并列时按字面值排序，保证结果稳定。
+        let mut bases: Vec<((String, String), usize)> = by_base
+            .iter()
+            .map(|(base, caches)| (base.clone(), caches.values().map(|ids| ids.len()).sum()))
+            .filter(|(_, count)| *count >= 2)
+            .collect();
+        bases.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        let Some(((input, output), _)) = bases.into_iter().next() else {
+            continue;
+        };
+        let Some(caches) = by_base.get(&(input.clone(), output.clone())) else {
+            continue;
+        };
+        let mut cache_tuples: Vec<((String, String), usize)> = caches
+            .iter()
+            .map(|(cache, ids)| (cache.clone(), ids.len()))
+            .collect();
+        cache_tuples.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        let Some(((cache_read, cache_write), _)) = cache_tuples.into_iter().next() else {
+            continue;
+        };
+        models.insert(
+            key,
+            PriceRates {
+                input,
+                output,
+                cache_read,
+                cache_write,
+            },
+        );
+    }
+
+    models
 }
 
 pub fn parse_response(body: &[u8]) -> AppResult<AutoPriceTable> {
@@ -269,7 +329,7 @@ mod tests {
     }
 
     #[test]
-    fn first_party_wins_over_resellers_and_unranked_is_skipped() {
+    fn first_party_wins_and_reseller_consensus_fills_missing_models() {
         let body = br#"{
             "anthropic": {"models": {
                 "claude-sonnet-4-5": {"cost": {"input": 3, "output": 15, "cache_read": 0.3, "cache_write": 3.75}},
@@ -288,6 +348,21 @@ mod tests {
             }},
             "zai": {"models": {
                 "glm-5.2": {"cost": {"input": 0.6, "output": 2.2, "cache_read": 0.06, "cache_write": 0}}
+            }},
+            "agg-a": {"models": {
+                "deepseek/deepseek-v4.1-flash": {"cost": {"input": 0.3, "output": 1.2, "cache_read": 0.006}},
+                "vendor/single": {"cost": {"input": 5, "output": 6}}
+            }},
+            "agg-b": {"models": {
+                "deepseek-v4.1-flash": {"cost": {"input": 0.3, "output": 1.2, "cache_read": 0.007}},
+                "vendor/single": {"cost": {"input": 7, "output": 8}}
+            }},
+            "agg-c": {"models": {
+                "deepseek/deepseek-v4.1-flash": {"cost": {"input": 0.15, "output": 0.6, "cache_read": 0.003}},
+                "vendor/free": {"cost": {"input": 0, "output": 0}}
+            }},
+            "agg-d": {"models": {
+                "vendor/free": {"cost": {"input": 0, "output": 0}}
             }}
         }"#;
         let table = parse_response(body).unwrap();
@@ -302,7 +377,15 @@ mod tests {
         );
         assert_eq!(table.lookup("qwen-max").unwrap().input, "0.000000123");
         assert_eq!(table.lookup("claude-old"), Some(&rates("9", "9", "0", "0")));
+        // 原厂未收录时，取两家以上渠道一致的主价与出现最多的缓存价。
+        assert_eq!(
+            table.lookup("deepseek-v4.1-flash"),
+            Some(&rates("0.3", "1.2", "0.006", "0"))
+        );
         assert!(table.lookup("gpt-no-output").is_none());
+        // 只有一家报价或全是 0 价时不采用。
+        assert!(table.lookup("vendor/single").is_none());
+        assert!(table.lookup("vendor/free").is_none());
         assert!(table.lookup("unknown-model").is_none());
     }
 
@@ -316,6 +399,9 @@ mod tests {
         };
         assert!(!table.is_stale(1_000 + SYNC_INTERVAL_MS - 1));
         assert!(table.is_stale(1_000 + SYNC_INTERVAL_MS));
+        let mut old = table.clone();
+        old.version = FILE_VERSION - 1;
+        assert!(old.is_stale(1_000));
         assert!(AutoPriceTable::default().is_stale(1_000));
 
         let dir = std::env::temp_dir().join(format!("ccmesh_pricing_auto_{}", std::process::id()));
