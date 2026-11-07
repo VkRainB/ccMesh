@@ -277,7 +277,7 @@ describe("RequestLogTable", () => {
     expect(screen.getByText("outbound")).toBeInTheDocument();
     expect(screen.getByText("夜间")).toBeInTheDocument();
     expect(screen.getByText("Asia/Shanghai")).toBeInTheDocument();
-    expect(screen.getByText("1970-01-01T00:00:00.000Z")).toBeInTheDocument();
+    expect(screen.getByText(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)).toBeInTheDocument();
     expect(screen.getByText("0.4")).toBeInTheDocument();
   });
 });

@@ -68,9 +68,9 @@ export function CostDetail({ log }: { log: RequestLog }) {
       <div className="overflow-hidden rounded-lg border border-edge">
         <div className="flex flex-col gap-3 p-4">
           <DetailRow label="计价模型">{log.pricingModel ?? snapshot?.modelId ?? "未记录"}</DetailRow>
-          <DetailRow label="规则">{snapshot ? snapshot.source === "auto" ? "models.dev 自动价" : snapshot.source === "base" ? "默认价" : snapshot.ruleName || snapshot.ruleId : "未记录"}</DetailRow>
+          <DetailRow label="规则">{snapshot ? snapshot.source === "auto" ? "models.dev" : snapshot.source === "base" ? "默认价" : snapshot.ruleName || snapshot.ruleId : "未记录"}</DetailRow>
           <DetailRow label="时区">{snapshot?.source === "auto" ? "—" : snapshot?.timezone ?? "未记录"}</DetailRow>
-          <DetailRow label="计价时刻（UTC）">{log.pricingAt != null ? new Date(log.pricingAt).toISOString() : "未记录"}</DetailRow>
+          <DetailRow label="计价时刻">{log.pricingAt != null ? fmtDateTime(log.pricingAt) : "未记录"}</DetailRow>
         </div>
         <table className="w-full table-fixed border-t border-edge text-xs">
           <thead className="text-ink-mute">

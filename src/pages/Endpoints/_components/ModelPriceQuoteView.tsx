@@ -69,7 +69,7 @@ export function ModelPriceQuoteView({ endpointId, modelId }: { endpointId: numbe
         <p className="break-all font-mono text-xs text-ink-secondary">{quote.requestedModel} → {quote.modelId}</p>
         {quote.effectiveRates ? <>
           <PriceRatesView rates={quote.effectiveRates} />
-          <p className="text-xs text-ink-secondary">{quote.source === "auto" ? "models.dev 自动价" : <>{quote.source === "window" ? `时段：${quote.ruleName || quote.ruleId}` : "默认价"} · {quote.timezone}</>}</p>
+          <p className="text-xs text-ink-secondary">{quote.source === "auto" ? "models.dev" : <>{quote.source === "window" ? `时段：${quote.ruleName || quote.ruleId}` : "默认价"} · {quote.timezone}</>}</p>
           {quote.baseRates && <details className="text-xs text-ink-secondary"><summary className="cursor-pointer">默认四价</summary><div className="mt-2"><PriceRatesView rates={quote.baseRates} /></div></details>}
         </> : <p className="text-sm text-ink-mute">未配置价格</p>}
         <p className="text-xs text-ink-mute">报价时刻：{new Date(quote.at).toLocaleString()}（本机时区）</p>
