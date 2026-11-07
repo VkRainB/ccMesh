@@ -101,7 +101,7 @@ export function CostDetail({ log }: { log: RequestLog }) {
 
 function RequestDetail({ log }: { log: RequestLog }) {
   const total = log.inputTokens + log.outputTokens + log.cacheReadTokens + log.cacheCreationTokens;
-  const tps = log.isError ? null : formatOutputTps(log.outputTokens, log.durationMs, log.firstByteMs, log.outputEstimated);
+  const tps = log.isError ? null : formatOutputTps(log.outputTokens, log.durationMs, log.outputEstimated);
   const estimated = log.outputEstimated ? "≈" : "";
   return (
     <>

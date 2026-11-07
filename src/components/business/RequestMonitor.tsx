@@ -302,7 +302,7 @@ const getEndpointIcon = (
 export function LatencyCell({ log }: { log: RequestLog }) {
   const tps = log.isError
     ? null
-    : formatOutputTps(log.outputTokens, log.durationMs, log.firstByteMs, log.outputEstimated);
+    : formatOutputTps(log.outputTokens, log.durationMs, log.outputEstimated);
   const rows: [string, string][] = [
     ["首字", !log.isError && log.firstByteMs != null ? formatDuration(log.firstByteMs) : ""],
     ["用时", !log.isError && log.durationMs != null ? formatDuration(log.durationMs) : ""],
@@ -493,7 +493,7 @@ export function TokenDetail({ log, total }: { log: RequestLog; total: number }) 
   ];
   const tps = log.isError
     ? null
-    : formatOutputTps(log.outputTokens, log.durationMs, log.firstByteMs, log.outputEstimated);
+    : formatOutputTps(log.outputTokens, log.durationMs, log.outputEstimated);
   return (
     <div className="flex flex-col gap-1.5 text-xs">
       {log.model && (

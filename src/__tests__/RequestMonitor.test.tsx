@@ -129,12 +129,12 @@ describe("RequestLogTable", () => {
     expect(screen.queryByRole("columnheader", { name: "首字" })).not.toBeInTheDocument();
     expect(screen.getByText("0.12s")).toBeInTheDocument(); // 用时 120ms
     expect(screen.getByText("0.08s")).toBeInTheDocument(); // 首字 80ms
-    // 生成窗口只有 40ms，退回总用时估算：5 token / 0.12s
-    expect(screen.getByText("TPS").nextElementSibling).toHaveTextContent("≈41.7 tok/s");
+    // 总用时口径：5 token / 0.12s，不再按生成窗口放大
+    expect(screen.getByText("TPS").nextElementSibling).toHaveTextContent("41.7 tok/s");
     expect(screen.queryByText("—")).not.toBeInTheDocument();
   });
 
-  it("输出不少于 100 时按首字到结束展示 tok/s", () => {
+  it("TPS 按输出 token / 总用时计算", () => {
     const fast: RequestLog = {
       ...log,
       id: 7,
@@ -145,7 +145,7 @@ describe("RequestLogTable", () => {
     render(<RequestLogTable items={[fast]} />);
     expect(screen.getByText("5.36s")).toBeInTheDocument();
     expect(screen.getByText("24.70s")).toBeInTheDocument();
-    const tps = screen.getByText("85.6 tok/s");
+    const tps = screen.getByText("67.0 tok/s");
     expect(tps).toBeInTheDocument();
     expect(tps).not.toHaveAttribute("title");
     expect(tps.className).toContain("text-left");
@@ -153,7 +153,7 @@ describe("RequestLogTable", () => {
     expect(tps.parentElement?.className).toContain("justify-items-start");
   });
 
-  it("短回复在生成窗口够长时展示 TPS", () => {
+  it("短回复同样按总用时展示 TPS", () => {
     const shortReply: RequestLog = {
       ...log,
       id: 9,
@@ -162,10 +162,10 @@ describe("RequestLogTable", () => {
       firstByteMs: 400,
     };
     render(<RequestLogTable items={[shortReply]} />);
-    expect(screen.getByText("12.5 tok/s")).toBeInTheDocument();
+    expect(screen.getByText("10.0 tok/s")).toBeInTheDocument();
   });
 
-  it("没有首字时速度带约等号", () => {
+  it("没有首字时仍按总用时给出精确速度", () => {
     const estimated: RequestLog = {
       ...log,
       id: 8,
@@ -174,7 +174,7 @@ describe("RequestLogTable", () => {
       firstByteMs: null,
     };
     render(<RequestLogTable items={[estimated]} />);
-    expect(screen.getByText("≈20.0 tok/s")).toBeInTheDocument();
+    expect(screen.getByText("20.0 tok/s")).toBeInTheDocument();
     // 没有首字计时：首字留空
     expect(screen.getByText("首字").nextElementSibling).toHaveTextContent("");
   });
@@ -189,8 +189,8 @@ describe("RequestLogTable", () => {
       firstByteMs: 400,
     };
     render(<RequestLogTable items={[estimatedTokens]} />);
-    // 12 token / (2.00s - 0.40s) = 7.5
-    expect(screen.getByText("≈7.5 tok/s")).toBeInTheDocument();
+    // 12 token / 2.00s = 6.0
+    expect(screen.getByText("≈6.0 tok/s")).toBeInTheDocument();
   });
 
   it("失败行隐藏用时/首字（留空，不显示短横线）", () => {
