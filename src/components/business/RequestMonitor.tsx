@@ -24,10 +24,10 @@ import { rangeValueMs, startOfTodayMs, ymd, type RangeValue } from "@/lib/range"
 import { fmtDateTime, fmtTime, formatDuration, formatOutputTps, formatTokenK } from "@/lib/format";
 import { statsApi, type RequestLog } from "@/services/modules/stats";
 
-// ponytail: 最小宽度（rem）同时作为伸展权重，由原生 table-fixed 分配空间，不测量 DOM。
+// ponytail: 原生 table 自动布局按内容分配列宽；长文本用 max-w + truncate 兜底，不测量 DOM。
 const COLUMNS = [
-  ["time", "时间", 6], ["endpoint", "端点", 7], ["routes", "入站 / 出站", 11],
-  ["status", "状态", 5], ["model", "模型", 12], ["latency", "延迟", 9.5], ["tokens", "Token", 9],
+  ["time", "时间"], ["endpoint", "端点"], ["routes", "入站 / 出站"],
+  ["status", "状态"], ["model", "模型"], ["latency", "延迟"], ["tokens", "Token"],
 ] as const;
 type Column = typeof COLUMNS[number][0];
 interface TablePreferences { hiddenColumns: Column[]; actualModelOnly: boolean }
@@ -234,14 +234,13 @@ export function RequestLogTable({ items, preferences = DEFAULT_PREFERENCES, toda
     return <p className="text-sm text-ink-mute">暂无请求记录</p>;
   }
   const columns = COLUMNS.filter(([id]) => !preferences.hiddenColumns.includes(id));
-  const minWidth = columns.reduce((total, [, , width]) => total + width, 0);
   return (
     <div className="min-w-0 overflow-x-auto rounded-lg border border-edge">
-      <table className="w-full table-fixed text-sm" style={{ minWidth: `${minWidth}rem` }}>
+      <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-edge text-xs text-ink-secondary">
-            {columns.map(([id, label, width]) => (
-              <th key={id} style={{ width: `${width / minWidth * 100}%` }} className="px-3 py-2 text-left font-medium whitespace-nowrap">{label}</th>
+            {columns.map(([id, label]) => (
+              <th key={id} className="px-3 py-2 text-left font-medium whitespace-nowrap">{label}</th>
             ))}
           </tr>
         </thead>
@@ -310,12 +309,12 @@ export function LatencyCell({ log }: { log: RequestLog }) {
     ["TPS", tps ?? ""],
   ];
   return (
-    <div className="grid w-full grid-cols-[max-content_minmax(0,1fr)] items-baseline justify-items-start gap-x-3 gap-y-0.5 text-left text-xs leading-4">
+    <div className="inline-grid grid-cols-[max-content_max-content] items-baseline justify-items-start gap-x-3 gap-y-0.5 text-left text-xs leading-4">
       {rows.map(([label, value]) => (
         <Fragment key={label}>
           <span className="text-left text-ink-mute">{label}</span>
           <span
-            className="min-w-0 max-w-full truncate justify-self-start text-left font-mono tabular-nums tracking-tight text-foreground"
+            className="justify-self-start text-left font-mono tabular-nums tracking-tight text-foreground"
           >
             {value}
           </span>
@@ -340,7 +339,7 @@ function RequestRow({ log, preferences, todayStart, onOpenDetail }: {
     log.cacheReadTokens;
   return (
     <tr
-      className={`border-b border-edge-subtle last:border-0 ${onOpenDetail ? "cursor-pointer transition-colors hover:bg-surface-hover focus-within:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring" : ""}`}
+      className={`border-b border-edge-subtle last:border-0 ${onOpenDetail ? "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring" : ""}`}
       tabIndex={onOpenDetail ? 0 : undefined}
       aria-label={onOpenDetail ? `查看请求详情：${fmtDateTime(log.ts)} ${log.endpointName}` : undefined}
       onKeyDown={onOpenDetail ? (event) => {
@@ -366,7 +365,7 @@ function RequestRow({ log, preferences, todayStart, onOpenDetail }: {
       )}
       {!preferences.hiddenColumns.includes("endpoint") && (
       <td className="px-3 py-2">
-        <div className="flex items-center gap-1.5">
+        <div className="flex max-w-[10rem] items-center gap-1.5">
           <FormatIcon size={14} className="shrink-0" />
           <span className="truncate" title={log.endpointName}>{log.endpointName}</span>
         </div>
@@ -374,7 +373,7 @@ function RequestRow({ log, preferences, todayStart, onOpenDetail }: {
       )}
       {!preferences.hiddenColumns.includes("routes") && (
       <td className="px-3 py-2 font-mono text-xs text-ink-secondary">
-        <div className="flex min-w-0 flex-col gap-0.5">
+        <div className="flex min-w-0 max-w-[14.5rem] flex-col gap-0.5">
           <span className="truncate" title={`入站协议：${log.inboundFormat} · ${log.inboundPath || inferPath(log.inboundFormat)}`}>
             {log.inboundPath || inferPath(log.inboundFormat)}
           </span>
@@ -417,7 +416,9 @@ function RequestRow({ log, preferences, todayStart, onOpenDetail }: {
       )}
       {!preferences.hiddenColumns.includes("model") && (
       <td className="px-3 py-2 align-middle">
-        <ModelCell model={log.model} actualModel={log.actualModel} actualModelOnly={preferences.actualModelOnly} />
+        <div className="max-w-[12rem]">
+          <ModelCell model={log.model} actualModel={log.actualModel} actualModelOnly={preferences.actualModelOnly} />
+        </div>
       </td>
       )}
       {!preferences.hiddenColumns.includes("latency") && (
@@ -443,10 +444,10 @@ function RequestRow({ log, preferences, todayStart, onOpenDetail }: {
         </HoverCard>
         {log.costStatus !== "unpriced" && log.costStatus !== "incomplete_usage" && (
           onOpenDetail ? <button type="button" aria-label="查看估算成本明细" onClick={(event) => onOpenDetail(log, event.currentTarget)}
-            className="mt-0.5 block max-w-full truncate rounded-sm text-xs text-ink-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="mt-0.5 block max-w-[10rem] truncate rounded-sm text-xs text-ink-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             title={log.costStatus === "priced" && log.cost ? `$${log.cost.total}` : COST_LABELS[log.costStatus ?? "legacy_unknown"]}>
             {log.costStatus === "priced" && log.cost ? <span className="font-mono tabular-nums">${log.cost.total}</span> : COST_LABELS[log.costStatus ?? "legacy_unknown"]}
-          </button> : <span className="mt-0.5 block max-w-full truncate font-mono text-xs tabular-nums">{log.costStatus === "priced" && log.cost ? `$${log.cost.total}` : COST_LABELS[log.costStatus ?? "legacy_unknown"]}</span>
+          </button> : <span className="mt-0.5 block max-w-[10rem] truncate font-mono text-xs tabular-nums">{log.costStatus === "priced" && log.cost ? `$${log.cost.total}` : COST_LABELS[log.costStatus ?? "legacy_unknown"]}</span>
         )}
       </td>
       )}

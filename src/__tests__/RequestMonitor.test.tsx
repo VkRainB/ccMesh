@@ -62,6 +62,14 @@ describe("RequestLogTable", () => {
     expect(screen.getByText("20")).toBeInTheDocument();
   });
 
+  it("列宽由内容决定，不使用固定布局或按权重百分比分宽", () => {
+    const view = render(<RequestLogTable items={[log]} />);
+    const table = view.container.querySelector("table");
+    expect(table?.className).not.toContain("table-fixed");
+    expect(table?.getAttribute("style")).toBeNull();
+    view.container.querySelectorAll("th").forEach((th) => expect(th.getAttribute("style")).toBeNull());
+  });
+
   it("仅省略本地今天的日期，跨日后补回昨天且不误省略未来日期", () => {
     const items = [5, 6, 7].map((day) => ({ ...log, id: day, ts: new Date(2026, 10, day, 21, 39, 33).getTime() }));
     const view = render(<RequestLogTable items={items} todayStart={new Date(2026, 10, 6).getTime()} />);
