@@ -123,8 +123,29 @@ fn snapshot(model: &ModelPricing, timezone: Tz, at: DateTime<Utc>) -> PricingSna
 }
 
 pub fn resolve_price(endpoint: &Endpoint, outbound_model: &str, at_ms: i64) -> AppResult<Option<PricingSnapshot>> {
+    let table = crate::modules::pricing_auto::table();
+    let guard = table.read().unwrap_or_else(|error| error.into_inner());
+    resolve_with_table(endpoint, outbound_model, at_ms, &guard)
+}
+
+/// 端点配置优先；未配置时用 models.dev 自动价兜底，快照标记 `source = "auto"`。
+pub(crate) fn resolve_with_table(
+    endpoint: &Endpoint,
+    outbound_model: &str,
+    at_ms: i64,
+    auto: &crate::modules::pricing_auto::AutoPriceTable,
+) -> AppResult<Option<PricingSnapshot>> {
     let mut matches = endpoint.model_pricing.iter().filter(|model| model.model_id == outbound_model);
-    let Some(model) = matches.next() else { return Ok(None) };
+    let Some(model) = matches.next() else {
+        return Ok(auto.lookup(outbound_model).map(|rates| PricingSnapshot {
+            model_id: outbound_model.to_string(),
+            timezone: "UTC".into(),
+            source: "auto".into(),
+            rule_id: None,
+            rule_name: None,
+            rates: rates.clone(),
+        }));
+    };
     if matches.next().is_some() {
         return Err(invalid("模型价格 ID 不能重复"));
     }
@@ -323,5 +344,39 @@ mod tests {
         assert!(calculate_cost(&rates("79228162514264337593543950335"), &TokenUsage { input: 2, ..Default::default() }).is_err());
         let distinct = PriceRates { input: "1".into(), output: "2".into(), cache_read: "3".into(), cache_write: "4".into() };
         assert_eq!(calculate_cost(&distinct, &TokenUsage { input: 1_000_000, output: 2_000_000, cache_read: 3_000_000, cache_creation: 4_000_000, ..Default::default() }).unwrap().total, "30");
+    }
+
+    #[test]
+    fn endpoint_price_wins_over_auto_and_auto_matches_normalized_ids() {
+        use crate::modules::pricing_auto::AutoPriceTable;
+        let endpoint = Endpoint {
+            id: 1, name: "t".into(), api_url: "https://x".into(), api_key: String::new(),
+            auth_mode: "api_key".into(), enabled: true, use_proxy: false, transformer: "openai".into(),
+            model: String::new(), models: Vec::new(), active_models: Vec::new(),
+            model_pricing: vec![ModelPricing {
+                model_id: "vendor/model".into(),
+                timezone: "UTC".into(),
+                base_rates: rates("2"),
+                windows: Vec::new(),
+            }],
+            model_mappings: Vec::new(), model_mappings_enabled: true,
+            header_overrides: Vec::new(), header_overrides_enabled: false,
+            remark: String::new(), sort_order: 0, fast: false, fast_sort_order: 0,
+            test_status: "unknown".into(), created_at: String::new(), updated_at: String::new(),
+            archived: false,
+        };
+        let auto = AutoPriceTable {
+            version: 1, fetched_at: 1, source: "test".into(),
+            models: std::collections::HashMap::from([
+                ("vendor/model".to_string(), rates("9")),
+                ("gpt-5".to_string(), rates("1")),
+            ]),
+        };
+        let at = utc("2026-11-08T12:00:00Z").timestamp_millis();
+        let manual = resolve_with_table(&endpoint, "vendor/model", at, &auto).unwrap().unwrap();
+        assert_eq!((manual.source.as_str(), manual.rates.input.as_str()), ("base", "2"));
+        let fallback = resolve_with_table(&endpoint, "openai/gpt-5", at, &auto).unwrap().unwrap();
+        assert_eq!((fallback.source.as_str(), fallback.rates.input.as_str()), ("auto", "1"));
+        assert!(resolve_with_table(&endpoint, "missing", at, &auto).unwrap().is_none());
     }
 }

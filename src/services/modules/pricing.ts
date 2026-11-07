@@ -27,7 +27,7 @@ export interface ModelPricing {
 export interface PricingSnapshot {
   modelId: string;
   timezone: string;
-  source: "base" | "window";
+  source: "base" | "window" | "auto";
   ruleId: string | null;
   ruleName: string | null;
   rates: PriceRates;
@@ -41,7 +41,7 @@ export interface ModelPriceQuote {
   timezone: string | null;
   ruleId: string | null;
   ruleName: string | null;
-  source: "base" | "window" | null;
+  source: "base" | "window" | "auto" | null;
   at: number;
   nextChangeAt: number | null;
 }

@@ -9,6 +9,7 @@ pub mod models_cache;
 pub mod models_probe;
 pub mod pet;
 pub mod pricing;
+pub mod pricing_auto;
 pub mod proxy;
 pub mod stats;
 pub mod storage;

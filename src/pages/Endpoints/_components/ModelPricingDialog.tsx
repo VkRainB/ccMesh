@@ -88,7 +88,7 @@ export function ModelPricingDialog({ open, onOpenChange, endpoint }: {
   return <Dialog open={open} onOpenChange={(value) => { if (!save.isPending) onOpenChange(value); }}>
     <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
       <DialogHeader><DialogTitle>模型价格 · {endpoint.name}</DialogTitle></DialogHeader>
-      <p className="text-xs leading-relaxed text-ink-secondary">按本端点 × 准确出站模型 ID 配置，不套用其他渠道或原厂价格。四价必填，免费请显式填写 0；单位 USD / 百万 token。</p>
+      <p className="text-xs leading-relaxed text-ink-secondary">按本端点 × 准确出站模型 ID 配置；未配置时使用 models.dev 原厂自动价。四价必填，免费请显式填写 0；单位 USD / 百万 token。</p>
       <fieldset disabled={save.isPending} className="flex min-w-0 flex-col gap-4">
         <div className="flex flex-wrap items-center gap-2">
           {rows.map((item, i) => <Button key={i} size="sm" variant={selected === i ? "secondary" : "outline"}
@@ -130,7 +130,7 @@ export function ModelPricingDialog({ open, onOpenChange, endpoint }: {
               id: crypto.randomUUID(), name: "", weekdays: [], start: "", end: "", rates: emptyRates(),
             }] })}><PlusIcon className="size-3.5" />添加时段</Button>
           </div>
-          <p className="text-xs text-ink-mute">以下为已保存配置的报价，未保存编辑不参与预览；入站别名将由后端解析，编辑时请使用实际出站 ID。</p>
+          <p className="text-xs text-ink-mute">以下为当前有效报价（未保存编辑不参与预览）；入站别名由后端解析，编辑时请使用实际出站 ID。</p>
           <ModelPriceQuoteView key={`${endpoint.id}-${selected}`} endpointId={endpoint.id} modelId={row.modelId.trim()} />
           <Button size="sm" variant="ghost" className="self-start text-destructive" onClick={() => setDeleteOpen(true)}><Trash2Icon className="size-3.5" />删除模型价格</Button>
         </>}

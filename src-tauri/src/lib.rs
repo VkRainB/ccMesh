@@ -86,6 +86,15 @@ pub fn run() {
                 device_id.clone(),
             );
 
+            // models.dev 自动价表：先读缓存立即生效；超过 6 小时才后台刷新，失败保留旧缓存。
+            let price_path = modules::pricing_auto::cache_path(&utils::paths::app_data_dir(&handle)?);
+            modules::pricing_auto::init(price_path.clone());
+            if modules::pricing_auto::is_stale_now() {
+                tauri::async_runtime::spawn(async move {
+                    modules::pricing_auto::sync(price_path).await;
+                });
+            }
+
             // 注入全局状态，保存 AppHandle 供事件推送
             let app_state = state::AppState::new(pool, device_id, stats);
             let _ = app_state.app_handle.set(handle);
