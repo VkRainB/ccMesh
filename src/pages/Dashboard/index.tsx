@@ -11,6 +11,7 @@ export function Dashboard() {
     (today?.outputTokens ?? 0) +
     (today?.cacheCreationTokens ?? 0) +
     (today?.cacheReadTokens ?? 0);
+  const errors = today?.errors ?? 0;
 
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-6">
@@ -23,10 +24,18 @@ export function Dashboard() {
 
       <ServiceCard />
 
-      {/* 今日请求 / 失败 / Token，随 stats-updated 实时更新 */}
+      {/* 今日请求 / 成本 / Token，随 stats-updated 实时更新 */}
       <div className="grid grid-cols-3 gap-4">
-        <StatCard label="请求数（今日）" value={today?.requests ?? 0} />
-        <StatCard label="失败数（今日）" value={today?.errors ?? 0} />
+        <StatCard
+          label="请求数（今日）"
+          value={today?.requests ?? 0}
+          corner={
+            <span title="失败数" className="font-mono text-[11px] tabular-nums text-destructive/55">
+              {errors}
+            </span>
+          }
+        />
+        <StatCard label="总成本（今日）" value={`$${today?.pricedCost ?? "0"}`} />
         <StatCard
           label="Token（今日）"
           value={tokens.toLocaleString()}

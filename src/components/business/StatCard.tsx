@@ -10,12 +10,14 @@ interface Props {
   hint?: ReactNode;
   /** true 时辅助提示在数值下方（垂直堆叠）；默认在右侧（水平）。 */
   hintBelow?: boolean;
+  /** 卡片右下角的弱提示，例如失败数。 */
+  corner?: ReactNode;
 }
 
 /** 跨页面业务卡片：标签 + 大号数值 + 可选提示（Statistics / Dashboard 共用）。 */
-export function StatCard({ label, value, hint, hintBelow = false }: Props) {
+export function StatCard({ label, value, hint, hintBelow = false, corner }: Props) {
   return (
-    <Card>
+    <Card className="relative">
       <CardContent className="flex flex-col gap-1.5 px-5 py-4">
         <span className="text-xs text-ink-secondary">{label}</span>
         <div
@@ -29,6 +31,7 @@ export function StatCard({ label, value, hint, hintBelow = false }: Props) {
           {hint}
         </div>
       </CardContent>
+      {corner ? <div className="absolute right-3 bottom-2">{corner}</div> : null}
     </Card>
   );
 }
