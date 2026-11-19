@@ -22,7 +22,7 @@ function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-/** 历史记录弹窗：分页查看按端点×日聚合明细，支持按行 / 按整天删除。 */
+/** 历史记录弹窗：分页查看按端点×日聚合明细，支持按行删除。 */
 export function HistoryDialog() {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -49,19 +49,9 @@ export function HistoryDialog() {
     onError: (e) => toast.error(`删除失败：${errMsg(e)}`),
   });
 
-  const delDay = useMutation({
-    mutationFn: (date: string) => statsApi.deleteStatsByDate(date),
-    onSuccess: (n) => {
-      toast.success(`已删除该日 ${n} 条记录`);
-      setPage(1);
-      invalidate();
-    },
-    onError: (e) => toast.error(`删除失败：${errMsg(e)}`),
-  });
-
   const rows = data?.items ?? [];
   const total = data?.total ?? 0;
-  const pending = delRow.isPending || delDay.isPending;
+  const pending = delRow.isPending;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -132,7 +122,7 @@ export function HistoryDialog() {
                         </TabularText>
                       </td>
                       <td className="px-3 py-2">
-                        <div className="flex items-center justify-end gap-1">
+                        <div className="flex items-center justify-end">
                           <Button
                             variant="ghost"
                             size="icon-xs"
@@ -146,14 +136,6 @@ export function HistoryDialog() {
                             }
                           >
                             <Trash2Icon />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="xs"
-                            disabled={pending}
-                            onClick={() => delDay.mutate(r.date)}
-                          >
-                            整天
                           </Button>
                         </div>
                       </td>
