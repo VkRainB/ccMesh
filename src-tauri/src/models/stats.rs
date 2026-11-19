@@ -114,6 +114,22 @@ pub struct RequestLog {
     pub cost: Option<CostBreakdown>,
 }
 
+/// 按端点和请求模型汇总的用量。空模型记为「未记录」。成本只累计已计价请求。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelRequestStat {
+    pub endpoint_name: String,
+    pub model: String,
+    pub requests: i64,
+    pub errors: i64,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cache_creation_tokens: i64,
+    pub cache_read_tokens: i64,
+    pub priced_cost: String,
+    pub priced_requests: i64,
+}
+
 /// 按本地小时聚合的调用趋势行（跨端点求和）。`date` 为 `YYYY-MM-DD HH:00`。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

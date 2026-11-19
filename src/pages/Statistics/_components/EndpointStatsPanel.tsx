@@ -5,7 +5,7 @@ import { RequestMonitor } from "@/components/business/RequestMonitor";
 import { DateRangePicker } from "@/components/business";
 import type { RangePreset } from "@/components/business/DateRangePicker";
 import { useStats } from "@/hooks/useStats";
-import { rangeValueEquals, isHourlyTrend, resolveTrendWindow, startOfTodayMs, ymd, type RangeValue } from "@/lib/range";
+import { rangeValueEquals, rangeValueMs, isHourlyTrend, resolveTrendWindow, startOfTodayMs, ymd, type RangeValue } from "@/lib/range";
 import {
   statsApi,
   type DailyStat,
@@ -30,12 +30,15 @@ type PeriodKey = (typeof PERIODS)[number]["key"];
 
 const DAY_MS = 86_400_000;
 
-/** 日期选择器快捷项：四个周期（点击即生效，命中时统计卡走 get_stats 的实时聚合）。 */
-const PERIOD_PRESETS: RangePreset[] = PERIODS.map((p) => ({
-  key: p.key,
-  label: p.label,
-  value: (todayStartMs) => periodRange(p.key, todayStartMs),
-}));
+/** 日期选择器快捷项：四个周期 + 全部。周期命中时统计卡走 get_stats。 */
+const PERIOD_PRESETS: RangePreset[] = [
+  ...PERIODS.map((p) => ({
+    key: p.key,
+    label: p.label,
+    value: (todayStartMs: number) => periodRange(p.key, todayStartMs),
+  })),
+  { key: "all", label: "全部", value: () => ({ kind: "preset", key: "all" }) },
+];
 
 /** 周期 Tab → 趋势图日期区间（周一为一周起点，与后端周聚合一致）。 */
 export function periodRange(period: PeriodKey, todayStartMs: number): RangeValue {
@@ -129,7 +132,7 @@ export function aggregateRange(
   return totals;
 }
 
-/** 端点统计：日期选择器（四周期快捷项 + 自定义区间）+ 历史记录弹窗 + 实时请求监控。 */
+/** 端点统计：日期选择器（四周期 + 全部 + 自定义区间）+ 历史记录弹窗 + 实时请求监控。 */
 export function EndpointStatsPanel() {
   const { data, isLoading } = useStats();
   const [range, setRange] = useState<RangeValue>({ kind: "preset", key: "today" });
@@ -170,16 +173,24 @@ export function EndpointStatsPanel() {
     return sliceTrend(dayTotals, range, todayStart);
   }, [hourly, trendWin, hourlyQ.data, dayTotals, range, todayStart]);
 
-  // 命中四周期快捷项 → 用 get_stats 的实时聚合；自定义区间 → 从历史行按天聚合
+  // 命中四周期快捷项 → 用 get_stats 的实时聚合；全部与自定义区间 → 从历史行按天聚合
   const activePeriod = PERIODS.map((p) => p.key).find((k) =>
     rangeValueEquals(range, periodRange(k, todayStart)),
   );
   const stats: PeriodStats | undefined = useMemo(() => {
     if (activePeriod) return data?.[activePeriod];
+    if (range.kind === "preset" && range.key === "all") {
+      return aggregateRange(history.data?.items ?? [], "0000-01-01", "9999-12-31");
+    }
     if (range.kind !== "custom") return undefined;
     return aggregateRange(history.data?.items ?? [], ymd(range.startMs), ymd(range.endMs));
   }, [activePeriod, data, history.data, range]);
   const showTrend = activePeriod === "today";
+  const logRange = useMemo(() => rangeValueMs(range, todayStart), [range, todayStart]);
+  const modelsQ = useQuery({
+    queryKey: ["stats", "by-model", logRange.startMs ?? null, logRange.endMs ?? null],
+    queryFn: () => statsApi.getRequestLogsByModel(logRange),
+  });
 
   return (
     <div className="flex flex-col gap-6">
@@ -197,6 +208,7 @@ export function EndpointStatsPanel() {
             buckets={stats}
             yesterdayBuckets={showTrend ? data?.yesterday : undefined}
             showTrend={showTrend}
+            pricedCost={stats?.pricedCost}
           />
 
           <section className="flex flex-col gap-2">
@@ -211,7 +223,7 @@ export function EndpointStatsPanel() {
           </section>
 
           {(stats?.endpoints.length ?? 0) > 0 && (
-            <EndpointStatsTable rows={stats?.endpoints ?? []} />
+            <EndpointStatsTable rows={stats?.endpoints ?? []} models={modelsQ.data ?? []} />
           )}
         </>
       )}

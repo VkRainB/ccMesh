@@ -1,8 +1,12 @@
-use rusqlite::{params, params_from_iter, types::Value as SqlValue, Connection};
+use std::collections::BTreeMap;
+use std::str::FromStr;
 
-use crate::error::AppResult;
+use rusqlite::{params, params_from_iter, types::Value as SqlValue, Connection};
+use rust_decimal::Decimal;
+
+use crate::error::{AppError, AppResult};
 use crate::models::pricing::{CostBreakdown, CostStatus};
-use crate::models::stats::{HourlyStat, RequestLog};
+use crate::models::stats::{HourlyStat, ModelRequestStat, RequestLog};
 
 /// 批量插入请求明细；由调用方事务与日汇总一起提交，不在此嵌套事务。
 pub fn insert_batch(conn: &Connection, logs: &[RequestLog], device_id: &str) -> AppResult<()> {
@@ -194,6 +198,84 @@ pub fn by_hour(
     Ok(out)
 }
 
+fn time_filter(start_ms: Option<i64>, end_ms: Option<i64>) -> (String, Vec<SqlValue>) {
+    let mut where_sql = String::from(" WHERE 1=1");
+    let mut args = Vec::new();
+    if let Some(s) = start_ms {
+        where_sql.push_str(" AND ts >= ?");
+        args.push(SqlValue::Integer(s));
+    }
+    if let Some(e) = end_ms {
+        where_sql.push_str(" AND ts <= ?");
+        args.push(SqlValue::Integer(e));
+    }
+    (where_sql, args)
+}
+
+fn parse_cost(value: &str) -> AppResult<Decimal> {
+    Decimal::from_str(value).map_err(|e| AppError::Db(format!("无效的已计价金额: {e}")))
+}
+
+/// 按端点 + 请求模型汇总用量。空白模型记为「未记录」。成本只加已计价行。
+pub fn by_model(
+    conn: &Connection,
+    start_ms: Option<i64>,
+    end_ms: Option<i64>,
+) -> AppResult<Vec<ModelRequestStat>> {
+    let (where_sql, args) = time_filter(start_ms, end_ms);
+    let sql = format!(
+        "SELECT endpoint_name, COALESCE(NULLIF(TRIM(model), ''), '未记录'),
+                COUNT(*), COALESCE(SUM(is_error), 0),
+                COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
+                COALESCE(SUM(cache_creation_tokens), 0), COALESCE(SUM(cache_read_tokens), 0),
+                COALESCE(SUM(CASE WHEN cost_status = 'priced' THEN 1 ELSE 0 END), 0)
+         FROM request_logs{where_sql}
+         GROUP BY 1, 2
+         ORDER BY 1 ASC, 3 DESC, 2 ASC"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params_from_iter(args.iter()), |r| {
+        Ok(ModelRequestStat {
+            endpoint_name: r.get(0)?,
+            model: r.get(1)?,
+            requests: r.get(2)?,
+            errors: r.get(3)?,
+            input_tokens: r.get(4)?,
+            output_tokens: r.get(5)?,
+            cache_creation_tokens: r.get(6)?,
+            cache_read_tokens: r.get(7)?,
+            priced_requests: r.get(8)?,
+            priced_cost: "0".to_string(),
+        })
+    })?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+
+    let mut costs: BTreeMap<(String, String), Decimal> = BTreeMap::new();
+    let cost_sql = format!(
+        "SELECT endpoint_name, COALESCE(NULLIF(TRIM(model), ''), '未记录'), cost_total
+         FROM request_logs{where_sql} AND cost_status = 'priced' AND cost_total IS NOT NULL"
+    );
+    let mut cost_stmt = conn.prepare(&cost_sql)?;
+    let cost_rows = cost_stmt.query_map(params_from_iter(args.iter()), |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))
+    })?;
+    for row in cost_rows {
+        let (endpoint, model, total) = row?;
+        let amount = parse_cost(&total)?;
+        let slot = costs.entry((endpoint, model)).or_insert(Decimal::ZERO);
+        *slot = slot.checked_add(amount).ok_or_else(|| AppError::Db("已计价金额累计溢出".into()))?;
+    }
+    for row in &mut out {
+        if let Some(total) = costs.get(&(row.endpoint_name.clone(), row.model.clone())) {
+            row.priced_cost = total.normalize().to_string();
+        }
+    }
+    Ok(out)
+}
+
 /// 删除 `cutoff_ms` 之前的明细行，返回删除行数。
 pub fn prune_older_than(conn: &Connection, cutoff_ms: i64) -> AppResult<usize> {
     let n = conn.execute("DELETE FROM request_logs WHERE ts < ?1", params![cutoff_ms])?;
@@ -209,6 +291,7 @@ pub fn clear_all(conn: &Connection) -> AppResult<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::pricing::{CostBreakdown, CostStatus};
     use crate::modules::storage::migration::run_migrations;
 
     fn db() -> Connection {
@@ -382,6 +465,54 @@ mod tests {
         // ts 倒序：b(200) 在前 transformer None；a(100) Some("codex")
         assert_eq!(items[0].transformer, None);
         assert_eq!(items[1].transformer.as_deref(), Some("codex"));
+    }
+
+    #[test]
+    fn by_model_counts_inside_window_and_labels_blank() {
+        let mut c = db();
+        let mut priced = log(100, "a", true);
+        priced.cost_status = CostStatus::Priced;
+        priced.cost = Some(CostBreakdown {
+            input: "0.1".into(),
+            output: "0".into(),
+            cache_read: "0".into(),
+            cache_write: "0".into(),
+            total: "0.1".into(),
+        });
+        let mut priced_again = log(200, "a", false);
+        priced_again.input_tokens = 20;
+        priced_again.cost_status = CostStatus::Priced;
+        priced_again.cost = Some(CostBreakdown {
+            input: "0.2".into(),
+            output: "0".into(),
+            cache_read: "0".into(),
+            cache_write: "0".into(),
+            total: "0.2".into(),
+        });
+        let mut blank = log(150, "a", false);
+        blank.model = Some("  ".to_string());
+        let mut other = log(250, "b", false);
+        other.model = Some("gpt-5.5".to_string());
+        let mut outside = log(50, "a", false);
+        outside.model = Some("gpt-5.5".to_string());
+        insert_batch(&mut c, &[priced, priced_again, blank, other, outside], "dev").unwrap();
+        let rows = by_model(&c, Some(100), Some(250)).unwrap();
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0].endpoint_name, "a");
+        assert_eq!(rows[0].model, "m");
+        assert_eq!(rows[0].requests, 2);
+        assert_eq!(rows[0].errors, 1);
+        assert_eq!(rows[0].input_tokens, 30);
+        assert_eq!(rows[0].output_tokens, 10);
+        assert_eq!(rows[0].cache_creation_tokens, 2);
+        assert_eq!(rows[0].cache_read_tokens, 4);
+        assert_eq!(rows[0].priced_requests, 2);
+        assert_eq!(rows[0].priced_cost, "0.3");
+        assert_eq!(rows[1].model, "未记录");
+        assert_eq!(rows[1].priced_requests, 0);
+        assert_eq!(rows[2].endpoint_name, "b");
+        assert_eq!(rows[2].model, "gpt-5.5");
+        assert_eq!(rows[2].requests, 1);
     }
 
     #[test]

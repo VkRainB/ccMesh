@@ -198,6 +198,7 @@ pub fn run() {
             commands::stats::get_stats,
             commands::stats::get_request_logs,
             commands::stats::get_request_logs_hourly,
+            commands::stats::get_request_logs_by_model,
             commands::stats::get_retention_days,
             commands::stats::prune_request_logs,
             commands::stats::clear_request_logs,

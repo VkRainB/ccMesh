@@ -54,6 +54,11 @@ describe("aggregateRange", () => {
     unpricedRequests: requests,
   });
 
+  it("极宽日期区间纳入全部历史行", () => {
+    const rows = [row("a", "2020-01-01", 4), row("b", "2026-08-11", 1)];
+    expect(aggregateRange(rows, "0000-01-01", "9999-12-31").requests).toBe(5);
+  });
+
   it("按日期闭区间过滤并按端点合并，端点按请求数降序", () => {
     const rows = [
       row("a", "2026-08-09", 1), // 区间外

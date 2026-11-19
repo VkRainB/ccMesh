@@ -74,14 +74,17 @@ interface Props {
   buckets?: TokenBuckets;
   yesterdayBuckets?: TokenBuckets;
   showTrend?: boolean;
+  /** 已计价总成本。缺省按 0 显示。 */
+  pricedCost?: string;
 }
 
-/** 统计概览：真实消耗 + 缓存命中率 + 五张拆分卡。端点统计 / 用量统计共用。 */
+/** 统计概览：总成本、真实消耗、缓存命中率 + 五张拆分卡。端点统计 / 用量统计共用。 */
 export function UsageOverviewCards({
   requests,
   buckets = EMPTY_BUCKETS,
   yesterdayBuckets,
   showTrend = false,
+  pricedCost = "0",
 }: Props) {
   const consumed = realConsumption(buckets);
   const rate = cacheHitRate(buckets);
@@ -91,7 +94,13 @@ export function UsageOverviewCards({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-3 gap-4">
+        <HeroCard>
+          <span className="text-sm text-ink-secondary">总成本</span>
+          <TabularText className="text-3xl font-light tracking-tight text-foreground">
+            ${pricedCost}
+          </TabularText>
+        </HeroCard>
         <HeroCard>
           <span className="text-sm text-ink-secondary">真实消耗 Tokens</span>
           <span title={consumed.toLocaleString()}>

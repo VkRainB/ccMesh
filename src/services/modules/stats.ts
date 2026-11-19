@@ -107,6 +107,19 @@ export interface StatsHistoryPage {
 }
 
 /** 按本地小时聚合（跨端点）。`date` 为 `YYYY-MM-DD HH:00`。 */
+export interface ModelRequestStat {
+  endpointName: string;
+  model: string;
+  requests: number;
+  errors: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+  pricedCost: string;
+  pricedRequests: number;
+}
+
 export interface HourlyStat {
   date: string;
   requests: number;
@@ -141,6 +154,12 @@ export const statsApi = {
       startMs: q.startMs,
       endMs: q.endMs,
     }),
+  /** 请求明细按模型汇总请求数。 */
+  getRequestLogsByModel: (q: { startMs?: number; endMs?: number }) =>
+    request<ModelRequestStat[]>("get_request_logs_by_model", {
+      startMs: q.startMs,
+      endMs: q.endMs,
+    }),
   /** 请求明细保留天数。 */
   getRetentionDays: () => request<number>("get_retention_days"),
   /** 立即清理超过保留期限的请求明细。 */
@@ -153,9 +172,6 @@ export const statsApi = {
   /** 删除单端点单日历史记录。 */
   deleteDailyStat: (endpointName: string, date: string) =>
     request<number>("delete_daily_stat", { endpointName, date }),
-  /** 删除某一天全部历史记录。 */
-  deleteStatsByDate: (date: string) =>
-    request<number>("delete_stats_by_date", { date }),
   /** 订阅统计更新事件（零延迟刷新）。 */
   onUpdated: (cb: () => void): Promise<UnlistenFn> =>
     subscribe(Events.statsUpdated, () => cb()),

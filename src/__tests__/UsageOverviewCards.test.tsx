@@ -26,6 +26,8 @@ describe("UsageOverviewCards", () => {
         showTrend
       />,
     );
+    expect(screen.getByText("总成本")).toBeInTheDocument();
+    expect(screen.getByText("$0")).toBeInTheDocument();
     expect(screen.getByText("真实消耗 Tokens")).toBeInTheDocument();
     expect(screen.getByText("1883.0万")).toBeInTheDocument();
     expect(screen.getByText("缓存命中率")).toBeInTheDocument();
