@@ -10,8 +10,9 @@ export function TitleBar() {
   return (
     <div
       data-tauri-drag-region
+      data-app-chrome=""
       className={cn(
-        "flex h-8 shrink-0 select-none items-center justify-between border-b border-edge-subtle bg-surface",
+        "pointer-events-auto flex h-8 shrink-0 select-none items-center justify-between border-b border-edge-subtle bg-surface",
         IS_MAC ? "pl-20" : "pl-3"
       )}
     >

@@ -29,7 +29,8 @@ export function TopNav() {
   return (
     <header
       data-tauri-drag-region
-      className="flex h-14 shrink-0 items-center gap-4 border-b border-edge bg-surface px-6"
+      data-app-chrome=""
+      className="pointer-events-auto flex h-14 shrink-0 items-center gap-4 border-b border-edge bg-surface px-6"
     >
       <div className="w-[160px] shrink-0">
         <Logo extra={<VersionPopover />} />

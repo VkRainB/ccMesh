@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { statsApi } from "@/services/modules/stats";
 
@@ -69,5 +69,7 @@ export function useRequestLogs(params: RequestLogsParams) {
         page,
         pageSize,
       }),
+    // 未缓存的下一页不再卸掉整张表，避免高度塌缩把页面滚走。
+    placeholderData: keepPreviousData,
   });
 }

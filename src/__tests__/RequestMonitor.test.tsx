@@ -11,6 +11,7 @@ import {
   TokenDetail,
 } from "@/components/business/RequestMonitor";
 import { CostDetail, ErrorDetail } from "@/components/business/RequestDetailSheet";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { fmtDateTime, fmtTime } from "@/lib/format";
 import { RequestLogsCleanupDialog } from "@/components/business/RequestLogsCleanupDialog";
 import type { RequestLog } from "@/services/modules/stats";
@@ -54,6 +55,13 @@ function renderWithQuery(ui: ReactNode, qc = new QueryClient()) {
 }
 
 describe("RequestLogTable", () => {
+  it("分页不足一页时用空行补齐", () => {
+    const { container } = render(<RequestLogTable items={[log]} padTo={3} />);
+    const rows = container.querySelectorAll("tbody tr");
+    expect(rows).toHaveLength(3);
+    expect(container.querySelectorAll("tbody tr[aria-hidden='true']")).toHaveLength(2);
+  });
+
   it("渲染请求行、状态码与 Token 合计", () => {
     render(<RequestLogTable items={[log]} />);
     expect(screen.getByText("ep-a")).toBeInTheDocument();
@@ -264,21 +272,24 @@ describe("RequestLogTable", () => {
     view.rerender(<RequestLogTable items={[{ ...log, costStatus: "incomplete_usage" }]} />);
     expect(screen.queryByText("$0")).not.toBeInTheDocument();
     view.rerender(<RequestLogTable items={[log]} />);
-    expect(screen.getByText("历史记录无费率快照")).toBeInTheDocument();
+    expect(screen.queryByText("历史记录无费率快照")).not.toBeInTheDocument();
+    expect(screen.queryByText("$0")).not.toBeInTheDocument();
     view.rerender(<RequestLogTable items={[free]} preferences={{ hiddenColumns: ["tokens"], actualModelOnly: false }} />);
     expect(screen.queryByText("$0")).not.toBeInTheDocument();
   });
 
   it("成本明细展示冻结的四价、分项、模型和规则", () => {
-    render(<CostDetail log={{ ...log, endpointId: 7, pricingModel: "outbound", pricingAt: 0, costStatus: "priced",
+    render(<TooltipProvider><CostDetail log={{ ...log, endpointId: 7, pricingModel: "outbound", pricingAt: 0, costStatus: "priced",
       pricingSnapshot: { modelId: "outbound", timezone: "Asia/Shanghai", source: "window", ruleId: "night", ruleName: "夜间", rates: { input: "1", output: "2", cacheRead: "3", cacheWrite: "4" } },
       cost: { input: "0.1", output: "0.2", cacheRead: "0.3", cacheWrite: "0.4", total: "1" },
-    }} />);
+    }} /></TooltipProvider>);
     expect(screen.getByText("outbound")).toBeInTheDocument();
     expect(screen.getByText("夜间")).toBeInTheDocument();
     expect(screen.getByText("Asia/Shanghai")).toBeInTheDocument();
     expect(screen.getByText(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)).toBeInTheDocument();
     expect(screen.getByText("0.4")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "用量" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "USD / 百万 token" })).toBeInTheDocument();
   });
 });
 

@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type Ref } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowDownRightIcon, TriangleAlertIcon, Trash2Icon, Settings2Icon } from "lucide-react";
 import { Anthropic, Codex, OpenAI } from "@lobehub/icons";
@@ -208,7 +208,7 @@ export function RequestMonitor({
       {isLoading ? (
         <p className="text-sm text-ink-mute">加载中…</p>
       ) : (
-        <RequestLogTable items={items} preferences={preferences} todayStart={todayStart} onOpenDetail={openDetail} />
+        <RequestLogTable items={items} padTo={total > pageSize ? pageSize : undefined} preferences={preferences} todayStart={todayStart} onOpenDetail={openDetail} />
       )}
 
       {total > pageSize && (
@@ -224,29 +224,45 @@ export function RequestMonitor({
 }
 
 /** 纯展示：请求明细表（空态自处理），便于复用与单测。 */
-export function RequestLogTable({ items, preferences = DEFAULT_PREFERENCES, todayStart = startOfTodayMs(), onOpenDetail }: {
+export function RequestLogTable({ items, padTo, preferences = DEFAULT_PREFERENCES, todayStart = startOfTodayMs(), onOpenDetail }: {
   items: RequestLog[];
+  /** 分页时补到固定行数，末页用空行撑住高度。 */
+  padTo?: number;
   preferences?: TablePreferences;
   todayStart?: number;
   onOpenDetail?: (log: RequestLog, trigger: HTMLElement) => void;
 }) {
+  const columns = COLUMNS.filter(([id]) => !preferences.hiddenColumns.includes(id));
+  const blanks = items.length === 0 ? 0 : Math.max(0, (padTo ?? items.length) - items.length);
+  const probe = useRef<HTMLTableRowElement>(null);
+  const [rowHeight, setRowHeight] = useState(0);
+  useLayoutEffect(() => {
+    if (blanks === 0) return;
+    const height = probe.current?.offsetHeight ?? 0;
+    setRowHeight((prev) => (prev === height ? prev : height));
+  }, [blanks, items, preferences]);
   if (items.length === 0) {
     return <p className="text-sm text-ink-mute">暂无请求记录</p>;
   }
-  const columns = COLUMNS.filter(([id]) => !preferences.hiddenColumns.includes(id));
   return (
     <div className="min-w-0 overflow-x-auto rounded-lg border border-edge">
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-edge text-xs text-ink-secondary">
             {columns.map(([id, label]) => (
-              <th key={id} className="px-3 py-2 text-left font-medium whitespace-nowrap">{label}</th>
+              <th key={id} className="px-3 py-1 text-left font-medium whitespace-nowrap">{label}</th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {items.map((r) => (
-            <RequestRow key={r.id || r.ts} log={r} preferences={preferences} todayStart={todayStart} onOpenDetail={onOpenDetail} />
+          {items.map((r, index) => (
+            <RequestRow key={r.id || r.ts} rowRef={index === 0 ? probe : undefined} log={r} preferences={preferences} todayStart={todayStart} onOpenDetail={onOpenDetail} />
+          ))}
+          {Array.from({ length: blanks }, (_, index) => (
+            <tr key={`blank-${index}`} aria-hidden="true" className="border-b border-edge-subtle last:border-0">
+              {/* 隐藏内容不计入表格行高，所以直接锁定第一条数据行的高度。 */}
+              <td colSpan={columns.length} className="p-0" style={{ height: rowHeight }} />
+            </tr>
           ))}
         </tbody>
       </table>
@@ -324,11 +340,12 @@ export function LatencyCell({ log }: { log: RequestLog }) {
   );
 }
 
-function RequestRow({ log, preferences, todayStart, onOpenDetail }: {
+function RequestRow({ log, preferences, todayStart, onOpenDetail, rowRef }: {
   log: RequestLog;
   preferences: TablePreferences;
   todayStart: number;
   onOpenDetail?: (log: RequestLog, trigger: HTMLElement) => void;
+  rowRef?: Ref<HTMLTableRowElement>;
 }) {
   // 优先 transformer（端点配置类型，更准确），旧行/未记录回退 inboundFormat
   const FormatIcon = getEndpointIcon(log.transformer ?? log.inboundFormat);
@@ -339,7 +356,8 @@ function RequestRow({ log, preferences, todayStart, onOpenDetail }: {
     log.cacheReadTokens;
   return (
     <tr
-      className={`border-b border-edge-subtle last:border-0 ${onOpenDetail ? "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring" : ""}`}
+      ref={rowRef}
+      className={`border-b border-edge-subtle last:border-0 ${onOpenDetail ? "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring" : ""}`}
       tabIndex={onOpenDetail ? 0 : undefined}
       aria-label={onOpenDetail ? `查看请求详情：${fmtDateTime(log.ts)} ${log.endpointName}` : undefined}
       onKeyDown={onOpenDetail ? (event) => {
@@ -347,14 +365,16 @@ function RequestRow({ log, preferences, todayStart, onOpenDetail }: {
         event.preventDefault();
         onOpenDetail(log, event.currentTarget);
       } : undefined}
-      onClick={onOpenDetail ? (event) => {
-        if ((event.target as HTMLElement).closest("button, a, input, select, textarea, [role=button]") || window.getSelection()?.toString()) return;
+      onDoubleClick={onOpenDetail ? (event) => {
+        if ((event.target as HTMLElement).closest("button, a, input, select, textarea, [role=button]")) return;
+        // 双击会先选中单词；清掉这次选区，避免挡住打开抽屉。
+        window.getSelection()?.removeAllRanges();
         onOpenDetail(log, event.currentTarget);
       } : undefined}
     >
       {!preferences.hiddenColumns.includes("time") && (
       <td
-        className="px-3 py-2 whitespace-nowrap"
+        className="px-3 py-1 whitespace-nowrap"
         title={fmtDateTime(log.ts)}
       >
         <time dateTime={new Date(log.ts).toISOString()} className="flex flex-col gap-0.5 font-mono text-xs tabular-nums">
@@ -364,7 +384,7 @@ function RequestRow({ log, preferences, todayStart, onOpenDetail }: {
       </td>
       )}
       {!preferences.hiddenColumns.includes("endpoint") && (
-      <td className="px-3 py-2">
+      <td className="px-3 py-1">
         <div className="flex max-w-[10rem] items-center gap-1.5">
           <FormatIcon size={14} className="shrink-0" />
           <span className="truncate" title={log.endpointName}>{log.endpointName}</span>
@@ -372,7 +392,7 @@ function RequestRow({ log, preferences, todayStart, onOpenDetail }: {
       </td>
       )}
       {!preferences.hiddenColumns.includes("routes") && (
-      <td className="px-3 py-2 font-mono text-xs text-ink-secondary">
+      <td className="px-3 py-1 font-mono text-xs text-ink-secondary">
         <div className="flex min-w-0 max-w-[14.5rem] flex-col gap-0.5">
           <span className="truncate" title={`入站协议：${log.inboundFormat} · ${log.inboundPath || inferPath(log.inboundFormat)}`}>
             {log.inboundPath || inferPath(log.inboundFormat)}
@@ -384,7 +404,7 @@ function RequestRow({ log, preferences, todayStart, onOpenDetail }: {
       </td>
       )}
       {!preferences.hiddenColumns.includes("status") && (
-      <td className="px-3 py-2">
+      <td className="px-3 py-1">
         <div className="flex items-center justify-between">
           <span className="inline-flex items-center gap-1.5">
             <StatusDot status={statusDot(log.statusCode)} />
@@ -415,34 +435,34 @@ function RequestRow({ log, preferences, todayStart, onOpenDetail }: {
       </td>
       )}
       {!preferences.hiddenColumns.includes("model") && (
-      <td className="px-3 py-2 align-middle">
+      <td className="px-3 py-1 align-middle">
         <div className="max-w-[12rem]">
           <ModelCell model={log.model} actualModel={log.actualModel} actualModelOnly={preferences.actualModelOnly} />
         </div>
       </td>
       )}
       {!preferences.hiddenColumns.includes("latency") && (
-      <td className="px-3 py-2 text-left whitespace-nowrap">
+      <td className="px-3 py-1 text-left whitespace-nowrap">
         <LatencyCell log={log} />
       </td>
       )}
       {!preferences.hiddenColumns.includes("tokens") && (
-      <td className="px-3 py-2 text-left whitespace-nowrap">
+      <td className="px-3 py-1 text-left whitespace-nowrap">
         <HoverCard openDelay={100} closeDelay={50}>
           <HoverCardTrigger asChild>
             <button
               type="button"
               aria-label={`Token 用量：${total.toLocaleString()}`}
-              className="inline-flex max-w-full items-center text-ink-secondary transition-colors hover:text-foreground"
+              className="inline-flex max-w-full items-center"
             >
-              <TabularText className="truncate">{formatTokenK(total)}</TabularText>
+              <span className="truncate">{formatTokenK(total)}</span>
             </button>
           </HoverCardTrigger>
           <HoverCardContent align="end" className="w-56">
             <TokenDetail log={log} total={total} />
           </HoverCardContent>
         </HoverCard>
-        {log.costStatus !== "unpriced" && log.costStatus !== "incomplete_usage" && (
+        {log.costStatus && log.costStatus !== "unpriced" && log.costStatus !== "incomplete_usage" && log.costStatus !== "legacy_unknown" && (
           onOpenDetail ? <button type="button" aria-label="查看估算成本明细" onClick={(event) => onOpenDetail(log, event.currentTarget)}
             className="mt-0.5 block max-w-[10rem] truncate rounded-sm text-xs text-ink-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             title={log.costStatus === "priced" && log.cost ? `$${log.cost.total}` : COST_LABELS[log.costStatus ?? "legacy_unknown"]}>
