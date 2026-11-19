@@ -438,9 +438,6 @@ export function ToolSessions() {
             <ArrowLeftIcon className="size-4" />
           </Button>
           <h1 className="text-2xl font-light tracking-tight">会话管理</h1>
-          <span className="text-xs text-ink-mute">
-            本机 Claude / Codex / OpenCode / pi / omp 工具会话
-          </span>
         </header>
 
         <div className="grid min-h-0 flex-1 gap-4 p-4 md:grid-cols-[320px_1fr]">
