@@ -68,7 +68,7 @@ import {
   type OmpWorkspaceState,
 } from "@/services/modules/omp_config";
 import { FormFieldLabel } from "./FormFieldLabel";
-import { ModelCombobox } from "./ModelCombobox";
+import { ModelCombobox } from "@/components/business/ModelCombobox";
 import {
   EditorFallback,
   FileTabStrip,

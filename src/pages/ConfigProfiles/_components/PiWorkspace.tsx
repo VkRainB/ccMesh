@@ -67,7 +67,7 @@ import {
   type PiWorkspaceState,
 } from "@/services/modules/pi_config";
 import { FormFieldLabel } from "./FormFieldLabel";
-import { ModelCombobox } from "./ModelCombobox";
+import { ModelCombobox } from "@/components/business/ModelCombobox";
 import {
   EditorFallback,
   FileTabStrip,

@@ -46,7 +46,7 @@ import {
 import { ChannelList } from "./ChannelList";
 import { ClaudeMoreConfigDialog } from "./ClaudeMoreConfigDialog";
 import { FormFieldLabel } from "./FormFieldLabel";
-import { ModelCombobox } from "./ModelCombobox";
+import { ModelCombobox } from "@/components/business/ModelCombobox";
 
 const JsonEditor = lazy(() => import("@/components/common/JsonEditor"));
 

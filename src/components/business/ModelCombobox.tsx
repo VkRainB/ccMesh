@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 interface Props {
   value: string;
   onChange: (v: string) => void;
-  /** 可选模型列表（对外暴露的模型）。 */
+  /** 候选模型 ID；可按使用场景传入入站或出站模型。 */
   options: string[];
   placeholder?: string;
   id?: string;
@@ -53,7 +53,13 @@ export function ModelCombobox({
   const list = q ? options.filter((o) => o.toLowerCase().includes(q)) : options;
 
   return (
-    <div ref={rootRef} className={cn("relative", className)}>
+    <div
+      ref={rootRef}
+      className={cn("relative", className)}
+      onBlur={(e) => {
+        if (e.relatedTarget && !e.currentTarget.contains(e.relatedTarget)) setOpen(false);
+      }}
+    >
       <Input
         id={id}
         value={value}
@@ -68,6 +74,7 @@ export function ModelCombobox({
         type="button"
         tabIndex={-1}
         aria-label="选择模型"
+        aria-expanded={open}
         onClick={() => (open ? setOpen(false) : openMenu(true))}
         className="absolute inset-y-0 right-0 flex items-center px-2.5 text-ink-mute hover:text-ink-secondary"
       >

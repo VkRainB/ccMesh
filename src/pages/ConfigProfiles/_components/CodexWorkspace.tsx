@@ -30,7 +30,7 @@ import {
 } from "@/services/modules/tool_config";
 import { ChannelList } from "./ChannelList";
 import { FormFieldLabel } from "./FormFieldLabel";
-import { ModelCombobox } from "./ModelCombobox";
+import { ModelCombobox } from "@/components/business/ModelCombobox";
 
 const JsonEditor = lazy(() => import("@/components/common/JsonEditor"));
 

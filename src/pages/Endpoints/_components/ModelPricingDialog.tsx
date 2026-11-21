@@ -1,17 +1,35 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { PlusIcon, Trash2Icon } from "lucide-react";
+import { ChevronDownIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 
+import { ModelCombobox } from "@/components/business/ModelCombobox";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { endpointApi, outboundModels, type Endpoint } from "@/services/modules/endpoint";
 import type { ModelPricing, PriceRates, PriceWindow } from "@/services/modules/pricing";
-import { ModelPriceQuoteView, RATE_LABELS } from "./ModelPriceQuoteView";
+import { ModelPriceQuoteView, PricingHelp, RATE_LABELS } from "./ModelPriceQuoteView";
 
 type DraftWindow = Omit<PriceWindow, "startMinute" | "endMinute"> & { start: string; end: string };
 type DraftModel = Omit<ModelPricing, "windows"> & { windows: DraftWindow[] };
+
+const WEEKDAYS = [1, 2, 3, 4, 5];
+const WEEKEND = [6, 7];
+const DAYS = ["一", "二", "三", "四", "五", "六", "日"];
+const DAY_PRESETS = [["每天", [...WEEKDAYS, ...WEEKEND]], ["工作日", WEEKDAYS], ["周末", WEEKEND]] as const;
+// https://api-docs.deepseek.com/quick_start/pricing — 只为官方端点生成可审核的草稿。
+const DEEPSEEK_RATES = {
+  flash: {
+    offPeak: { input: "0.15", output: "0.6", cacheRead: "0.003", cacheWrite: "0" },
+    peak: { input: "0.3", output: "1.2", cacheRead: "0.006", cacheWrite: "0" },
+  },
+  pro: {
+    offPeak: { input: "0.66", output: "1.98", cacheRead: "0.022", cacheWrite: "0" },
+    peak: { input: "1.32", output: "3.96", cacheRead: "0.044", cacheWrite: "0" },
+  },
+};
+
 const emptyRates = (): PriceRates => ({ input: "", output: "", cacheRead: "", cacheWrite: "" });
 const clock = (minute: number) => `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
 const minute = (value: string, end: boolean) => {
@@ -35,10 +53,16 @@ export function ModelPricingDialog({ open, onOpenChange, endpoint }: {
   open: boolean; onOpenChange: (open: boolean) => void; endpoint: Endpoint;
 }) {
   const qc = useQueryClient();
-  const listId = useId();
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  const modelInputId = useId();
+  const modelOptions = [...new Set([
+    ...outboundModels(endpoint),
+    ...endpoint.modelMappings.map(({ to }) => to),
+  ])];
   const [rows, setRows] = useState<DraftModel[]>([]);
   const [selected, setSelected] = useState(0);
-  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<"delete" | "deepseek" | null>(null);
+  const [expandedWindow, setExpandedWindow] = useState<string | null>(null);
   const [error, setError] = useState("");
   // ponytail: 仅打开时拷贝；查询刷新绝不能覆盖尚未保存或保存失败的编辑。
   useEffect(() => {
@@ -48,13 +72,29 @@ export function ModelPricingDialog({ open, onOpenChange, endpoint }: {
     })));
     setSelected(0);
     setError("");
-    setDeleteOpen(false);
+    setConfirmAction(null);
+    setExpandedWindow(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 独立编辑快照
   }, [open]);
   const row = rows[selected];
+  const modelId = row?.modelId.trim() ?? "";
+  const officialDeepSeek = URL.canParse(endpoint.apiUrl) && new URL(endpoint.apiUrl).origin === "https://api.deepseek.com";
+  const deepSeekRates = !officialDeepSeek ? null
+    : modelId === "deepseek-v4-pro" ? DEEPSEEK_RATES.pro
+    : ["deepseek-flash", "deepseek-v4-flash", "deepseek-v4-flash-vision-exp"].includes(modelId) ? DEEPSEEK_RATES.flash : null;
+  const hasBaseRates = row && Object.values(row.baseRates).some(Boolean);
   const update = (patch: Partial<DraftModel>) => setRows((previous) => previous.map((item, i) => i === selected ? { ...item, ...patch } : item));
   const updateWindow = (index: number, patch: Partial<DraftWindow>) => {
     update({ windows: row.windows.map((window, i) => i === index ? { ...window, ...patch } : window) });
+  };
+  const applyDeepSeek = () => {
+    if (!deepSeekRates) return;
+    // ponytail: 复用每周规则，不推断中国法定节假日；精确匹配需要可维护的日历例外。
+    const windows = [["上午高峰", "09:00", "12:00"], ["下午高峰", "14:00", "18:00"]]
+      .map(([name, start, end]) => ({ id: crypto.randomUUID(), name, start, end, weekdays: WEEKDAYS, rates: deepSeekRates.peak }));
+    update({ timezone: "Asia/Shanghai", baseRates: deepSeekRates.offPeak, windows });
+    setExpandedWindow(null);
+    setConfirmAction(null);
   };
   const save = useMutation({
     mutationFn: () => {
@@ -86,9 +126,19 @@ export function ModelPricingDialog({ open, onOpenChange, endpoint }: {
   });
 
   return <Dialog open={open} onOpenChange={(value) => { if (!save.isPending) onOpenChange(value); }}>
-    <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
-      <DialogHeader><DialogTitle>模型价格 · {endpoint.name}</DialogTitle></DialogHeader>
-      <p className="text-xs leading-relaxed text-ink-secondary">按本端点 × 准确出站模型 ID 配置；未配置时使用 models.dev 自动价。四价必填，免费请显式填写 0；单位 USD / 百万 token。</p>
+    <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl"
+      onOpenAutoFocus={(event) => {
+        event.preventDefault();
+        titleRef.current?.focus();
+      }}>
+      <DialogHeader className="shrink-0 border-b border-edge px-6 py-4 pr-14">
+        <div className="flex items-center gap-2">
+          <DialogTitle ref={titleRef} tabIndex={-1} className="outline-none">模型价格 · {endpoint.name}</DialogTitle>
+          <PricingHelp label="价格配置说明">按当前端点和准确的出站模型 ID 配置。未配置时回退到 models.dev 自动价。</PricingHelp>
+        </div>
+        <DialogDescription className="sr-only">配置出站模型的默认价和每周时段价。</DialogDescription>
+      </DialogHeader>
+      <div className="min-h-0 overflow-y-auto px-6 py-4">
       <fieldset disabled={save.isPending} className="flex min-w-0 flex-col gap-4">
         <div className="flex flex-wrap items-center gap-2">
           {rows.map((item, i) => <Button key={i} size="sm" variant={selected === i ? "secondary" : "outline"}
@@ -100,54 +150,111 @@ export function ModelPricingDialog({ open, onOpenChange, endpoint }: {
         </div>
         {!row ? <p className="rounded-md border border-dashed border-edge p-5 text-center text-sm text-ink-mute">未配置价格 · 添加模型后填写四项默认价</p> : <>
           <div className="grid gap-3 sm:grid-cols-2">
-            <label className="flex flex-col gap-1 text-xs text-ink-secondary">出站模型 ID（可选择或手输）
-              <Input list={listId} value={row.modelId} onChange={(e) => update({ modelId: e.target.value })} className="font-mono text-xs" />
-              <datalist id={listId}>{[...new Set([...outboundModels(endpoint), ...endpoint.modelMappings.map((mapping) => mapping.to)])].map((model) => <option key={model} value={model} />)}</datalist>
-            </label>
-            <label className="flex flex-col gap-1 text-xs text-ink-secondary">IANA 时区（不跟随系统）
-              <Input value={row.timezone} placeholder="Asia/Shanghai" onChange={(e) => update({ timezone: e.target.value })} className="font-mono text-xs" />
-            </label>
+            <div className="flex min-w-0 flex-col gap-1">
+              <label htmlFor={modelInputId} className="text-xs text-ink-secondary">出站模型 ID</label>
+              <ModelCombobox key={selected} id={modelInputId} options={modelOptions} value={row.modelId}
+                onChange={(modelId) => update({ modelId })} placeholder="选择或输入模型 ID" />
+            </div>
+            {deepSeekRates && <div className="flex flex-col items-start justify-end gap-1">
+              <div className="flex items-center gap-1.5">
+                <Button size="sm" variant="outline" onClick={() => {
+                  if (hasBaseRates || row.windows.length) setConfirmAction("deepseek");
+                  else applyDeepSeek();
+                }}>填入 DeepSeek 峰谷价</Button>
+                <PricingHelp label="DeepSeek 峰谷价说明">北京时间周一至周五 09:00–12:00、14:00–18:00 为高峰，其余时间半价。官方无独立缓存写入费率。模板只填草稿，不会自动更新。</PricingHelp>
+              </div>
+              <span className="text-xs text-warning">每周模板，不自动排除中国法定节假日</span>
+            </div>}
           </div>
-          <section className="flex flex-col gap-2 rounded-md border border-edge p-3"><h3 className="text-sm font-medium">默认价</h3><RatesFields value={row.baseRates} onChange={(baseRates) => update({ baseRates })} /></section>
-          <div className="flex flex-col gap-3">
-            <p className="text-xs leading-relaxed text-ink-mute">时段左闭右开；跨午夜归属于开始日；全天填 00:00–24:00。星期按所选时区计算，同一模型的时段不能重叠。未命中时使用默认价。</p>
-            {row.windows.map((window, i) => <section key={window.id} className="flex flex-col gap-3 rounded-md border border-edge p-3">
-              <div className="flex items-end gap-2">
-                <label className="flex flex-1 flex-col gap-1 text-xs text-ink-secondary">时段名称<Input value={window.name} onChange={(e) => updateWindow(i, { name: e.target.value })} className="h-8" /></label>
-                <Button size="icon" variant="ghost" aria-label={`删除时段 ${window.name || i + 1}`} onClick={() => update({ windows: row.windows.filter((_, index) => index !== i) })}><Trash2Icon className="size-4" /></Button>
+          <section className="flex flex-col gap-2 rounded-md border border-edge p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5">
+                <h3 className="text-sm font-medium">默认价</h3>
+                <PricingHelp label="默认价说明">未匹配时段时使用默认价。输入对应未命中缓存，缓存读取对应命中。四项必填，免费须明确填 0。</PricingHelp>
               </div>
-              <div className="flex flex-wrap gap-1" role="group" aria-label="开始日星期">
-                {["一", "二", "三", "四", "五", "六", "日"].map((day, index) => <Button key={day} type="button" size="sm" variant={window.weekdays.includes(index + 1) ? "secondary" : "outline"}
-                  aria-label={`周${day}`} aria-pressed={window.weekdays.includes(index + 1)} onClick={() => updateWindow(i, { weekdays: window.weekdays.includes(index + 1) ? window.weekdays.filter((value) => value !== index + 1) : [...window.weekdays, index + 1] })}>周{day}</Button>)}
+              <span className="text-xs text-ink-mute">USD / 百万 token</span>
+            </div>
+            <RatesFields value={row.baseRates} onChange={(baseRates) => update({ baseRates })} />
+          </section>
+          <section className="flex flex-col gap-2 rounded-md border border-edge p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5">
+                <h3 className="text-sm font-medium">每周时段价</h3>
+                <PricingHelp label="时段规则说明">按指定 IANA 时区计算，不跟随本机时区。包含开始、不含结束；跨午夜归属开始日。全天填 00:00–24:00。时段不能重叠。</PricingHelp>
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <label className="flex flex-col gap-1 text-xs text-ink-secondary">开始（HH:mm）<Input placeholder="22:00" value={window.start} onChange={(e) => updateWindow(i, { start: e.target.value })} className="h-8 font-mono" /></label>
-                <label className="flex flex-col gap-1 text-xs text-ink-secondary">结束（允许 24:00）<Input placeholder="08:00" value={window.end} onChange={(e) => updateWindow(i, { end: e.target.value })} className="h-8 font-mono" /></label>
-              </div>
-              <RatesFields value={window.rates} onChange={(rates) => updateWindow(i, { rates })} />
-            </section>)}
-            <Button size="sm" variant="outline" className="self-start" onClick={() => update({ windows: [...row.windows, {
-              id: crypto.randomUUID(), name: "", weekdays: [], start: "", end: "", rates: emptyRates(),
-            }] })}><PlusIcon className="size-3.5" />添加时段</Button>
-          </div>
-          <p className="text-xs text-ink-mute">以下为当前有效报价（未保存编辑不参与预览）；入站别名由后端解析，编辑时请使用实际出站 ID。</p>
-          <ModelPriceQuoteView key={`${endpoint.id}-${selected}`} endpointId={endpoint.id} modelId={row.modelId.trim()} />
-          <Button size="sm" variant="ghost" className="self-start text-destructive" onClick={() => setDeleteOpen(true)}><Trash2Icon className="size-3.5" />删除模型价格</Button>
+              <Button size="sm" variant="outline" onClick={() => {
+                const id = crypto.randomUUID();
+                update({ windows: [...row.windows, { id, name: "", weekdays: [], start: "", end: "", rates: emptyRates() }] });
+                setExpandedWindow(id);
+              }}><PlusIcon className="size-3.5" />添加时段</Button>
+            </div>
+            {row.windows.length ? <label className="flex flex-wrap items-center gap-2 text-xs text-ink-secondary">
+              时段时区
+              <Input value={row.timezone} placeholder="Asia/Shanghai"
+                onChange={(e) => update({ timezone: e.target.value })} className="h-8 w-44 font-mono text-xs" />
+            </label> : <p className="text-xs text-ink-mute">未添加时段，始终使用默认价</p>}
+            {row.windows.map((window, i) => {
+              const expanded = expandedWindow === window.id;
+              const days = DAY_PRESETS.find(([, preset]) => preset.length === window.weekdays.length
+                && preset.every((day) => window.weekdays.includes(day)))?.[0]
+                ?? DAYS.filter((_, day) => window.weekdays.includes(day + 1)).map((day) => `周${day}`).join("、");
+              return <div key={window.id} className="rounded-md border border-edge">
+                <div className="flex items-center justify-between gap-2 px-2">
+                  <button type="button" aria-expanded={expanded} onClick={() => setExpandedWindow(expanded ? null : window.id)}
+                    className="flex min-w-0 flex-1 items-center gap-2 py-2 text-left text-sm">
+                    <ChevronDownIcon className={`size-4 shrink-0 text-ink-secondary ${expanded ? "rotate-180" : ""}`} />
+                    <span className="truncate font-medium">{window.name || `时段 ${i + 1}`}</span>
+                    <span className="truncate text-xs text-ink-secondary">{[days, window.start && window.end && `${window.start}–${window.end}`].filter(Boolean).join(" · ")}</span>
+                  </button>
+                  <Button size="icon" variant="ghost" aria-label={`删除时段 ${window.name || i + 1}`} onClick={() => update({ windows: row.windows.filter((_, index) => index !== i) })}><Trash2Icon className="size-4" /></Button>
+                </div>
+                {expanded && <div className="flex flex-col gap-3 border-t border-edge p-3">
+                  <label className="flex flex-col gap-1 text-xs text-ink-secondary">时段名称<Input value={window.name} onChange={(e) => updateWindow(i, { name: e.target.value })} className="h-8" /></label>
+                  <div className="flex flex-wrap gap-1" role="group" aria-label="开始日星期">
+                    {DAYS.map((day, index) => <Button key={day} size="sm" variant={window.weekdays.includes(index + 1) ? "secondary" : "outline"}
+                      aria-pressed={window.weekdays.includes(index + 1)} onClick={() => updateWindow(i, { weekdays: window.weekdays.includes(index + 1) ? window.weekdays.filter((value) => value !== index + 1) : [...window.weekdays, index + 1] })}>周{day}</Button>)}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1">
+                    {DAY_PRESETS.map(([label, weekdays]) => <Button key={label} size="sm" variant="ghost" onClick={() => updateWindow(i, { weekdays: [...weekdays] })}>{label}</Button>)}
+                    <Button size="sm" variant="ghost" className="ml-auto" disabled={!hasBaseRates} onClick={() => updateWindow(i, { rates: row.baseRates })}>复制默认价</Button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="flex flex-col gap-1 text-xs text-ink-secondary">开始（HH:mm）<Input placeholder="22:00" value={window.start} onChange={(e) => updateWindow(i, { start: e.target.value })} className="h-8 font-mono" /></label>
+                    <label className="flex flex-col gap-1 text-xs text-ink-secondary">结束（允许 24:00）<Input placeholder="08:00" value={window.end} onChange={(e) => updateWindow(i, { end: e.target.value })} className="h-8 font-mono" /></label>
+                  </div>
+                  <RatesFields value={window.rates} onChange={(rates) => updateWindow(i, { rates })} />
+                </div>}
+              </div>;
+            })}
+          </section>
+          <ModelPriceQuoteView key={`${endpoint.id}-${selected}`} endpointId={endpoint.id} modelId={modelId}
+            onUseAutoRates={!hasBaseRates ? (baseRates) => update({ baseRates }) : undefined} />
+          <Button size="sm" variant="ghost" className="self-start text-destructive" onClick={() => setConfirmAction("delete")}><Trash2Icon className="size-3.5" />删除模型价格</Button>
         </>}
       </fieldset>
-      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-      <DialogFooter>
+      </div>
+      <DialogFooter className="shrink-0 items-center border-t border-edge px-6 py-3">
+        {error && <p role="alert" className="mr-auto text-sm text-destructive">{error}</p>}
         <Button variant="outline" disabled={save.isPending} onClick={() => onOpenChange(false)}>取消</Button>
         <Button disabled={save.isPending} onClick={() => save.mutate()}>{save.isPending ? "正在保存…" : "保存价格"}</Button>
       </DialogFooter>
-      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}><DialogContent className="sm:max-w-md">
-        <DialogHeader><DialogTitle>删除模型价格</DialogTitle></DialogHeader>
-        <p className="text-sm text-ink-secondary">删除后，新请求将显示未配置价格；历史估算成本保持不变。</p>
-        <p className="text-xs text-ink-mute">删除将在点击「保存价格」后生效。</p>
-        <DialogFooter><Button variant="outline" onClick={() => setDeleteOpen(false)}>取消</Button><Button variant="destructive" onClick={() => {
-          setRows(rows.filter((_, i) => i !== selected)); setSelected(Math.max(0, selected - 1)); setDeleteOpen(false);
-        }}>删除模型价格</Button></DialogFooter>
-      </DialogContent></Dialog>
+      <Dialog open={confirmAction !== null} onOpenChange={(value) => { if (!value) setConfirmAction(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader><DialogTitle>{confirmAction === "deepseek" ? "覆盖当前模型价格？" : "删除模型价格"}</DialogTitle></DialogHeader>
+          <DialogDescription>{confirmAction === "deepseek"
+            ? "将替换草稿中的时区、默认价和时段。节假日不自动排除，保存后才会生效。"
+            : "删除后，新请求将回退自动价；没有自动价时显示未配置。历史估算成本保持不变，保存后生效。"}</DialogDescription>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmAction(null)}>取消</Button>
+            {confirmAction === "deepseek" ? <Button onClick={applyDeepSeek}>覆盖草稿</Button>
+              : <Button variant="destructive" onClick={() => {
+                setRows(rows.filter((_, i) => i !== selected));
+                setSelected(Math.max(0, selected - 1));
+                setConfirmAction(null);
+              }}>删除模型价格</Button>}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </DialogContent>
   </Dialog>;
 }
