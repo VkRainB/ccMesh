@@ -16,25 +16,26 @@ const planUsage: CursorPlanUsage = {
 };
 
 describe("ChannelDonut", () => {
-  it("有聚合数据时展示已用 / 预估 / 保底", () => {
+  it("保留官方进度，按各通道金额展示预估额度，不混用套餐保底", () => {
+    const captured = { ...planUsage, apiPercentUsed: 72.61818181818181 };
     render(
       <ChannelDonut
-        planUsage={planUsage}
+        planUsage={captured}
         aggregations={[
           { tier: 2, totalCents: 500 },
-          { tier: 1, totalCents: 2000 },
+          { tier: 1, totalCents: 1996.540952 },
         ]}
       />,
     );
     expect(screen.getByText("40.0%")).toBeInTheDocument();
-    expect(screen.getByText("28.6%")).toBeInTheDocument();
+    expect(screen.getByText("72.6%")).toBeInTheDocument();
     expect(screen.getAllByText(/已用/).length).toBe(2);
     expect(screen.getByText("$5.00")).toBeInTheDocument();
     expect(screen.getByText("$12.50")).toBeInTheDocument();
-    expect(screen.getByText("$20.00")).toBeInTheDocument();
-    expect(screen.getByText("$70.00")).toBeInTheDocument();
-    expect(screen.getByText(/预估/)).toBeInTheDocument();
-    expect(screen.getByText(/保底/)).toBeInTheDocument();
+    expect(screen.getByText("$19.9654")).toBeInTheDocument();
+    expect(screen.getByText("$27.49")).toBeInTheDocument();
+    expect(screen.queryByText("$70.00")).not.toBeInTheDocument();
+    expect(screen.getAllByText(/预估额度/)).toHaveLength(2);
   });
 
   it("无聚合数据时只展示进度百分比", () => {
@@ -51,6 +52,6 @@ describe("ChannelDonut", () => {
         aggregations={[{ tier: 2, totalCents: 500 }]}
       />,
     );
-    expect(screen.getByText("—")).toBeInTheDocument();
+    expect(screen.getAllByText("—")).toHaveLength(2);
   });
 });

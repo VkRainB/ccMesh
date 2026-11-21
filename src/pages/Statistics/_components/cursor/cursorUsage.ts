@@ -12,27 +12,26 @@ export function fmtUsd(cents: number | undefined | null): string {
   );
 }
 
-/** Auto=tier2 / API=tier1。autoPct∈(0,100) 时用已用反推 Auto 预估总额，否则 N/A。 */
+/** Auto=tier2 / API=tier1；套餐 limit 不是通道额度。 */
 export function estimateChannelUsage(
   aggregations: { tier: number; totalCents: number }[] | null | undefined,
-  plan: { autoPercentUsed?: number; apiPercentUsed?: number; limit: number },
-): {
-  firstUsedCents: number;
-  firstTotalCents: number | null;
-  otherUsedCents: number;
-  guaranteedCents: number;
-} | null {
+  plan: { autoPercentUsed?: number; apiPercentUsed?: number },
+) {
   if (!aggregations) return null;
-  const n = (v: unknown) => Number(v || 0);
-  const sum = (tier: number) =>
-    aggregations.filter((x) => x.tier === tier).reduce((a, x) => a + n(x.totalCents), 0);
-  const firstUsedCents = sum(2);
-  const autoPct = n(plan.autoPercentUsed);
+  let autoUsedCents = 0;
+  let apiUsedCents = 0;
+  for (const row of aggregations) {
+    if (row.tier === 2) autoUsedCents += row.totalCents;
+    else if (row.tier === 1) apiUsedCents += row.totalCents;
+  }
+  // ponytail: Cursor 未返回各通道额度；只在有金额且百分比未触边时反推。
+  const estimate = (used: number, pct?: number) =>
+    used > 0 && pct != null && pct > 0 && pct < 100 ? (used * 100) / pct : null;
   return {
-    firstUsedCents,
-    otherUsedCents: sum(1),
-    guaranteedCents: n(plan.limit),
-    firstTotalCents: autoPct > 0 && autoPct < 100 ? (firstUsedCents * 100) / autoPct : null,
+    autoUsedCents,
+    autoEstimatedLimitCents: estimate(autoUsedCents, plan.autoPercentUsed),
+    apiUsedCents,
+    apiEstimatedLimitCents: estimate(apiUsedCents, plan.apiPercentUsed),
   };
 }
 

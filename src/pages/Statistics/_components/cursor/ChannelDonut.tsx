@@ -16,15 +16,13 @@ function ChannelRow({
   pct,
   normal,
   usedCents,
-  extraLabel,
-  extraCents,
+  estimatedLimitCents,
 }: {
   name: string;
   pct: number;
   normal: string;
   usedCents?: number;
-  extraLabel?: string;
-  extraCents?: number | null;
+  estimatedLimitCents?: number | null;
 }) {
   return (
     <div className="flex flex-col gap-1.5">
@@ -44,14 +42,12 @@ function ChannelRow({
             已用{" "}
             <TabularText className="text-ink-secondary">{fmtUsd(usedCents)}</TabularText>
           </span>
-          {extraLabel ? (
-            <span>
-              {extraLabel}{" "}
-              <TabularText className="text-ink-secondary">
-                {extraCents == null ? "—" : fmtUsd(extraCents)}
-              </TabularText>
-            </span>
-          ) : null}
+          <span>
+            预估额度{" "}
+            <TabularText className="text-ink-secondary">
+              {estimatedLimitCents == null ? "—" : fmtUsd(Math.round(estimatedLimitCents))}
+            </TabularText>
+          </span>
         </div>
       ) : null}
     </div>
@@ -77,17 +73,15 @@ export function ChannelDonut({
             name="Auto + Composer"
             pct={auto}
             normal="bg-info"
-            usedCents={est?.firstUsedCents}
-            extraLabel="预估"
-            extraCents={est?.firstTotalCents}
+            usedCents={est?.autoUsedCents}
+            estimatedLimitCents={est?.autoEstimatedLimitCents}
           />
           <ChannelRow
             name="API 通道"
             pct={api}
             normal="bg-primary"
-            usedCents={est?.otherUsedCents}
-            extraLabel="保底"
-            extraCents={est?.guaranteedCents}
+            usedCents={est?.apiUsedCents}
+            estimatedLimitCents={est?.apiEstimatedLimitCents}
           />
         </div>
       </CardContent>
