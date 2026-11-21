@@ -11,6 +11,18 @@ export function fmtDateTime(ts: number): string {
   return `${ymd(ts)} ${fmtTime(ts)}`;
 }
 
+export const USD_DISPLAY_FRACTION_DIGITS = 4;
+
+/** 已计价 USD：只在展示时四舍五入，不把完整十进制金额转换为浮点数。 */
+export function formatUsdAmount(value: string): string {
+  const [whole, fraction = ""] = value.split(".");
+  const places = USD_DISPLAY_FRACTION_DIGITS;
+  const units = Number(fraction.slice(0, places).padEnd(places, "0")) + (fraction[places] >= "5" ? 1 : 0);
+  if (units === 10 ** places) return String(BigInt(whole) + 1n);
+  const decimals = String(units).padStart(places, "0").replace(/0+$/, "");
+  return decimals ? `${whole}.${decimals}` : whole;
+}
+
 /**
  * Token 数量的辅助单位文案：就近取量级，约等号 + 两位小数 + 中文单位。
  * - ≥ 1 亿：`≈1.25亿`

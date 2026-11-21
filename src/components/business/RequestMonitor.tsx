@@ -21,7 +21,7 @@ import { DateRangePicker } from "@/components/business/DateRangePicker";
 import { RequestLogsCleanupDialog } from "@/components/business/RequestLogsCleanupDialog";
 import { COST_LABELS, ErrorDetail, RequestDetailSheet } from "@/components/business/RequestDetailSheet";
 import { rangeValueMs, startOfTodayMs, ymd, type RangeValue } from "@/lib/range";
-import { fmtDateTime, fmtTime, formatDuration, formatOutputTps, formatTokenK } from "@/lib/format";
+import { fmtDateTime, fmtTime, formatDuration, formatOutputTps, formatTokenK, formatUsdAmount } from "@/lib/format";
 import { statsApi, type RequestLog } from "@/services/modules/stats";
 
 // ponytail: 原生 table 自动布局按内容分配列宽；长文本用 max-w + truncate 兜底，不测量 DOM。
@@ -354,6 +354,8 @@ function RequestRow({ log, preferences, todayStart, onOpenDetail, rowRef }: {
     log.outputTokens +
     log.cacheCreationTokens +
     log.cacheReadTokens;
+  const priced = log.costStatus === "priced" && log.cost;
+  const costText = priced ? `$${formatUsdAmount(priced.total)}` : COST_LABELS[log.costStatus ?? "legacy_unknown"];
   return (
     <tr
       ref={rowRef}
@@ -465,9 +467,9 @@ function RequestRow({ log, preferences, todayStart, onOpenDetail, rowRef }: {
         {log.costStatus && log.costStatus !== "unpriced" && log.costStatus !== "incomplete_usage" && log.costStatus !== "legacy_unknown" && (
           onOpenDetail ? <button type="button" aria-label="查看估算成本明细" onClick={(event) => onOpenDetail(log, event.currentTarget)}
             className="mt-0.5 block max-w-[10rem] truncate rounded-sm text-xs text-ink-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            title={log.costStatus === "priced" && log.cost ? `$${log.cost.total}` : COST_LABELS[log.costStatus ?? "legacy_unknown"]}>
-            {log.costStatus === "priced" && log.cost ? <span className="font-mono tabular-nums">${log.cost.total}</span> : COST_LABELS[log.costStatus ?? "legacy_unknown"]}
-          </button> : <span className="mt-0.5 block max-w-[10rem] truncate font-mono text-xs tabular-nums">{log.costStatus === "priced" && log.cost ? `$${log.cost.total}` : COST_LABELS[log.costStatus ?? "legacy_unknown"]}</span>
+            title={costText}>
+            {priced ? <span className="font-mono tabular-nums">{costText}</span> : costText}
+          </button> : <span className="mt-0.5 block max-w-[10rem] truncate font-mono text-xs tabular-nums">{costText}</span>
         )}
       </td>
       )}

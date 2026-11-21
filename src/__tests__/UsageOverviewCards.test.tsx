@@ -45,6 +45,11 @@ describe("UsageOverviewCards", () => {
     expect(screen.getByText(/较昨日/)).toBeInTheDocument();
   });
 
+  it("总成本四舍五入到最多四位小数", () => {
+    render(<UsageOverviewCards requests={177} pricedCost="0.834855596" />);
+    expect(screen.getByText("$0.8349")).toBeInTheDocument();
+  });
+
   it("Claude 例：命中率 50.0%，空 prompt 显示 —", () => {
     const { rerender } = render(
       <UsageOverviewCards requests={1} buckets={buckets(200, 50, 300, 500)} />,

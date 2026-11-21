@@ -1,4 +1,4 @@
-import { formatTokenMetric } from "@/lib/format";
+import { formatTokenMetric, USD_DISPLAY_FRACTION_DIGITS } from "@/lib/format";
 
 export type EffortLevel = "xhigh" | "high" | "medium" | "low" | "max";
 
@@ -7,7 +7,7 @@ export function fmtUsd(cents: number | undefined | null): string {
     "$" +
     (Number(cents || 0) / 100).toLocaleString("en-US", {
       minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
+      maximumFractionDigits: USD_DISPLAY_FRACTION_DIGITS,
     })
   );
 }

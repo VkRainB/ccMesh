@@ -56,7 +56,7 @@ export function HourlyStackChart({ data }: { data: CursorHourlyPoint[] }) {
         type: "value",
         axisLabel: {
           color: t["ink-secondary"],
-          formatter: (v: number) => `$${(v / 100).toFixed(0)}`,
+          formatter: fmtUsd,
         },
         splitLine: { lineStyle: { color: t["edge-strong"] } },
       },

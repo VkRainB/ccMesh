@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { TabularText } from "@/components/ui";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { formatTokenMetric } from "@/lib/format";
+import { formatTokenMetric, formatUsdAmount } from "@/lib/format";
 import {
   cacheHitRate,
   EMPTY_BUCKETS,
@@ -98,7 +98,7 @@ export function UsageOverviewCards({
         <HeroCard>
           <span className="text-sm text-ink-secondary">总成本</span>
           <TabularText className="text-3xl font-light tracking-tight text-foreground">
-            ${pricedCost}
+            ${formatUsdAmount(pricedCost)}
           </TabularText>
         </HeroCard>
         <HeroCard>

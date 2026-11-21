@@ -21,12 +21,12 @@ export function ModelTopBar({ categories }: { categories: CursorCategory[] }) {
           return `${x.name}<br/>金额 ${fmtUsd(Number(x.data))}`;
         },
       },
-      grid: { left: 8, right: 36, top: 10, bottom: 10, containLabel: true },
+      grid: { left: 8, right: 60, top: 10, bottom: 10, containLabel: true },
       xAxis: {
         type: "value",
         axisLabel: {
           color: t["ink-secondary"],
-          formatter: (v: number) => `$${(v / 100).toFixed(0)}`,
+          formatter: fmtUsd,
         },
         splitLine: { lineStyle: { color: t["edge-strong"] } },
       },
@@ -51,7 +51,7 @@ export function ModelTopBar({ categories }: { categories: CursorCategory[] }) {
             position: "right",
             color: t["ink-secondary"],
             fontSize: 11,
-            formatter: (p) => `$${(Number(p.value) / 100).toFixed(2)}`,
+            formatter: (p) => fmtUsd(Number(p.value)),
           },
         },
       ],

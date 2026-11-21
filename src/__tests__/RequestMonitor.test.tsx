@@ -280,13 +280,16 @@ describe("RequestLogTable", () => {
 
   it("成本明细展示冻结的四价、分项、模型和规则", () => {
     render(<TooltipProvider><CostDetail log={{ ...log, endpointId: 7, pricingModel: "outbound", pricingAt: 0, costStatus: "priced",
-      pricingSnapshot: { modelId: "outbound", timezone: "Asia/Shanghai", source: "window", ruleId: "night", ruleName: "夜间", rates: { input: "1", output: "2", cacheRead: "3", cacheWrite: "4" } },
-      cost: { input: "0.1", output: "0.2", cacheRead: "0.3", cacheWrite: "0.4", total: "1" },
+      pricingSnapshot: { modelId: "outbound", timezone: "Asia/Shanghai", source: "window", ruleId: "night", ruleName: "夜间", rates: { input: "1.123456789", output: "2", cacheRead: "3", cacheWrite: "4" } },
+      cost: { input: "0.123456789", output: "0.2", cacheRead: "0.3", cacheWrite: "0.4", total: "1.023456789" },
     }} /></TooltipProvider>);
     expect(screen.getByText("outbound")).toBeInTheDocument();
     expect(screen.getByText("夜间")).toBeInTheDocument();
     expect(screen.getByText("Asia/Shanghai")).toBeInTheDocument();
     expect(screen.getByText(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)).toBeInTheDocument();
+    expect(screen.getByText("1.123456789")).toBeInTheDocument();
+    expect(screen.getByText("0.1235")).toBeInTheDocument();
+    expect(screen.getByText("$1.0235")).toBeInTheDocument();
     expect(screen.getByText("0.4")).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "用量" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "USD / 百万 token" })).toBeInTheDocument();

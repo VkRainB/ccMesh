@@ -41,7 +41,7 @@ export function DailyTrendChart({ data }: { data: CursorDailyPoint[] }) {
           nameTextStyle: { color: t["ink-secondary"] },
           axisLabel: {
             color: t["ink-secondary"],
-            formatter: (v: number) => `$${(v / 100).toFixed(0)}`,
+            formatter: fmtUsd,
           },
           splitLine: { lineStyle: { color: t["edge-strong"] } },
         },

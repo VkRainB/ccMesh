@@ -1,5 +1,5 @@
 import { TabularText } from "@/components/ui";
-import { formatTokenMetric } from "@/lib/format";
+import { formatTokenMetric, formatUsdAmount } from "@/lib/format";
 import type { EndpointStat, ModelRequestStat } from "@/services/modules/stats";
 
 interface Props {
@@ -33,7 +33,7 @@ function modelsByEndpoint(models: ModelRequestStat[]): Map<string, ModelRequestS
 }
 
 function costText(pricedRequests: number, pricedCost: string): string {
-  return pricedRequests > 0 ? pricedCost : "—";
+  return pricedRequests > 0 ? formatUsdAmount(pricedCost) : "—";
 }
 
 function fromModel(m: ModelRequestStat): Line {

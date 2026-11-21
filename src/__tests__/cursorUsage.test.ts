@@ -13,6 +13,7 @@ import {
 describe("fmtUsd", () => {
   it("美分转美元带千分位", () => {
     expect(fmtUsd(1234)).toBe("$12.34");
+    expect(fmtUsd(123456.125)).toBe("$1,234.5613");
     expect(fmtUsd(0)).toBe("$0.00");
   });
 });

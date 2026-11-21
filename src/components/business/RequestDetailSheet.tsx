@@ -8,7 +8,7 @@ import {
   DialogOverlay, DialogPortal, DialogTitle,
 } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { fmtDateTime, formatDuration, formatOutputTps } from "@/lib/format";
+import { fmtDateTime, formatDuration, formatOutputTps, formatUsdAmount } from "@/lib/format";
 import type { RequestLog } from "@/services/modules/stats";
 import { useLayoutStore } from "@/stores";
 
@@ -59,6 +59,7 @@ export function ErrorDetail({ errorBody }: { errorBody: string }) {
 
 export function CostDetail({ log }: { log: RequestLog }) {
   const snapshot = log.pricingSnapshot;
+  const cost = log.costStatus === "priced" ? log.cost : null;
   const estimated = log.outputEstimated ? "≈" : "";
   const parts = [
     ["input", "输入", log.inputTokens, ""],
@@ -109,7 +110,7 @@ export function CostDetail({ log }: { log: RequestLog }) {
               <tr key={key}>
                 <td className="px-4 py-1 text-ink-secondary">{label}</td>
                 <td className="break-all px-2 py-1 text-right font-mono tabular-nums">{snapshot?.rates[key] ?? "—"}</td>
-                <td className="break-all px-2 py-1 text-right font-mono tabular-nums">{log.costStatus === "priced" ? log.cost?.[key] ?? "—" : "—"}</td>
+                <td className="break-all px-2 py-1 text-right font-mono tabular-nums">{cost ? formatUsdAmount(cost[key]) : "—"}</td>
                 <td className="break-all px-4 py-1 text-right font-mono tabular-nums">{prefix}{tokens.toLocaleString()}</td>
               </tr>
             ))}
@@ -118,7 +119,7 @@ export function CostDetail({ log }: { log: RequestLog }) {
             <tr className="border-t border-edge">
               <td className="px-4 py-2 text-ink-secondary">合计</td>
               <td className="px-2 py-2 text-right font-mono text-ink-mute">—</td>
-              <td className="break-all px-2 py-2 text-right font-mono font-semibold tabular-nums">{log.costStatus === "priced" && log.cost ? `$${log.cost.total}` : "—"}</td>
+              <td className="break-all px-2 py-2 text-right font-mono font-semibold tabular-nums">{cost ? `$${formatUsdAmount(cost.total)}` : "—"}</td>
               <td className="break-all px-4 py-2 text-right font-mono font-semibold tabular-nums">{estimated}{usageTotal.toLocaleString()}</td>
             </tr>
           </tfoot>

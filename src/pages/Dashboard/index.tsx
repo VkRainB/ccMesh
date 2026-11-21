@@ -1,6 +1,7 @@
 import { StatCard, TokenHint } from "@/components/business";
 import { RequestMonitor } from "@/components/business/RequestMonitor";
 import { useStats } from "@/hooks/useStats";
+import { formatUsdAmount } from "@/lib/format";
 import { ServiceCard } from "./_components/ServiceCard";
 
 export function Dashboard() {
@@ -35,7 +36,7 @@ export function Dashboard() {
             </span>
           }
         />
-        <StatCard label="总成本（今日）" value={`$${today?.pricedCost ?? "0"}`} />
+        <StatCard label="总成本（今日）" value={`$${formatUsdAmount(today?.pricedCost ?? "0")}`} />
         <StatCard
           label="Token（今日）"
           value={tokens.toLocaleString()}

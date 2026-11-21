@@ -6,7 +6,21 @@ import {
   formatTokenCompact,
   formatTokenK,
   formatTokenMetric,
+  formatUsdAmount,
 } from "@/lib/format";
+
+describe("formatUsdAmount", () => {
+  it.each([
+    ["0.719285528", "0.7193"],
+    ["1.230000000000", "1.23"],
+    ["0.000049999999", "0"],
+    ["0.000050000000", "0.0001"],
+    ["9999999999999999.00005", "9999999999999999.0001"],
+    ["9999999999999999.99995", "10000000000000000"],
+  ])("formats %s as %s", (amount, expected) => {
+    expect(formatUsdAmount(amount)).toBe(expected);
+  });
+});
 
 describe("formatTokenCompact", () => {
   it("不足一万：原样千分位，不加单位与约等号", () => {
