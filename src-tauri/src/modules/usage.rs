@@ -125,6 +125,7 @@ fn cache_read_tokens(usage: Option<&Value>) -> i64 {
         nested_field(usage, &["input_tokens_details", "cached_tokens"]),
         nested_field(usage, &["prompt_tokens_details", "cached_tokens"]),
         field(usage, "cached_tokens"),
+        field(usage, "prompt_cache_hit_tokens"),
     ]
     .into_iter()
     .find(|v| *v > 0)
@@ -841,6 +842,22 @@ mod tests {
             from_response(&body, UpstreamFormat::OpenAiChat),
             tu(4, 5, 0, 8)
         );
+    }
+
+    #[test]
+    fn deepseek_cache_hit_tokens_are_not_priced_as_cache_misses() {
+        let body = json!({ "usage": {
+            "prompt_tokens": 40, "completion_tokens": 12,
+            "prompt_cache_hit_tokens": 31, "prompt_cache_miss_tokens": 9
+        } });
+        assert_eq!(
+            from_response(&body, UpstreamFormat::OpenAiChat),
+            tu(9, 12, 0, 31)
+        );
+
+        let mut acc = UsageAccumulator::new(UpstreamFormat::OpenAiChat);
+        acc.feed(format!("data: {body}\n\ndata: [DONE]\n\n").as_bytes());
+        assert_eq!(acc.finish(), tu(9, 12, 0, 31));
     }
 
     #[test]
