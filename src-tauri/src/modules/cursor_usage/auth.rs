@@ -1,4 +1,4 @@
-//! 从本机 Cursor `state.vscdb` 只读取出登录 JWT。
+//! 从本机 Cursor `state.vscdb` 只读加载登录凭证。
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -10,13 +10,19 @@ use serde_json::Value;
 
 use crate::error::{AppError, AppResult};
 
+#[cfg(windows)]
+mod windows;
+#[cfg(windows)]
+use windows::decode_tokens;
+
+const ENCRYPTED_TOKEN_PREFIX: &str = "cursor-safe-storage:";
+
 const AUTH_KEYS: &[&str] = &[
     "cursorAuth/accessToken",
     "cursorAuth/refreshToken",
     "cursorAuth/cachedEmail",
 ];
 
-#[derive(Debug, Clone)]
 pub struct AuthTokens {
     pub access_token: String,
     pub refresh_token: Option<String>,
@@ -183,15 +189,36 @@ pub fn read_auth(db_path: &Path) -> AppResult<AuthTokens> {
         }
     }
 
-    let access_token = access.filter(|s| looks_like_jwt(s)).ok_or_else(|| {
-        AppError::NotFound("数据库中没有有效的 accessToken，请先在 Cursor 桌面端登录。".into())
-    })?;
+    let (access_token, refresh) = decode_tokens(db_path, access.unwrap_or_default(), refresh)?;
+    if !looks_like_jwt(&access_token) {
+        return Err(AppError::NotFound(
+            "数据库中没有有效的 accessToken，请先在 Cursor 桌面端登录。".into(),
+        ));
+    }
 
     Ok(AuthTokens {
         access_token,
         refresh_token: refresh.filter(|s| !s.is_empty()),
         email: email.filter(|s| !s.is_empty()),
     })
+}
+
+#[cfg(not(windows))]
+fn decode_tokens(
+    _db_path: &Path,
+    access: String,
+    refresh: Option<String>,
+) -> AppResult<(String, Option<String>)> {
+    // ponytail: Windows DPAPI only; other platforms need their own safeStorage backend.
+    if access.starts_with(ENCRYPTED_TOKEN_PREFIX) {
+        return Err(AppError::Config(
+            "Cursor 已加密桌面登录凭证，当前平台暂不支持读取该格式。请在 Cursor 官网的用量页面查看。".into(),
+        ));
+    }
+    Ok((
+        access,
+        refresh.filter(|s| !s.starts_with(ENCRYPTED_TOKEN_PREFIX)),
+    ))
 }
 
 pub fn looks_like_jwt(tok: &str) -> bool {

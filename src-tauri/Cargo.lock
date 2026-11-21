@@ -589,6 +589,7 @@ name = "ccmesh"
 version = "0.2.11"
 dependencies = [
  "async-trait",
+ "aws-lc-rs",
  "axum",
  "base64 0.22.1",
  "chrono",
@@ -628,6 +629,7 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "windows-sys 0.61.2",
+ "zeroize",
  "zip",
 ]
 
