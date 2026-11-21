@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
@@ -101,10 +101,18 @@ describe("模型价格编辑", () => {
     fireEvent.click(screen.getByRole("button", { name: "添加模型价格" }));
     fireEvent.change(screen.getByLabelText("出站模型 ID"), { target: { value: "deepseek-v4-pro" } });
     fireEvent.change(screen.getByLabelText("输入"), { target: { value: "9" } });
-    fireEvent.click(screen.getByRole("button", { name: "填入 DeepSeek 峰谷价" }));
+    const openPreset = () => {
+      fireEvent.click(screen.getByRole("button", { name: "DeepSeek 价格快捷设置" }));
+      return within(screen.getByRole("dialog", { name: "DeepSeek 价格快捷设置" }));
+    };
+    let preset = openPreset();
+    expect(preset.getByText(/覆盖当前草稿中的默认价/)).toBeInTheDocument();
+    expect(preset.getByText(/不自动排除中国法定节假日/)).toBeInTheDocument();
+    expect(preset.queryByRole("button", { name: "填入 Flash" })).not.toBeInTheDocument();
+    fireEvent.click(preset.getByRole("button", { name: "取消" }));
     expect(screen.getByLabelText("输入")).toHaveValue("9");
-    fireEvent.click(screen.getByRole("button", { name: "覆盖草稿" }));
-    expect(screen.getByText(/不自动排除中国法定节假日/)).toBeInTheDocument();
+    preset = openPreset();
+    fireEvent.click(preset.getByRole("button", { name: "填入 Pro" }));
     expect(update).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "保存价格" }));
     await waitFor(() => expect(update).toHaveBeenCalled());
@@ -120,16 +128,49 @@ describe("模型价格编辑", () => {
     });
   });
 
-  it("第三方 DeepSeek 不套官方模板，但可从已有自动报价填入草稿", async () => {
+  it("第三方端点可手动套用 Flash，保留渠道模型 ID 且保存前不改价格", async () => {
+    const update = vi.spyOn(endpointApi, "update").mockResolvedValue(endpoint);
+    mount(<ModelPricingDialog open endpoint={endpoint} onOpenChange={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: "添加模型价格" }));
+    fireEvent.change(screen.getByLabelText("出站模型 ID"), { target: { value: "vendor/flash" } });
+    fireEvent.click(screen.getByRole("button", { name: "DeepSeek 价格快捷设置" }));
+    const preset = within(screen.getByRole("dialog", { name: "DeepSeek 价格快捷设置" }));
+    expect(preset.getByText(/第三方端点以渠道实际价格为准/)).toBeInTheDocument();
+    fireEvent.click(preset.getByRole("button", { name: "填入 Flash" }));
+    expect(screen.getByLabelText("出站模型 ID")).toHaveValue("vendor/flash");
+    expect(update).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "保存价格" }));
+    await waitFor(() => expect(update).toHaveBeenCalledWith(7, { modelPricing: [expect.objectContaining({
+      modelId: "vendor/flash", baseRates: { input: "0.15", output: "0.6", cacheRead: "0.003", cacheWrite: "0" },
+      windows: [expect.objectContaining({ rates: { input: "0.3", output: "1.2", cacheRead: "0.006", cacheWrite: "0" } }), expect.anything()],
+    })] }));
+  });
+
+  it("空白模型使用模板 ID，不生成重复价格行", () => {
+    mount(<ModelPricingDialog open endpoint={endpoint} onOpenChange={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: "DeepSeek 价格快捷设置" }));
+    fireEvent.click(screen.getByRole("button", { name: "填入 Flash" }));
+    expect(screen.getByLabelText("出站模型 ID")).toHaveValue("deepseek-flash");
+    fireEvent.click(screen.getByRole("button", { name: "添加模型价格" }));
+    fireEvent.click(screen.getByRole("button", { name: "DeepSeek 价格快捷设置" }));
+    expect(screen.getByRole("button", { name: "Flash 已配置" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "填入 Pro" }));
+    expect(screen.getByLabelText("出站模型 ID")).toHaveValue("deepseek-v4-pro");
+    expect(screen.getByRole("button", { name: "deepseek-flash" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "新模型" })).not.toBeInTheDocument();
+  });
+
+  it("第三方 DeepSeek 可另从自动报价填入默认价，而不自动套用峰谷价", async () => {
     const rates = { input: "0.22", output: "1.1", cacheRead: "0.07", cacheWrite: "0.18" };
     vi.mocked(pricingApi.getPrices).mockResolvedValue([{ ...quote, requestedModel: "deepseek-flash", modelId: "deepseek-flash", source: "auto", effectiveRates: rates }]);
     mount(<ModelPricingDialog open endpoint={endpoint} onOpenChange={() => {}} />);
     fireEvent.click(screen.getByRole("button", { name: "添加模型价格" }));
     fireEvent.change(screen.getByLabelText("出站模型 ID"), { target: { value: "deepseek-flash" } });
-    expect(screen.queryByRole("button", { name: "填入 DeepSeek 峰谷价" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("输入")).toHaveValue("");
     fireEvent.click(await screen.findByRole("button", { name: "填入默认价" }));
     expect(screen.getByLabelText("输入")).toHaveValue(rates.input);
     expect(screen.getByLabelText("缓存创建")).toHaveValue(rates.cacheWrite);
+    expect(screen.queryByText("上午高峰")).not.toBeInTheDocument();
   });
 });
 

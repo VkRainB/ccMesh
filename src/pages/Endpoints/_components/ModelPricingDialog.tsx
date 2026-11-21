@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ChevronDownIcon, PlusIcon, Trash2Icon } from "lucide-react";
+import { ChevronDownIcon, PlusIcon, Trash2Icon, ZapIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { ModelCombobox } from "@/components/business/ModelCombobox";
@@ -18,17 +18,20 @@ const WEEKDAYS = [1, 2, 3, 4, 5];
 const WEEKEND = [6, 7];
 const DAYS = ["一", "二", "三", "四", "五", "六", "日"];
 const DAY_PRESETS = [["每天", [...WEEKDAYS, ...WEEKEND]], ["工作日", WEEKDAYS], ["周末", WEEKEND]] as const;
-// https://api-docs.deepseek.com/quick_start/pricing — 只为官方端点生成可审核的草稿。
-const DEEPSEEK_RATES = {
-  flash: {
+// https://api-docs.deepseek.com/quick_start/pricing — 参考官方标价，仅填草稿。
+const DEEPSEEK_PRESETS = [
+  {
+    label: "Flash", modelId: "deepseek-flash",
+    aliases: ["deepseek-v4-flash", "deepseek-v4-flash-vision-exp"],
     offPeak: { input: "0.15", output: "0.6", cacheRead: "0.003", cacheWrite: "0" },
     peak: { input: "0.3", output: "1.2", cacheRead: "0.006", cacheWrite: "0" },
   },
-  pro: {
+  {
+    label: "Pro", modelId: "deepseek-v4-pro", aliases: [],
     offPeak: { input: "0.66", output: "1.98", cacheRead: "0.022", cacheWrite: "0" },
     peak: { input: "1.32", output: "3.96", cacheRead: "0.044", cacheWrite: "0" },
   },
-};
+];
 
 const emptyRates = (): PriceRates => ({ input: "", output: "", cacheRead: "", cacheWrite: "" });
 const clock = (minute: number) => `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
@@ -54,6 +57,7 @@ export function ModelPricingDialog({ open, onOpenChange, endpoint }: {
 }) {
   const qc = useQueryClient();
   const titleRef = useRef<HTMLHeadingElement>(null);
+  const confirmTrigger = useRef<HTMLButtonElement>(null);
   const modelInputId = useId();
   const modelOptions = [...new Set([
     ...outboundModels(endpoint),
@@ -79,20 +83,19 @@ export function ModelPricingDialog({ open, onOpenChange, endpoint }: {
   const row = rows[selected];
   const modelId = row?.modelId.trim() ?? "";
   const officialDeepSeek = URL.canParse(endpoint.apiUrl) && new URL(endpoint.apiUrl).origin === "https://api.deepseek.com";
-  const deepSeekRates = !officialDeepSeek ? null
-    : modelId === "deepseek-v4-pro" ? DEEPSEEK_RATES.pro
-    : ["deepseek-flash", "deepseek-v4-flash", "deepseek-v4-flash-vision-exp"].includes(modelId) ? DEEPSEEK_RATES.flash : null;
+  const matchingPreset = DEEPSEEK_PRESETS.find((preset) => preset.modelId === modelId || preset.aliases.includes(modelId));
   const hasBaseRates = row && Object.values(row.baseRates).some(Boolean);
   const update = (patch: Partial<DraftModel>) => setRows((previous) => previous.map((item, i) => i === selected ? { ...item, ...patch } : item));
   const updateWindow = (index: number, patch: Partial<DraftWindow>) => {
     update({ windows: row.windows.map((window, i) => i === index ? { ...window, ...patch } : window) });
   };
-  const applyDeepSeek = () => {
-    if (!deepSeekRates) return;
+  const applyDeepSeek = (preset: (typeof DEEPSEEK_PRESETS)[number]) => {
     // ponytail: 复用每周规则，不推断中国法定节假日；精确匹配需要可维护的日历例外。
     const windows = [["上午高峰", "09:00", "12:00"], ["下午高峰", "14:00", "18:00"]]
-      .map(([name, start, end]) => ({ id: crypto.randomUUID(), name, start, end, weekdays: WEEKDAYS, rates: deepSeekRates.peak }));
-    update({ timezone: "Asia/Shanghai", baseRates: deepSeekRates.offPeak, windows });
+      .map(([name, start, end]) => ({ id: crypto.randomUUID(), name, start, end, weekdays: WEEKDAYS, rates: preset.peak }));
+    const draft = { modelId: modelId || preset.modelId, timezone: "Asia/Shanghai", baseRates: preset.offPeak, windows };
+    if (row) update(draft);
+    else setRows([draft]);
     setExpandedWindow(null);
     setConfirmAction(null);
   };
@@ -147,6 +150,12 @@ export function ModelPricingDialog({ open, onOpenChange, endpoint }: {
             setRows([...rows, { modelId: "", timezone: "Asia/Shanghai", baseRates: emptyRates(), windows: [] }]);
             setSelected(rows.length);
           }}><PlusIcon className="size-3.5" />添加模型价格</Button>
+          <Button variant="outline" size="sm" aria-haspopup="dialog" onClick={(e) => {
+            confirmTrigger.current = e.currentTarget;
+            setConfirmAction("deepseek");
+          }}>
+            <ZapIcon className="size-3.5" />DeepSeek 价格快捷设置
+          </Button>
         </div>
         {!row ? <p className="rounded-md border border-dashed border-edge p-5 text-center text-sm text-ink-mute">未配置价格 · 添加模型后填写四项默认价</p> : <>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -155,16 +164,6 @@ export function ModelPricingDialog({ open, onOpenChange, endpoint }: {
               <ModelCombobox key={selected} id={modelInputId} options={modelOptions} value={row.modelId}
                 onChange={(modelId) => update({ modelId })} placeholder="选择或输入模型 ID" />
             </div>
-            {deepSeekRates && <div className="flex flex-col items-start justify-end gap-1">
-              <div className="flex items-center gap-1.5">
-                <Button size="sm" variant="outline" onClick={() => {
-                  if (hasBaseRates || row.windows.length) setConfirmAction("deepseek");
-                  else applyDeepSeek();
-                }}>填入 DeepSeek 峰谷价</Button>
-                <PricingHelp label="DeepSeek 峰谷价说明">北京时间周一至周五 09:00–12:00、14:00–18:00 为高峰，其余时间半价。官方无独立缓存写入费率。模板只填草稿，不会自动更新。</PricingHelp>
-              </div>
-              <span className="text-xs text-warning">每周模板，不自动排除中国法定节假日</span>
-            </div>}
           </div>
           <section className="flex flex-col gap-2 rounded-md border border-edge p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -229,7 +228,10 @@ export function ModelPricingDialog({ open, onOpenChange, endpoint }: {
           </section>
           <ModelPriceQuoteView key={`${endpoint.id}-${selected}`} endpointId={endpoint.id} modelId={modelId}
             onUseAutoRates={!hasBaseRates ? (baseRates) => update({ baseRates }) : undefined} />
-          <Button size="sm" variant="ghost" className="self-start text-destructive" onClick={() => setConfirmAction("delete")}><Trash2Icon className="size-3.5" />删除模型价格</Button>
+          <Button size="sm" variant="ghost" className="self-start text-destructive" onClick={(e) => {
+            confirmTrigger.current = e.currentTarget;
+            setConfirmAction("delete");
+          }}><Trash2Icon className="size-3.5" />删除模型价格</Button>
         </>}
       </fieldset>
       </div>
@@ -239,20 +241,40 @@ export function ModelPricingDialog({ open, onOpenChange, endpoint }: {
         <Button disabled={save.isPending} onClick={() => save.mutate()}>{save.isPending ? "正在保存…" : "保存价格"}</Button>
       </DialogFooter>
       <Dialog open={confirmAction !== null} onOpenChange={(value) => { if (!value) setConfirmAction(null); }}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader><DialogTitle>{confirmAction === "deepseek" ? "覆盖当前模型价格？" : "删除模型价格"}</DialogTitle></DialogHeader>
-          <DialogDescription>{confirmAction === "deepseek"
-            ? "将替换草稿中的时区、默认价和时段。节假日不自动排除，保存后才会生效。"
-            : "删除后，新请求将回退自动价；没有自动价时显示未配置。历史估算成本保持不变，保存后生效。"}</DialogDescription>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmAction(null)}>取消</Button>
-            {confirmAction === "deepseek" ? <Button onClick={applyDeepSeek}>覆盖草稿</Button>
-              : <Button variant="destructive" onClick={() => {
+        <DialogContent className="sm:max-w-md" onCloseAutoFocus={(e) => {
+          if (!confirmTrigger.current?.isConnected) return;
+          e.preventDefault();
+          confirmTrigger.current.focus();
+        }}>
+          <DialogHeader><DialogTitle>{confirmAction === "deepseek" ? "DeepSeek 价格快捷设置" : "删除模型价格"}</DialogTitle></DialogHeader>
+          {confirmAction === "deepseek" ? <>
+            <DialogDescription>
+              {modelId ? <>将模板填入 <span className="break-all font-mono">{modelId}</span>，不改模型 ID。</> : "未填写出站模型 ID，将使用模板自带的 ID。"}
+              {hasBaseRates || row?.windows.length ? " 此操作会覆盖当前草稿中的默认价、时区和时段。" : ""}
+              {" 仅填入草稿，保存后才生效。"}
+            </DialogDescription>
+            <p className="text-xs text-ink-secondary">默认填低谷价；高峰为北京时间周一至周五 09:00–12:00、14:00–18:00，不自动排除中国法定节假日。</p>
+            {!officialDeepSeek && <p className="text-xs text-warning">第三方端点以渠道实际价格为准，保存前请核对。</p>}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setConfirmAction(null)}>取消</Button>
+              {(matchingPreset ? [matchingPreset] : DEEPSEEK_PRESETS).map((preset) => {
+                const duplicate = !modelId && rows.some((item) => item.modelId.trim() === preset.modelId);
+                return <Button key={preset.modelId} disabled={duplicate} onClick={() => applyDeepSeek(preset)}>
+                  {duplicate ? `${preset.label} 已配置` : `填入 ${preset.label}`}
+                </Button>;
+              })}
+            </DialogFooter>
+          </> : <>
+            <DialogDescription>删除后，新请求将回退自动价；没有自动价时显示未配置。历史估算成本保持不变，保存后生效。</DialogDescription>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setConfirmAction(null)}>取消</Button>
+              <Button variant="destructive" onClick={() => {
                 setRows(rows.filter((_, i) => i !== selected));
                 setSelected(Math.max(0, selected - 1));
                 setConfirmAction(null);
-              }}>删除模型价格</Button>}
-          </DialogFooter>
+              }}>删除模型价格</Button>
+            </DialogFooter>
+          </>}
         </DialogContent>
       </Dialog>
     </DialogContent>
