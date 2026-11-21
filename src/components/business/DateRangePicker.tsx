@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { CalendarDaysIcon, ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,131 @@ import { cn } from "@/lib/utils";
 
 const WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
 const DAY_MS = 86_400_000;
+
+function MonthCalendar({ month, onMonthChange, onPick, startDay, endDay = startDay }: {
+  month: Date;
+  onMonthChange: (month: Date) => void;
+  onPick: (dayMs: number) => void;
+  startDay: number;
+  endDay?: number;
+}) {
+  const y = month.getFullYear();
+  const m = month.getMonth();
+  const today = startOfTodayMs();
+  return <div className="flex min-w-0 flex-1 flex-col gap-2">
+    <div className="flex items-center justify-between">
+      <Button size="sm" variant="ghost" className="h-7 w-7 p-0" aria-label="上个月"
+        onClick={() => onMonthChange(new Date(y, m - 1, 1))}>
+        <ChevronLeftIcon className="size-4" />
+      </Button>
+      <span className="text-sm font-medium">{y}年{m + 1}月</span>
+      <Button size="sm" variant="ghost" className="h-7 w-7 p-0" aria-label="下个月"
+        onClick={() => onMonthChange(new Date(y, m + 1, 1))}>
+        <ChevronRightIcon className="size-4" />
+      </Button>
+    </div>
+    <div className="grid grid-cols-7 text-center text-xs text-ink-mute">
+      {WEEKDAYS.map((w) => <span key={w} className="py-1">{w}</span>)}
+    </div>
+    <div className="grid grid-cols-7 gap-px">
+      {calendarDays(y, m).map((dayMs) => {
+        const day = new Date(dayMs);
+        const isEndpoint = dayMs === startDay || dayMs === endDay;
+        return <button key={dayMs} type="button" aria-label={ymd(dayMs)} aria-pressed={isEndpoint}
+          aria-current={dayMs === today ? "date" : undefined}
+          onClick={() => onPick(dayMs)}
+          className={cn(
+            "h-7 rounded-sm text-xs transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+            day.getMonth() !== m && "text-ink-mute/50",
+            dayMs >= startDay && dayMs <= endDay && !isEndpoint && "bg-primary/10 text-primary",
+            isEndpoint && "bg-primary font-medium text-primary-foreground",
+            !isEndpoint && "hover:bg-surface-hover",
+            dayMs === today && !isEndpoint && "ring-1 ring-primary/40",
+          )}>
+          {day.getDate()}
+        </button>;
+      })}
+    </div>
+  </div>;
+}
+
+/** 单点本地时间在主面板内展开，确认后才更新毫秒时间戳。 */
+export function DateTimePicker({ value, onChange }: { value?: number; onChange: (at: number | undefined) => void }) {
+  const id = useId();
+  const trigger = useRef<HTMLButtonElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [month, setMonth] = useState(() => new Date());
+  const [date, setDate] = useState("");
+  const [time, setTime] = useState("");
+  const parsedDay = new Date(`${date}T12:00`).getTime();
+  const day = Number.isFinite(parsedDay) && ymd(parsedDay) === date ? startOfDayMs(parsedDay) : NaN;
+  const at = withTimePart(day, time);
+  const valid = Number.isFinite(at) && ymd(at) === date && fmtTimeInput(at) === time;
+
+  useEffect(() => {
+    if (open) panel.current?.scrollIntoView?.({ block: "nearest" });
+  }, [open]);
+
+  const close = () => {
+    setOpen(false);
+    trigger.current?.focus();
+  };
+
+  return <div className="min-w-0">
+    <div className="flex flex-wrap items-center gap-2">
+      <Button type="button" ref={trigger} size="sm" variant="outline" aria-expanded={open}
+        aria-controls={open ? id : undefined} aria-label={value == null ? "预览时间" : `预览时间 ${ymd(value)} ${fmtTimeInput(value)}`}
+        onClick={() => {
+          if (!open) {
+            const start = value ?? Date.now();
+            setMonth(new Date(start));
+            setDate(ymd(start));
+            setTime(fmtTimeInput(start));
+          }
+          setOpen(!open);
+        }}>
+        <CalendarDaysIcon className="size-4 text-ink-secondary" />
+        {value == null ? "选择预览时间" : `${ymd(value)} ${fmtTimeInput(value)}`}
+      </Button>
+      {value != null && <Button size="sm" variant="ghost" onClick={() => {
+        onChange(undefined);
+        close();
+      }}>回到当前</Button>}
+    </div>
+    {open && <div id={id} ref={panel} role="group" aria-label="选择报价时间"
+      className="mt-2 flex flex-col gap-3 rounded-md border border-edge bg-card p-3 sm:flex-row sm:items-start">
+      <div className="flex w-full max-w-64"><MonthCalendar month={month} onMonthChange={setMonth}
+        onPick={(dayMs) => {
+          setDate(ymd(dayMs));
+          setMonth(new Date(dayMs));
+        }} startDay={day} /></div>
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <div className="flex flex-wrap gap-2">
+          <label className="flex flex-col gap-1 text-xs text-ink-secondary">日期
+            <Input className="h-8 w-32 font-mono" placeholder="YYYY-MM-DD" value={date} onChange={(e) => {
+              const text = e.target.value;
+              setDate(text);
+              const next = new Date(`${text}T12:00`);
+              if (Number.isFinite(next.getTime()) && ymd(next.getTime()) === text) setMonth(next);
+            }} />
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-ink-secondary">时间
+            <Input className="h-8 w-24 font-mono" placeholder="HH:mm" value={time} onChange={(e) => setTime(e.target.value)} />
+          </label>
+        </div>
+        {!valid && <p className="text-xs text-destructive">请输入有效的本机日期和时间</p>}
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={close}>取消选择</Button>
+          <Button size="sm" disabled={!valid} onClick={() => {
+            onChange(at);
+            close();
+          }}>查看报价</Button>
+        </div>
+      </div>
+    </div>}
+  </div>;
+}
 
 /** 弹层顶部的快捷项：点击即生效（value 以当天 0 点锚点换算，支持任意区间）。 */
 export interface RangePreset {
@@ -116,11 +241,6 @@ export function DateRangePicker({
     setOpen(false);
   };
 
-  const y = viewMonth.getFullYear();
-  const m = viewMonth.getMonth();
-  const days = calendarDays(y, m);
-  const startDay = startOfDayMs(draftStart);
-  const endDay = startOfDayMs(draftEnd);
   const today = startOfTodayMs();
   // 当前值命中的快捷项（custom 快捷项按毫秒区间比对），触发按钮优先显示其文案
   const activePreset = presets.find((p) => rangeValueEquals(p.value(today), value));
@@ -207,65 +327,8 @@ export function DateRangePicker({
             </div>
           </div>
 
-          {/* 右：月历 */}
-          <div className="flex flex-1 flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-7 w-7 p-0"
-                aria-label="上个月"
-                onClick={() => setViewMonth(new Date(y, m - 1, 1))}
-              >
-                <ChevronLeftIcon className="size-4" />
-              </Button>
-              <span className="text-sm font-medium">
-                {y}年{m + 1}月
-              </span>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-7 w-7 p-0"
-                aria-label="下个月"
-                onClick={() => setViewMonth(new Date(y, m + 1, 1))}
-              >
-                <ChevronRightIcon className="size-4" />
-              </Button>
-            </div>
-            <div className="grid grid-cols-7 text-center text-xs text-ink-mute">
-              {WEEKDAYS.map((w) => (
-                <span key={w} className="py-1">
-                  {w}
-                </span>
-              ))}
-            </div>
-            <div className="grid grid-cols-7 gap-px">
-              {days.map((dayMs) => {
-                const inMonth = new Date(dayMs).getMonth() === m;
-                const isStart = dayMs === startDay;
-                const isEnd = dayMs === endDay;
-                const isEndpoint = isStart || isEnd;
-                const inRange = dayMs >= startDay && dayMs <= endDay;
-                return (
-                  <button
-                    key={dayMs}
-                    type="button"
-                    onClick={() => pickDay(dayMs)}
-                    className={cn(
-                      "h-7 rounded-sm text-xs transition-colors",
-                      !inMonth && "text-ink-mute/50",
-                      inRange && !isEndpoint && "bg-primary/10 text-primary",
-                      isEndpoint && "bg-primary font-medium text-primary-foreground",
-                      !isEndpoint && "hover:bg-surface-hover",
-                      dayMs === today && !isEndpoint && "ring-1 ring-primary/40",
-                    )}
-                  >
-                    {new Date(dayMs).getDate()}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+          <MonthCalendar month={viewMonth} onMonthChange={setViewMonth} onPick={pickDay}
+            startDay={startOfDayMs(draftStart)} endDay={startOfDayMs(draftEnd)} />
         </div>
       </PopoverContent>
     </Popover>

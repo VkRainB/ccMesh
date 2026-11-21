@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { InfoIcon } from "lucide-react";
 
+import { DateTimePicker } from "@/components/business/DateRangePicker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { endpointApi } from "@/services/modules/endpoint";
 import { pricingApi, type PriceRates } from "@/services/modules/pricing";
@@ -39,20 +39,18 @@ export function ModelPriceQuoteView({ endpointId, modelId, onUseAutoRates }: {
   modelId: string;
   onUseAutoRates?: (rates: PriceRates) => void;
 }) {
-  const [preview, setPreview] = useState("");
-  const at = preview ? new Date(preview).getTime() : undefined;
-  const valid = at === undefined || Number.isFinite(at);
+  const [at, setAt] = useState<number>();
   const query = useQuery({
     queryKey: ["model-prices", endpointId, modelId, at],
     queryFn: () => pricingApi.getPrices(endpointId, [modelId], at),
-    enabled: !!modelId && valid,
+    enabled: !!modelId,
     refetchOnMount: "always",
     refetchOnWindowFocus: "always",
   });
   const { refetch } = query;
   const quote = query.data?.[0];
   useEffect(() => {
-    if (!modelId || !valid) return;
+    if (!modelId) return;
     const refresh = () => { void refetch(); };
     const visible = () => { if (document.visibilityState === "visible") refresh(); };
     window.addEventListener("focus", refresh);
@@ -63,7 +61,7 @@ export function ModelPriceQuoteView({ endpointId, modelId, onUseAutoRates }: {
       document.removeEventListener("visibilitychange", visible);
       void unlisten.then((fn) => fn());
     };
-  }, [modelId, valid, refetch]);
+  }, [modelId, refetch]);
   useEffect(() => {
     if (at !== undefined || quote?.nextChangeAt == null) return;
     const timer = window.setTimeout(() => { void refetch(); },
@@ -74,20 +72,13 @@ export function ModelPriceQuoteView({ endpointId, modelId, onUseAutoRates }: {
   return <section className="flex flex-col gap-3 rounded-md border border-edge bg-surface-raised p-3">
     <div className="flex flex-wrap items-center justify-between gap-2">
       <div className="flex items-center gap-1.5">
-        <h3 className="text-sm font-medium">{preview ? "指定时间报价" : "当前有效价"}</h3>
-        <PricingHelp label="报价预览说明">基于已保存的价格，不含正在编辑的草稿。预览时间使用本机时区，留空查看当前价格。</PricingHelp>
+        <h3 className="text-sm font-medium">{at == null ? "当前有效价" : "指定时间报价"}</h3>
+        <PricingHelp label="报价预览说明">基于已保存的价格，不含正在编辑的草稿。预览时间使用本机时区。</PricingHelp>
       </div>
       {quote?.source && <Badge variant="muted">{quote.source === "auto" ? "models.dev 自动价" : quote.source === "window" ? quote.ruleName || "时段价" : "默认价"}</Badge>}
     </div>
-    {modelId && <div className="flex flex-wrap items-center gap-2">
-      <label className="flex flex-wrap items-center gap-2 text-xs text-ink-secondary">
-        预览时间
-        <Input type="datetime-local" className="h-8 w-auto" value={preview} onChange={(e) => setPreview(e.target.value)} />
-      </label>
-      {preview && <Button size="sm" variant="ghost" onClick={() => setPreview("")}>回到当前</Button>}
-    </div>}
+    {modelId && <DateTimePicker value={at} onChange={setAt} />}
     {!modelId ? <p className="text-xs text-ink-mute">请输入准确的出站模型 ID</p>
-      : !valid ? <p role="alert" className="text-xs text-destructive">请选择有效预览时间</p>
       : query.isError ? <p role="alert" className="text-xs text-destructive">报价查询失败：{String(query.error)}</p>
       : query.isPending ? <p className="text-xs text-ink-mute">正在查询价格…</p>
       : quote ? <>

@@ -145,8 +145,21 @@ describe("后端模型报价", () => {
     const eventBefore = vi.mocked(pricingApi.getPrices).mock.calls.length;
     act(() => { vi.mocked(endpointApi.onChanged).mock.calls[0][0](); });
     await waitFor(() => expect(vi.mocked(pricingApi.getPrices).mock.calls.length).toBeGreaterThan(eventBefore));
-    fireEvent.change(screen.getByLabelText("预览时间"), { target: { value: "2026-11-06T12:00" } });
-    await waitFor(() => expect(pricingApi.getPrices).toHaveBeenLastCalledWith(7, ["alias"], new Date("2026-11-06T12:00").getTime()));
+    fireEvent.click(screen.getByRole("button", { name: "预览时间" }));
+    fireEvent.change(screen.getByLabelText("日期"), { target: { value: "2026-11-06" } });
+    fireEvent.click(screen.getByRole("button", { name: "2026-11-07" }));
+    fireEvent.change(screen.getByLabelText("时间"), { target: { value: "29:00" } });
+    expect(screen.getByRole("button", { name: "查看报价" })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("时间"), { target: { value: "12:00" } });
+    expect(pricingApi.getPrices).toHaveBeenLastCalledWith(7, ["alias"], undefined);
+    fireEvent.click(screen.getByRole("button", { name: "查看报价" }));
+    await waitFor(() => expect(pricingApi.getPrices).toHaveBeenLastCalledWith(7, ["alias"], new Date(2026, 10, 7, 12).getTime()));
+    fireEvent.click(screen.getByRole("button", { name: /预览时间 2026-11-07/ }));
+    fireEvent.change(screen.getByLabelText("时间"), { target: { value: "13:00" } });
+    fireEvent.click(screen.getByRole("button", { name: "取消选择" }));
+    expect(screen.getByRole("button", { name: /预览时间 2026-11-07 12:00/ })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "回到当前" }));
+    await waitFor(() => expect(pricingApi.getPrices).toHaveBeenLastCalledWith(7, ["alias"], undefined));
   });
 
   it("下次变化仅触发后端重查，不在前端选择时段", async () => {
